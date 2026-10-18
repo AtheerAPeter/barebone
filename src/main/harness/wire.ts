@@ -183,6 +183,10 @@ const clients = new Map<string, Anthropic | OpenAI>()
  * user's own Anthropic credentials. A provider that takes no key is given this
  * stand-in, and the header that would carry it is left out (the SDKs' way to
  * omit their auth header), so nothing is sent in its place.
+ *
+ * Every other credential is set to null: left unset, the SDKs read it from the
+ * environment (ANTHROPIC_AUTH_TOKEN, OPENAI_ADMIN_KEY, OPENAI_ORG_ID,
+ * OPENAI_PROJECT_ID) and send it to whatever address the provider has.
  */
 const NO_KEY = 'none'
 
@@ -194,6 +198,7 @@ async function anthropicClient(endpoint: Endpoint): Promise<Anthropic> {
     const { default: Client } = await import('@anthropic-ai/sdk')
     client = new Client({
       apiKey: endpoint.key ?? NO_KEY,
+      authToken: null,
       baseURL: endpoint.messagesURL,
       defaultHeaders: endpoint.key ? endpoint.headers : { 'X-Api-Key': null, ...endpoint.headers },
       maxRetries: 0
@@ -210,6 +215,9 @@ async function openaiClient(endpoint: Endpoint): Promise<OpenAI> {
     const { default: Client } = await import('openai')
     client = new Client({
       apiKey: endpoint.key ?? NO_KEY,
+      adminAPIKey: null,
+      organization: null,
+      project: null,
       baseURL: endpoint.chatURL,
       defaultHeaders: endpoint.key
         ? endpoint.headers
