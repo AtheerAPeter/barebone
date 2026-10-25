@@ -3,10 +3,15 @@ import { errorMessage } from '../lib/errors'
 import { useUpdateInstall } from '../lib/update'
 import { ProvidersCard } from './ProvidersCard'
 
-/** `onProvidersChange`: a provider was added, changed or removed. */
+/**
+ * `instructions`: the saved custom instructions.
+ * `onProvidersChange`: a provider was added, changed or removed.
+ */
 export function SettingsView({
+  instructions,
   onProvidersChange
 }: {
+  instructions: string | undefined
   onProvidersChange: () => void
 }): React.JSX.Element {
   /** The saved key's last four characters; null when none is saved, undefined while loading. */
@@ -32,6 +37,7 @@ export function SettingsView({
     <div className="settings">
       <h2>Settings</h2>
       <ProvidersCard onChange={onProvidersChange} />
+      <InstructionsCard saved={instructions ?? ''} />
       <section className="settings-card">
         <h3>Web search</h3>
         <p>
@@ -69,6 +75,59 @@ export function SettingsView({
       </section>
       <UpdatesCard />
     </div>
+  )
+}
+
+/** The user's own instructions, added to the system prompt of the app's own agent's new chats. */
+function InstructionsCard({ saved }: { saved: string }): React.JSX.Element {
+  const [text, setText] = useState(saved)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string>()
+
+  async function save(): Promise<void> {
+    setSaving(true)
+    setError(undefined)
+    try {
+      await window.api.setInstructions(text)
+      setText(text.trim())
+    } catch (e) {
+      setError(errorMessage(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className="settings-card">
+      <h3>Custom instructions</h3>
+      <p>
+        Added to the system prompt of every new chat on the app&apos;s own agent (Custom providers,
+        OpenCode API, Cline API and Command Code API) and of the subagents it starts, before the
+        project&apos;s <code>AGENTS.md</code> or <code>CLAUDE.md</code>. A chat keeps the
+        instructions it started with, so a change applies to chats started after it.
+      </p>
+      <form
+        className="settings-instructions"
+        onSubmit={(e) => {
+          e.preventDefault()
+          save()
+        }}
+      >
+        <textarea
+          aria-label="Custom instructions"
+          rows={6}
+          value={text}
+          placeholder="For example: Answer in German. Run the tests before saying a change is done."
+          onChange={(e) => setText(e.target.value)}
+        />
+        <div className="new-skill-actions">
+          <button type="submit" className="btn primary" disabled={saving || text.trim() === saved}>
+            Save
+          </button>
+        </div>
+      </form>
+      {error && <div className="msg-error">{error}</div>}
+    </section>
   )
 }
 

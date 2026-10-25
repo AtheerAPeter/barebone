@@ -172,6 +172,12 @@ export function setTheme(theme: Theme): void {
   scheduleFlush()
 }
 
+/** Save the user's instructions; empty removes them. */
+export function setInstructions(text: string): void {
+  state.instructions = text.trim() || undefined
+  scheduleFlush()
+}
+
 export function addProject(project: Project): void {
   state.projects.push(project)
   scheduleFlush()

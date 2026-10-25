@@ -250,6 +250,8 @@ export interface AppState {
   chats: Chat[]
   /** Appearance; 'system' follows macOS. Missing in state saved by older versions. */
   theme?: Theme
+  /** The user's own instructions, added to the system prompt of the app's own agent's new chats. */
+  instructions?: string
 }
 
 /** A session option exposed by the agent (model, mode, reasoning effort, ...). */

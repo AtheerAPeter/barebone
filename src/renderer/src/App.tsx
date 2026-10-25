@@ -205,7 +205,10 @@ export default function App(): React.JSX.Element {
         {view === 'skills' ? (
           <SkillsView key={project?.id} project={project} />
         ) : view === 'settings' ? (
-          <SettingsView onProvidersChange={() => readStatus('custom-api')} />
+          <SettingsView
+            instructions={state.instructions}
+            onProvidersChange={() => readStatus('custom-api')}
+          />
         ) : chat && project ? (
           <ChatView
             key={`${chat.id}:${chat.agent}`}

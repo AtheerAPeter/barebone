@@ -218,8 +218,9 @@ export class HarnessAgent {
   }
 
   /**
-   * Fixed when the chat starts, like pi's: what the tools are for, the project's
-   * own instructions, its skills and the folder. No date or anything else that
+   * Fixed when the chat starts, like pi's: what the tools are for, the user's
+   * instructions from Settings, the project's own instructions, its skills and
+   * the folder. No date or anything else that
    * changes, so the cached prefix stays valid for the whole chat.
    */
   private async systemPrompt(chatId: string): Promise<string> {
@@ -252,6 +253,9 @@ How to communicate:
       `<chats>\nstart_chat, send_message and list_chats work with the other chats of this project. ${CHATS_GUIDANCE}\n</chats>`,
       `<saved_chats>\n${store.savedChatsNote(chatId)}\n</saved_chats>`
     ]
+    // Set in Settings for every chat; the project's own instructions after them are more specific.
+    const own = store.getState().instructions
+    if (own) sections.push(`<user_instructions>\n${own}\n</user_instructions>`)
     const instructions = ['AGENTS.md', 'CLAUDE.md']
       .map((name) => join(project.path, name))
       .find((path) => existsSync(path))

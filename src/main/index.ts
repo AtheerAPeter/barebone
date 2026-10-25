@@ -183,6 +183,10 @@ function registerIpc(browser: BuiltinBrowser): void {
     setBrowserOpen(chatId, open)
   )
   ipcMain.handle('theme:set', (_e, theme: Theme) => setTheme(theme))
+  ipcMain.handle('instructions:set', (_e, text: string) => {
+    store.setInstructions(text)
+    send('state:changed', store.getState())
+  })
   ipcMain.handle('state:get', () => store.getState())
   ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('update:available', () => availableUpdate())
