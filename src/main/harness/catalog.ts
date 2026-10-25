@@ -10,7 +10,7 @@ import { readFile, rename, writeFile } from 'node:fs/promises'
 
 const MAX_AGE_MS = 10 * 60_000
 /** Raised when what is saved changes shape; a file in another shape is fetched again. */
-const FORMAT = 3
+const FORMAT = 4
 const ATTEMPTS = 3
 
 interface Saved<T> {
@@ -100,13 +100,14 @@ export const MODELS_DEV_URL = 'https://models.dev/api.json'
 interface DevModel {
   id: string
   modalities?: { input?: string[] }
-  limit?: { output?: number }
+  limit?: { context?: number; output?: number }
 }
 
 /** What models.dev says about a model; a field is unset when it does not say. */
 export interface ModelInfo {
   vision?: boolean
   maxOutput?: number
+  context?: number
 }
 
 /**
@@ -120,13 +121,13 @@ export async function imageInputLookup(): Promise<(id: string) => boolean | unde
 }
 
 /**
- * A model's image input and output limit by models.dev. With `host`, a
+ * A model's image input, output limit and context window by models.dev. With `host`, a
  * models.dev provider id, as that host lists the model. Otherwise, and for
  * models the host does not list, image input as any host lists it: ids are a
  * maker's, as OpenRouter's are ("deepseek/deepseek-v4.1-flash"), or a plan's
  * ("cline-pass/deepseek-v4.1-flash"), looked up by the whole id first, then by
- * the model's own name. Output limits differ between hosts, so they come only
- * from the host's own list.
+ * the model's own name. Limits differ between hosts, so they come only from
+ * the host's own list.
  */
 export async function modelInfoLookup(host?: string): Promise<(id: string) => ModelInfo> {
   let dev: Record<string, { models?: Record<string, DevModel> }>
@@ -155,7 +156,8 @@ export async function modelInfoLookup(host?: string): Promise<(id: string) => Mo
     if (own) {
       return {
         vision: own.modalities?.input?.includes('image') ?? false,
-        maxOutput: own.limit?.output || undefined
+        maxOutput: own.limit?.output || undefined,
+        context: own.limit?.context || undefined
       }
     }
     // "~maker/model" is a moving alias, "maker/model:batch" a variant of the model.

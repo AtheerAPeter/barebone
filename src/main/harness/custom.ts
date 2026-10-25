@@ -179,8 +179,8 @@ function modelsOf(provider: Stored, fresh = false): Promise<Model[]> {
           const info = await modelInfoLookup(catalogOf(provider))
           return listed
             .map(({ id, name }) => {
-              const { vision, maxOutput } = info(id)
-              return { id, name, api, vision: vision ?? false, maxOutput }
+              const { vision, maxOutput, context } = info(id)
+              return { id, name, api, vision: vision ?? false, maxOutput, context }
             })
             .sort((a, b) => a.name.localeCompare(b.name))
         },

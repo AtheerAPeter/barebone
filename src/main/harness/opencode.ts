@@ -110,7 +110,7 @@ interface DevModel {
   id: string
   name?: string
   cost?: { input?: number; output?: number }
-  limit?: { output?: number }
+  limit?: { context?: number; output?: number }
   modalities?: { input?: string[] }
   provider?: { npm?: string }
 }
@@ -144,7 +144,8 @@ const catalog = savedCatalog('opencode', async (): Promise<Listed> => {
                 name: m.name || m.id,
                 api,
                 vision: m.modalities?.input?.includes('image') ?? false,
-                maxOutput: m.limit?.output || undefined
+                maxOutput: m.limit?.output || undefined,
+                context: m.limit?.context || undefined
               }
             ]
           }),
@@ -208,7 +209,7 @@ interface ConsoleModel {
   settings?: { baseURL?: string }
   capabilities?: { input?: string[] }
   cost?: { input?: number; output?: number }[] | { input?: number; output?: number }
-  limit?: { output?: number }
+  limit?: { context?: number; output?: number }
   disabled?: boolean
 }
 
@@ -287,7 +288,8 @@ function accountPlans(config: ConsoleConfig): Partial<Record<PlanId, AccountPlan
           name: m.name || id,
           api,
           vision: m.capabilities?.input?.includes('image') ?? false,
-          maxOutput: m.limit?.output || undefined
+          maxOutput: m.limit?.output || undefined,
+          context: m.limit?.context || undefined
         }
       ]
     })

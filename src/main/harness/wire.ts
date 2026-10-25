@@ -13,6 +13,7 @@ import type {
   ToolCall,
   Turn
 } from './types'
+import { contextTokens } from './compaction'
 
 /**
  * The wire formats the harness speaks, with the official SDKs: Anthropic
@@ -28,6 +29,8 @@ export interface Model {
   vision: boolean
   /** Its output limit, when the provider says. */
   maxOutput?: number
+  /** Its context window, input and output together, when the provider says. */
+  context?: number
 }
 
 /** Where and how to send a request. */
@@ -62,9 +65,24 @@ const MAX_RETRIES = 4
 /** A longer Retry-After means a limit, not a hiccup: the error is shown at once. */
 const MAX_RETRY_WAIT_MS = 60_000
 
-/** Output limits. Thinking counts against them; streaming keeps long replies under the HTTP timeout. */
+/** Output limits for models whose provider does not say theirs. */
 const MESSAGES_MAX_TOKENS = 64_000
 const CHAT_MAX_TOKENS = 32_768
+
+/**
+ * A reply's output limit: the model's own, or `fallback` when the provider
+ * does not say. Thinking counts against it, and streaming keeps long replies
+ * under the HTTP timeout. With the context window known, it is at most what
+ * the window has left after the request: OpenAI-style APIs and Claude models
+ * before 4.5 refuse a request whose input and limit together exceed it. A
+ * window already full is left for the provider to report (context_full).
+ */
+function outputLimit(model: Model, request: Request, fallback: number): number {
+  const limit = model.maxOutput ?? fallback
+  if (!model.context) return limit
+  const room = model.context - contextTokens(request.system, request.tools, request.turns)
+  return room > 0 ? Math.min(limit, room) : limit
+}
 
 /**
  * Claude models from Opus 4.6, Sonnet 4.6 and Fable 5 on take adaptive thinking
@@ -315,7 +333,7 @@ async function streamMessages(
   const stream = client.messages.stream(
     {
       model: request.model,
-      max_tokens: Math.min(MESSAGES_MAX_TOKENS, model.maxOutput ?? MESSAGES_MAX_TOKENS),
+      max_tokens: outputLimit(model, request, MESSAGES_MAX_TOKENS),
       system: [{ type: 'text', text: request.system, cache_control: CACHE }],
       tools: request.tools.map((tool, index) => ({
         name: tool.name,
@@ -484,7 +502,7 @@ async function streamChat(
     {
       model: request.model,
       messages,
-      max_tokens: Math.min(CHAT_MAX_TOKENS, model.maxOutput ?? CHAT_MAX_TOKENS),
+      max_tokens: outputLimit(model, request, CHAT_MAX_TOKENS),
       stream: true,
       ...(endpoint.streamUsage ? { stream_options: { include_usage: true } } : {}),
       ...(request.tools.length > 0
@@ -711,7 +729,7 @@ async function streamResponses(
       model: request.model,
       instructions: request.system,
       input: toResponsesInput(request, model.vision),
-      max_output_tokens: Math.min(CHAT_MAX_TOKENS, model.maxOutput ?? CHAT_MAX_TOKENS),
+      max_output_tokens: outputLimit(model, request, CHAT_MAX_TOKENS),
       store: false,
       stream: true,
       ...(request.tools.length > 0
