@@ -259,6 +259,12 @@ export class BuiltinBrowser {
     }
   ) {
     const browserSession = session.fromPartition(PARTITION)
+    // Pages get no microphone or camera. Electron grants every permission a
+    // page asks for unless told otherwise, and the app may use the microphone
+    // (for voice input), so any page an agent opens could listen without asking.
+    browserSession.setPermissionRequestHandler((_contents, permission, callback) =>
+      callback(permission !== 'media')
+    )
     // Routes alert() and confirm() to the app (see onPageDialog). Registered on
     // the session, so it also runs in windows that pages open as tabs.
     browserSession.registerPreloadScript({
