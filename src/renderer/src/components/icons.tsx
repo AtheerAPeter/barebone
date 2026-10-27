@@ -72,6 +72,12 @@ export const StopIcon = (p: IconProps): React.JSX.Element => (
     <rect x="7" y="7" width="10" height="10" rx="1" fill="currentColor" stroke="none" />
   </Icon>
 )
+export const MicIcon = (p: IconProps): React.JSX.Element => (
+  <Icon {...p}>
+    <rect x="9" y="3" width="6" height="11" rx="3" />
+    <path d="M19 11a7 7 0 0 1-14 0M12 18v3" />
+  </Icon>
+)
 export const BookIcon = (p: IconProps): React.JSX.Element => (
   <Icon {...p}>
     <path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z" />

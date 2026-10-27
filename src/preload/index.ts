@@ -59,6 +59,19 @@ const api = {
     setKey: (key: string | null): Promise<string | null> => ipcRenderer.invoke('exa:setKey', key)
   },
 
+  /** Voice input in the composer, written out by Whisper on Groq. */
+  voice: {
+    /** The saved Groq API key's last four characters; null when none is saved. */
+    keyHint: (): Promise<string | null> => ipcRenderer.invoke('voice:keyHint'),
+    /** Save a key, or remove the saved one (null); returns the new hint. */
+    setKey: (key: string | null): Promise<string | null> => ipcRenderer.invoke('voice:setKey', key),
+    /** Whether the app may use the microphone; on macOS, asks the user the first time. */
+    microphone: (): Promise<boolean> => ipcRenderer.invoke('voice:microphone'),
+    /** The text spoken in a recording; rejects with why it could not be written out. */
+    transcribe: (audio: Uint8Array, mimeType: string): Promise<string> =>
+      ipcRenderer.invoke('voice:transcribe', audio, mimeType)
+  },
+
   /** The providers added in Settings, which the Custom providers agent runs on. */
   providers: {
     list: (): Promise<CustomProvider[]> => ipcRenderer.invoke('providers:list'),

@@ -15,9 +15,11 @@ import { EffortPicker } from './EffortPicker'
 import { ModelPicker } from './model-picker/ModelPicker'
 import { CompletionMenu, type CompletionItem } from './CompletionMenu'
 import { writePref } from '../lib/prefs'
+import { useVoiceInput } from '../lib/voice'
 import {
   CloseIcon,
   FileIcon,
+  MicIcon,
   PencilIcon,
   PlusIcon,
   SendIcon,
@@ -244,6 +246,24 @@ export function Composer({
     setCaret(0)
   }
 
+  /** Put dictated text at the caret, as if typed there, with a space on each side it needs one. */
+  function insertSpoken(spoken: string): void {
+    const el = textareaRef.current
+    if (!el) return
+    const before = el.value.slice(0, el.selectionEnd)
+    const after = el.value.slice(el.selectionEnd)
+    const inserted =
+      (before && !/\s$/.test(before) ? ' ' : '') + spoken + (after && !/^\s/.test(after) ? ' ' : '')
+    const position = before.length + inserted.length
+    setText(before + inserted + after)
+    setCaret(position)
+    requestAnimationFrame(() => {
+      el.focus()
+      el.setSelectionRange(position, position)
+    })
+  }
+  const voice = useVoiceInput(insertSpoken)
+
   /** Take a waiting message back into the composer, before what is typed there, to edit it. */
   async function editWaiting(id: string): Promise<void> {
     const message = await window.api.takeWaiting(chat.id, id)
@@ -419,6 +439,35 @@ export function Composer({
           }}
         />
         <div className="composer-trailing">
+          <button
+            type="button"
+            className={`icon-btn round voice-button${voice.state === 'recording' ? ' recording' : ''}`}
+            title={
+              voice.state === 'recording'
+                ? 'Recording: let go, or click, to finish'
+                : voice.state === 'transcribing'
+                  ? 'Writing out…'
+                  : 'Hold to talk (or hold right ⌘), or click to start and stop'
+            }
+            disabled={voice.state === 'transcribing'}
+            onPointerDown={(e) => {
+              if (e.button !== 0) return
+              // The release comes here even when the pointer has left the button.
+              e.currentTarget.setPointerCapture(e.pointerId)
+              voice.press()
+            }}
+            onPointerUp={voice.release}
+            // Enter or Space on the focused button: a click, with no pointer.
+            onClick={(e) => e.detail === 0 && voice.press()}
+          >
+            {voice.state === 'transcribing' ? (
+              <span className="spinner" />
+            ) : voice.state === 'recording' ? (
+              <StopIcon width={16} height={16} />
+            ) : (
+              <MicIcon width={18} height={18} />
+            )}
+          </button>
           {chat.running && !canSend ? (
             <button
               className="send-button stop"
@@ -469,6 +518,11 @@ export function Composer({
             }}
           />
         </div>
+        {voice.error && (
+          <span className="composer-error" title={voice.error}>
+            {voice.error}
+          </span>
+        )}
         {!options && !error && <span className="composer-hint">Starting agent…</span>}
         {error && (
           <span className="composer-error" title={error}>

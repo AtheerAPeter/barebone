@@ -10,5 +10,9 @@
     <true/>
     <key>com.apple.security.cs.disable-library-validation</key>
     <true/>
+    <!-- Voice input. Under the hardened runtime, macOS denies the microphone
+         without asking unless the app has this. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
   </dict>
 </plist>

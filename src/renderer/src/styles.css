@@ -2017,6 +2017,13 @@ img.project-icon {
   min-width: 0;
 }
 
+/* Red while it records, so a microphone left on is seen. */
+.voice-button.recording,
+.voice-button.recording:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+
 .composer-settings {
   container-type: inline-size;
   display: flex;

@@ -24,6 +24,7 @@ import { chatsMcpEndpoint, SERVER_NAME as BROWSER_SERVER, startBrowserMcp } from
 import { SERVER_NAME as CHATS_SERVER } from './chats-mcp'
 import { registerWithCline } from './cline-mcp'
 import { exaKeyHint, setExaKey } from './exa-key'
+import { microphoneAccess, setVoiceKey, transcribe, voiceKeyHint } from './voice'
 import {
   checkCustomProvider,
   customProviders,
@@ -200,6 +201,12 @@ function registerIpc(browser: BuiltinBrowser): void {
   ipcMain.handle('update:install', () => installUpdate())
   ipcMain.handle('exa:keyHint', () => exaKeyHint())
   ipcMain.handle('exa:setKey', (_e, key: string | null) => setExaKey(key))
+  ipcMain.handle('voice:keyHint', () => voiceKeyHint())
+  ipcMain.handle('voice:setKey', (_e, key: string | null) => setVoiceKey(key))
+  ipcMain.handle('voice:microphone', () => microphoneAccess())
+  ipcMain.handle('voice:transcribe', (_e, audio: Uint8Array, mimeType: string) =>
+    transcribe(audio, mimeType)
+  )
   ipcMain.handle('providers:list', () => customProviders())
   ipcMain.handle('providers:save', async (_e, input: CustomProviderInput) => {
     const saved = saveCustomProvider(input)

@@ -17,25 +17,6 @@ export function SettingsView({
   annotations: boolean
   onProvidersChange: () => void
 }): React.JSX.Element {
-  /** The saved key's last four characters; null when none is saved, undefined while loading. */
-  const [hint, setHint] = useState<string | null>()
-  const [key, setKey] = useState('')
-  const [error, setError] = useState<string>()
-
-  useEffect(() => {
-    window.api.exa.keyHint().then(setHint)
-  }, [])
-
-  async function save(value: string | null): Promise<void> {
-    setError(undefined)
-    try {
-      setHint(await window.api.exa.setKey(value))
-      setKey('')
-    } catch (e) {
-      setError(errorMessage(e))
-    }
-  }
-
   return (
     <div className="settings">
       <h2>Settings</h2>
@@ -50,35 +31,83 @@ export function SettingsView({
           Exa&apos;s free, rate-limited tier. With a key from <code>dashboard.exa.ai</code>, they
           use your Exa account.
         </p>
-        <form
-          className="settings-row"
-          onSubmit={(e) => {
-            e.preventDefault()
-            if (key.trim()) save(key)
-          }}
-        >
-          <input
-            type="password"
-            aria-label="Exa API key"
-            placeholder={hint ? `Saved key ending in ${hint}` : 'Exa API key'}
-            value={key}
-            spellCheck={false}
-            autoComplete="off"
-            onChange={(e) => setKey(e.target.value)}
-          />
-          <button type="submit" className="btn primary" disabled={!key.trim()}>
-            {hint ? 'Replace' : 'Save'}
-          </button>
-          {hint && (
-            <button type="button" className="btn" onClick={() => save(null)}>
-              Remove
-            </button>
-          )}
-        </form>
-        {error && <div className="msg-error">{error}</div>}
+        <KeyForm label="Exa API key" saved={window.api.exa} />
+      </section>
+      <section className="settings-card">
+        <h3>Voice input</h3>
+        <p>
+          Hold the microphone button in the composer, or the right ⌘ key, while you speak. When you
+          let go, Whisper on Groq writes out what you said in the language you spoke, such as
+          Arabic, English or German. A click on the button records until the next click. The
+          recording is sent to Groq. It takes a Groq API key, free from{' '}
+          <code>console.groq.com</code>.
+        </p>
+        <KeyForm label="Groq API key" saved={window.api.voice} />
       </section>
       <UpdatesCard />
     </div>
+  )
+}
+
+/** An API key the main process keeps: replaced or removed here, shown by its last four characters. */
+function KeyForm({
+  label,
+  saved
+}: {
+  label: string
+  saved: {
+    keyHint: () => Promise<string | null>
+    setKey: (key: string | null) => Promise<string | null>
+  }
+}): React.JSX.Element {
+  /** The saved key's last four characters; null when none is saved, undefined while loading. */
+  const [hint, setHint] = useState<string | null>()
+  const [key, setKey] = useState('')
+  const [error, setError] = useState<string>()
+
+  useEffect(() => {
+    saved.keyHint().then(setHint)
+  }, [saved])
+
+  async function save(value: string | null): Promise<void> {
+    setError(undefined)
+    try {
+      setHint(await saved.setKey(value))
+      setKey('')
+    } catch (e) {
+      setError(errorMessage(e))
+    }
+  }
+
+  return (
+    <>
+      <form
+        className="settings-row"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (key.trim()) save(key)
+        }}
+      >
+        <input
+          type="password"
+          aria-label={label}
+          placeholder={hint ? `Saved key ending in ${hint}` : label}
+          value={key}
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(e) => setKey(e.target.value)}
+        />
+        <button type="submit" className="btn primary" disabled={!key.trim()}>
+          {hint ? 'Replace' : 'Save'}
+        </button>
+        {hint && (
+          <button type="button" className="btn" onClick={() => save(null)}>
+            Remove
+          </button>
+        )}
+      </form>
+      {error && <div className="msg-error">{error}</div>}
+    </>
   )
 }
 
