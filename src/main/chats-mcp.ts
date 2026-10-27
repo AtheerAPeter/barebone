@@ -31,7 +31,7 @@ const MAX_TIMER_SECONDS = 24 * 60 * 60
 
 /** Sent to the model as the server's instructions; the harness puts it in its system prompt. */
 export const CHATS_GUIDANCE =
-  "These tools start and message other chats of the user's project in Just Harness. Start new " +
+  "These tools start and message other chats of the user's project in Barebone. Start new " +
   'chats only when the user asks for them; each one runs on its own and costs its own requests, ' +
   'so otherwise do the work yourself. A chat you start works alongside you and reports back with ' +
   'send_message. Its report arrives as a new message once your turn has ended, and when it ends ' +

@@ -340,7 +340,7 @@ export const openCode: Provider = {
         signIn: SIGN_IN,
         key: account.token,
         messagesURL: served.messagesURL,
-        headers: { ...served.headers, 'User-Agent': `just-harness/${app.getVersion()}` },
+        headers: { ...served.headers, 'User-Agent': `barebone/${app.getVersion()}` },
         // A stable session id per conversation, which the plans' routing requires.
         chatHeaders: { 'x-opencode-session': chatId },
         chatURL: served.chatURL
@@ -355,7 +355,7 @@ export const openCode: Provider = {
       messagesURL: plan.base,
       // Required for Go, documented for third-party agents: their own user agent and a stable
       // session id per conversation (https://opencode.ai/docs/go/#where-can-i-use-it).
-      headers: { 'User-Agent': `just-harness/${app.getVersion()}` },
+      headers: { 'User-Agent': `barebone/${app.getVersion()}` },
       chatHeaders: { 'x-opencode-session': chatId },
       chatURL: `${plan.base}/v1`
     }

@@ -1,18 +1,18 @@
 <p align="center">
-  <img src="build/icon.png" width="128" alt="Just Harness icon">
+  <img src="build/icon.png" width="128" alt="Barebone icon">
 </p>
 
-<h1 align="center">Just Harness</h1>
+<h1 align="center">Barebone</h1>
 
 <p align="center"><b>The basics are all you need.</b></p>
 
 <p align="center">A small macOS app for the <a href="https://opencode.ai">opencode</a>, <a href="https://cline.bot">Cline</a> and <a href="https://commandcode.ai">Command Code</a> coding agents: projects, chats, skills, and a built-in browser they can drive. Nothing else.</p>
 
-<p align="center"><a href="https://github.com/AtheerAPeter/just-harness/releases/latest"><b>Download for macOS (Apple Silicon)</b></a></p>
+<p align="center"><a href="https://github.com/AtheerAPeter/barebone/releases/latest"><b>Download for macOS (Apple Silicon)</b></a></p>
 
 ---
 
-Just Harness has no model providers and no API keys of its own. It starts the CLIs you already have installed, talks to them over the [Agent Client Protocol](https://agentclientprotocol.com) (`opencode acp`, `cline --acp`, `cmd acp`), and shows whatever models they report. If a model works in your terminal, it works here.
+Barebone has no model providers and no API keys of its own. It starts the CLIs you already have installed, talks to them over the [Agent Client Protocol](https://agentclientprotocol.com) (`opencode acp`, `cline --acp`, `cmd acp`), and shows whatever models they report. If a model works in your terminal, it works here.
 
 The exceptions are **Command Code API**, **OpenCode API** and **Cline API**. For these the app runs its own small agent, modeled on [pi](https://github.com/earendil-works/pi): four tools (read, bash, edit, write), opencode's Exa web search, and the browser panel. Web search works without a key on Exa's free tier; add your own Exa API key in Settings (⌘,) to use your Exa account. It calls each provider's API directly with the login its CLI already saved: `cmd login`, `opencode auth login` (Zen and Go) or `cline auth` (usage billing and ClinePass). Model lists come from the providers live, so new models show up without an update. The free models of OpenCode and Cline are not listed: both serve them only to their own apps.
 
@@ -39,12 +39,12 @@ A chat can start other chats in its project when you ask it to: write `@chats`, 
 Open Terminal and run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AtheerAPeter/just-harness/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/AtheerAPeter/barebone/main/install.sh | bash
 ```
 
-It downloads the latest release, installs Just Harness in Applications and opens it. Run it again any time to update. The app also checks for a new release when it starts and every six hours, and shows **Update to v…** at the bottom of the sidebar. Clicking it runs the same script, which quits the app, installs the new version and opens it. Installing this way skips macOS's "Apple could not verify…" prompt, because only browser downloads get flagged.
+It downloads the latest release, installs Barebone in Applications and opens it. Run it again any time to update. The app also checks for a new release when it starts and every six hours, and shows **Update to v…** at the bottom of the sidebar. Clicking it runs the same script, which quits the app, installs the new version and opens it. Installing this way skips macOS's "Apple could not verify…" prompt, because only browser downloads get flagged.
 
-Or download the `.dmg` from [Releases](https://github.com/AtheerAPeter/just-harness/releases/latest) and drag Just Harness to Applications. The app isn't notarized by Apple, so the first launch from a browser download is blocked: click **Done**, then **System Settings → Privacy & Security → Open Anyway** (once).
+Or download the `.dmg` from [Releases](https://github.com/AtheerAPeter/barebone/releases/latest) and drag Barebone to Applications. The app isn't notarized by Apple, so the first launch from a browser download is blocked: click **Done**, then **System Settings → Privacy & Security → Open Anyway** (once).
 
 Apple Silicon only. You also need at least one agent installed and signed in:
 - opencode (1 or 2): `curl -fsSL https://opencode.ai/install | bash`, then `opencode auth login`. OpenCode API follows the opencode you have installed: opencode 2 keeps its keys in its database and reads its config in its own order, opencode 1 keeps them in `auth.json`.
@@ -74,7 +74,9 @@ npx electron-vite build && npx electron-builder --mac dmg   # build the .app and
 - `src/main/harness/mcp-config.ts` reads each CLI's MCP servers the way that CLI does: file locations, merge order, variable substitution, and servers turned off. `mcp.ts` connects to them with the MCP SDK (stdio, Streamable HTTP, SSE). A chat's first request takes their tools, named `mcp__<server>__<tool>`, into its fixed tool list. `mcp-auth.ts` handles OAuth sign-in through the SDK and keeps the tokens in `mcp-auth.json`, readable only by you.
 - `src/main/skills.ts` reads skills from `.claude/skills`, `.opencode/skills`, `.agents/skills`, `.cline/skills`, `.commandcode/skills` and their global equivalents.
 
-Chats, settings and the browser profile are stored in `~/Library/Application Support/Just Harness`. The agent sessions themselves are stored by each CLI.
+Chats, settings and the browser profile are stored in `~/Library/Application Support/Barebone`. The agent sessions themselves are stored by each CLI.
+
+Barebone was called Just Harness up to 1.0.63. On its first start it moves `~/Library/Application Support/Just Harness` to its own folder (`src/main/former-name.ts`), and the install script replaces `Just Harness.app`. Project icons saved in `.just-harness/` are still read; choosing a new one saves it in `.barebone/`.
 
 ## Known limitations
 

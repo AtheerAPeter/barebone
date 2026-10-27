@@ -1,6 +1,13 @@
+import { randomUUID } from 'node:crypto'
 import type { WebContents } from 'electron'
 import { source as playwrightSource } from 'playwright-injected-script'
 import { USKeyboardLayout } from 'playwright-keyboard-layout'
+import {
+  overlayFunction,
+  type OverlayCommand,
+  type OverlayResult,
+  type Target
+} from './page-overlay'
 
 /**
  * Agent automation for one browser page over the DevTools protocol, built the
@@ -18,8 +25,8 @@ import { USKeyboardLayout } from 'playwright-keyboard-layout'
  * page scripts that replace built-ins cannot break it.
  */
 
-const WORLD = 'just-harness'
-const INJECTED = '__justHarnessInjected'
+const WORLD = 'barebone'
+const INJECTED = '__bareboneInjected'
 /** DevTools commands answer in milliseconds; a page that takes this long is stuck. */
 const COMMAND_TIMEOUT = 10_000
 /** How long an element may take to become ready for an action. */
@@ -135,6 +142,71 @@ const ELEMENT = `function (ref) {
   ${FIND}
   return element || null;
 }`
+
+/** Where an element is in its frame's viewport; null when it is gone. */
+const RECT = `function (ref) {
+  ${FIND}
+  if (!element) return null;
+  const { left, top, width, height } = element.getBoundingClientRect();
+  return { left, top, width, height };
+}`
+
+const OVERLAY = overlayFunction(INJECTED)
+
+/**
+ * Called by the page's isolated world when the user clicks while a tool waits
+ * for it (see waitForClick). Only that world has it, so pages cannot call it.
+ */
+const CLICKED = `${INJECTED}Clicked`
+
+/**
+ * Watch for the next click in the frame, reported through CLICKED with its id:
+ * what was clicked, and whether it was the ref's element. Replaces the watch
+ * before it. False when the ref is gone.
+ */
+const WATCH_CLICK = `function (ref, id) {
+  const injected = globalThis.${INJECTED};
+  const element = ref ? injected.querySelectorAll(injected.parseSelector('aria-ref=' + ref), document)[0] : null;
+  if (ref && !element) return false;
+  globalThis.${INJECTED}StopWatch?.();
+  // The control the click was on, as the user would name it: its role or tag and its
+  // label or text. Never a field's value, which can be a password.
+  const describe = (node) => {
+    const at = node instanceof Element ? node : node && node.parentElement;
+    const control = at && (at.closest('a, button, input, select, textarea, summary, label, [role]') || at);
+    if (!control) return 'the page';
+    const role = control.getAttribute('role') || control.tagName.toLowerCase();
+    const label = control.labels && control.labels[0];
+    const name = (control.getAttribute('aria-label') || (label && label.innerText) || control.getAttribute('placeholder') ||
+      control.innerText || control.getAttribute('title') || control.getAttribute('alt') || '')
+      .trim().replace(/\\s+/g, ' ').slice(0, 80);
+    return name ? role + ' "' + name + '"' : role;
+  };
+  const onClick = (event) => {
+    stop();
+    const path = event.composedPath();
+    globalThis.${CLICKED}(JSON.stringify({
+      id,
+      what: describe(path[0]),
+      onTarget: element ? path.includes(element) : undefined
+    }));
+  };
+  const stop = () => {
+    removeEventListener('click', onClick, true);
+    globalThis.${INJECTED}StopWatch = undefined;
+  };
+  addEventListener('click', onClick, true);
+  globalThis.${INJECTED}StopWatch = stop;
+  return true;
+}`
+
+const STOP_WATCH = `function () {
+  globalThis.${INJECTED}StopWatch?.();
+}`
+
+/** How a wait for the user's click ended. */
+export type ClickWait =
+  { clicked: string; onTarget?: boolean } | { ended: 'timeout' | 'navigated' | 'cancelled' }
 
 /** Actionability checks before an action; returns the element's centre in its frame. */
 const PROBE = `async function (ref, options) {
@@ -1401,6 +1473,115 @@ export class PageDriver {
         frame.sessionId
       ).catch(() => undefined)
     }
+  }
+
+  /**
+   * Draw on the page for the user to see (page-overlay.ts). The drawings live
+   * in the page's own document, over its iframes; an element in an iframe is
+   * marked where it is now, as an area of the page.
+   */
+  async overlay(command: OverlayCommand): Promise<OverlayResult> {
+    await this.attach()
+    const inPage = (target: Target): Promise<Target> => this.inPageTarget(target)
+    const placed: OverlayCommand =
+      command.type === 'draw'
+        ? {
+            ...command,
+            shapes: await Promise.all(
+              command.shapes.map(async (shape) => ({
+                ...shape,
+                target: await inPage(shape.target),
+                ...('from' in shape && shape.from ? { from: await inPage(shape.from) } : {})
+              }))
+            )
+          }
+        : command.type === 'point' && command.target
+          ? { ...command, target: await inPage(command.target) }
+          : command
+    const frame = await this.mainFrame()
+    const result = await this.call<OverlayResult>(
+      frame,
+      { contextId: await this.context(frame) },
+      OVERLAY,
+      [placed]
+    )
+    if (result.missing) throw new Error(staleRef(result.missing))
+    return result
+  }
+
+  /**
+   * Wait for the user's next click in the frame that holds the ref (the page
+   * without one): what they clicked, and whether it was the ref's element.
+   * Ends without a click when the time is up, the frame navigates, or the
+   * signal aborts.
+   */
+  async waitForClick(
+    ref: string | undefined,
+    timeout: number,
+    signal: AbortSignal
+  ): Promise<ClickWait> {
+    await this.attach()
+    const frame = ref ? await this.frameOf(ref) : await this.mainFrame()
+    await this.send(
+      'Runtime.addBinding',
+      { name: CLICKED, executionContextName: WORLD },
+      frame.sessionId
+    )
+    const contextId = await this.context(frame)
+    const id = randomUUID()
+    let done: (result: ClickWait) => void = () => undefined
+    const ended = new Promise<ClickWait>((resolve) => (done = resolve))
+    const listener = (method: string, params: unknown, sessionId?: string): void => {
+      if (sessionId !== frame.sessionId) return
+      if (method === 'Runtime.bindingCalled') {
+        const call = params as { name: string; payload: string }
+        if (call.name !== CLICKED) return
+        const click = JSON.parse(call.payload) as { id: string; what: string; onTarget?: boolean }
+        if (click.id === id) done({ clicked: click.what, onTarget: click.onTarget })
+      } else if (method === 'Page.frameNavigated') {
+        if ((params as { frame: { id: string } }).frame.id === frame.frameId) {
+          done({ ended: 'navigated' })
+        }
+      }
+    }
+    const abort = (): void => done({ ended: 'cancelled' })
+    this.eventListeners.add(listener)
+    signal.addEventListener('abort', abort)
+    const timer = setTimeout(() => done({ ended: 'timeout' }), timeout)
+    try {
+      if (!(await this.call<boolean>(frame, { contextId }, WATCH_CLICK, [ref ?? null, id]))) {
+        throw new Error(staleRef(ref!))
+      }
+      if (signal.aborted) abort()
+      return await ended
+    } finally {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', abort)
+      this.eventListeners.delete(listener)
+      // Gone with the document when the page navigated.
+      this.call(frame, { contextId }, STOP_WATCH, []).catch(() => undefined)
+    }
+  }
+
+  /** A target the page's document can draw on: refs in iframes become the area they cover now. */
+  private async inPageTarget(target: Target): Promise<Target> {
+    if (!('ref' in target)) return target
+    const frame = await this.frameOf(target.ref)
+    if (!frame.parent) return target
+    const rect = await this.call<{ left: number; top: number; width: number; height: number }>(
+      frame,
+      { contextId: await this.context(frame) },
+      RECT,
+      [target.ref]
+    )
+    if (!rect) throw new Error(staleRef(target.ref))
+    const from = await this.inPage(frame, { x: rect.left, y: rect.top }, false)
+    const to = await this.inPage(
+      frame,
+      { x: rect.left + rect.width, y: rect.top + rect.height },
+      false
+    )
+    return { x: from.x, y: from.y, width: to.x - from.x, height: to.y - from.y }
   }
 }
 

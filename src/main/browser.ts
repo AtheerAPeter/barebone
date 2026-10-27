@@ -127,6 +127,8 @@ export class ChatPage extends EventEmitter {
   private firstLoad?: Promise<void>
   /** Agent tool calls in progress on this page. */
   private automating = 0
+  /** The ones among them that wait for the user to act (see awaitUser). */
+  private awaitingUser = 0
 
   constructor(
     /** Short id agents use: t1, t2, ... */
@@ -163,9 +165,12 @@ export class ChatPage extends EventEmitter {
     return this.firstLoad ?? Promise.resolve()
   }
 
-  /** Whether an agent tool call is running on the page. */
+  /**
+   * Whether an agent tool call is acting on the page. One that waits for the
+   * user does not count: what happens then is the user's doing.
+   */
   get automated(): boolean {
-    return this.automating > 0
+    return this.automating > this.awaitingUser
   }
 
   /** Run an agent tool call on the page. */
@@ -176,6 +181,20 @@ export class ChatPage extends EventEmitter {
       return await work()
     } finally {
       this.automating--
+    }
+  }
+
+  /**
+   * Inside an agent tool call, wait for the user to act on the page (see
+   * wait_for_click). Meanwhile the page is not automated, so leaving a page
+   * with unsaved changes asks the user as usual.
+   */
+  async awaitUser<T>(work: () => Promise<T>): Promise<T> {
+    this.awaitingUser++
+    try {
+      return await work()
+    } finally {
+      this.awaitingUser--
     }
   }
 
@@ -244,7 +263,7 @@ export class BuiltinBrowser {
     // the session, so it also runs in windows that pages open as tabs.
     browserSession.registerPreloadScript({
       type: 'frame',
-      id: 'just-harness-page',
+      id: 'barebone-page',
       filePath: join(import.meta.dirname, '../preload/page.cjs')
     })
     // Save straight to ~/Downloads instead of showing a Save dialog, which an
@@ -271,11 +290,12 @@ export class BuiltinBrowser {
       })
     })
     // Some sign-in pages (Google in particular) reject user agents that mention Electron.
+    // Electron also adds the app's name without spaces and its version, as Barebone/1.0.64.
     browserSession.setUserAgent(
       browserSession
         .getUserAgent()
         .replace(/\sElectron\/\S+/, '')
-        .replace(/\sjust-harness\/\S+/, '')
+        .replace(` ${app.getName().replace(/\s/g, '')}/${app.getVersion()}`, '')
     )
     ipcMain.on('page:dialog', (event, type, message) => this.onPageDialog(event, type, message))
   }

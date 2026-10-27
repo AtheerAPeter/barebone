@@ -5,13 +5,16 @@ import { ProvidersCard } from './ProvidersCard'
 
 /**
  * `instructions`: the saved custom instructions.
+ * `annotations`: whether agents get the browser tools that draw on pages.
  * `onProvidersChange`: a provider was added, changed or removed.
  */
 export function SettingsView({
   instructions,
+  annotations,
   onProvidersChange
 }: {
   instructions: string | undefined
+  annotations: boolean
   onProvidersChange: () => void
 }): React.JSX.Element {
   /** The saved key's last four characters; null when none is saved, undefined while loading. */
@@ -38,6 +41,7 @@ export function SettingsView({
       <h2>Settings</h2>
       <ProvidersCard onChange={onProvidersChange} />
       <InstructionsCard saved={instructions ?? ''} />
+      <AnnotationsCard on={annotations} />
       <section className="settings-card">
         <h3>Web search</h3>
         <p>
@@ -131,6 +135,42 @@ function InstructionsCard({ saved }: { saved: string }): React.JSX.Element {
   )
 }
 
+/** Whether agents get the browser tools that draw on pages, and the skill that teaches with them. */
+function AnnotationsCard({ on }: { on: boolean }): React.JSX.Element {
+  const [error, setError] = useState<string>()
+
+  async function set(value: boolean): Promise<void> {
+    setError(undefined)
+    try {
+      await window.api.setAnnotations(value)
+    } catch (e) {
+      setError(errorMessage(e))
+    }
+  }
+
+  return (
+    <section className="settings-card">
+      <h3>Drawing on pages</h3>
+      <p>
+        Gives every agent browser tools that draw on the page in the browser panel (boxes and arrows
+        with labels, a pointer, and a caption card) and wait for your clicks. Agents use them to
+        teach and explain, and the built-in <code>browser-tutorial</code> skill shows them how.
+        Turned off, the tools and the skill stay out of the chats&apos; context. A change applies to
+        chats started after it.
+      </p>
+      <div className="segmented settings-switch" role="group" aria-label="Drawing on pages">
+        <button type="button" className={on ? '' : 'on'} onClick={() => set(false)}>
+          Off
+        </button>
+        <button type="button" className={on ? 'on' : ''} onClick={() => set(true)}>
+          On
+        </button>
+      </div>
+      {error && <div className="msg-error">{error}</div>}
+    </section>
+  )
+}
+
 /** The app's version and a check for a newer release, which it can install from here. */
 function UpdatesCard(): React.JSX.Element {
   const [version, setVersion] = useState<string>()
@@ -164,7 +204,7 @@ function UpdatesCard(): React.JSX.Element {
       <h3>Updates</h3>
       <p>
         {newer
-          ? `Version ${newer} is out. Updating quits Just Harness, installs it and opens it again.`
+          ? `Version ${newer} is out. Updating quits Barebone, installs it and opens it again.`
           : newer === null
             ? `Version ${version} is the latest.`
             : `This is version ${version ?? '…'}.`}

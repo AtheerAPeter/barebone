@@ -299,7 +299,7 @@ async function connect(server: McpServer): Promise<Connection> {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js')
   const timeout = server.timeout?.connect ?? CONNECT_TIMEOUT_MS
   const attempt = async (transport: Transport, output?: () => string): Promise<Connection> => {
-    const client = new Client({ name: 'just-harness', version: app.getVersion() })
+    const client = new Client({ name: 'barebone', version: app.getVersion() })
     try {
       await client.connect(transport, { timeout })
       return {

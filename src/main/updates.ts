@@ -11,7 +11,7 @@ import { join } from 'node:path'
  * resources. The script quits the app, replaces it and opens the new one.
  */
 
-const REPO = 'AtheerAPeter/just-harness'
+const REPO = 'AtheerAPeter/barebone'
 const CHECK_EVERY = 6 * 60 * 60 * 1000
 
 /** The newer release's version, once one is found. */

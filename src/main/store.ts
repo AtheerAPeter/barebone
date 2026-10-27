@@ -86,7 +86,7 @@ export function reportDamagedState(window: BrowserWindow): void {
   if (!damagedState) return
   void dialog.showMessageBox(window, {
     type: 'warning',
-    message: 'Just Harness could not read its saved projects and chats',
+    message: 'Barebone could not read its saved projects and chats',
     detail: `The file was damaged, so the app started without them. The damaged file was kept at:\n\n${damagedState}\n\nEach chat's messages are stored separately and were not touched.`
   })
   damagedState = undefined
@@ -160,7 +160,7 @@ export function chatFile(chatId: string): string {
  * agent reads what happened there.
  */
 export function savedChatsNote(chatId: string): string {
-  return `Just Harness saves every chat of the user's. ${statePath} lists them (id, projectId, title, agent, createdAt), and each chat's messages are in ${chatsDir}/<chat id>.json, as the user saw them: their messages, the agent's answers, and its tool calls with their output. This chat's own are in ${chatFile(chatId)}. When the user refers to an earlier chat or asks you to continue a topic, find the chat by its title and read its messages to see what was done or what went wrong. The files can be long, so search them before reading them whole. Only read them, never change them.`
+  return `Barebone saves every chat of the user's. ${statePath} lists them (id, projectId, title, agent, createdAt), and each chat's messages are in ${chatsDir}/<chat id>.json, as the user saw them: their messages, the agent's answers, and its tool calls with their output. This chat's own are in ${chatFile(chatId)}. When the user refers to an earlier chat or asks you to continue a topic, find the chat by its title and read its messages to see what was done or what went wrong. The files can be long, so search them before reading them whole. Only read them, never change them.`
 }
 
 export function getState(): AppState {
@@ -175,6 +175,12 @@ export function setTheme(theme: Theme): void {
 /** Save the user's instructions; empty removes them. */
 export function setInstructions(text: string): void {
   state.instructions = text.trim() || undefined
+  scheduleFlush()
+}
+
+/** Turn the browser tools that draw on pages, and their skill, on or off. */
+export function setAnnotations(on: boolean): void {
+  state.annotations = on || undefined
   scheduleFlush()
 }
 

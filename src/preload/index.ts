@@ -49,6 +49,8 @@ const api = {
   setTheme: (theme: Theme): Promise<void> => ipcRenderer.invoke('theme:set', theme),
   /** Save the instructions the app's own agent gets in new chats; empty removes them. */
   setInstructions: (text: string): Promise<void> => ipcRenderer.invoke('instructions:set', text),
+  /** Give agents the browser tools that draw on pages, and their skill, or take them away. */
+  setAnnotations: (on: boolean): Promise<void> => ipcRenderer.invoke('annotations:set', on),
 
   exa: {
     /** The saved Exa API key's last four characters; null when none is saved. */

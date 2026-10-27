@@ -3,7 +3,7 @@ import { ThemeToggle } from './ThemeToggle'
 import { Collapse } from './Collapse'
 import { ProjectTile } from './ProjectIcon'
 import { RowMenu } from './RowMenu'
-import { startedChats, type AppState, type Chat } from '../../../shared/types'
+import { startedChats, type AppState, type Chat, type Project } from '../../../shared/types'
 import { readPref, writePref } from '../lib/prefs'
 import { waitingOn } from '../lib/background'
 import { useUpdateInstall } from '../lib/update'
@@ -11,6 +11,7 @@ import {
   BookIcon,
   ChevronIcon,
   ComposeIcon,
+  FolderIcon,
   FolderPlusIcon,
   SearchIcon,
   SidebarIcon
@@ -18,6 +19,8 @@ import {
 
 /** Settled chats listed before "Show more", and how many each click adds. */
 const SETTLED_PAGE = 20
+/** The same for a project's settled chats, when chats are grouped by project. */
+const FOLDER_PAGE = 5
 /** The sidebar's width until the user drags its edge, and how narrow or wide it may get. */
 const SIDEBAR_WIDTH = 260
 const SIDEBAR_MIN = 200
@@ -32,16 +35,20 @@ interface SidebarProps {
   onSelectChat: (chatId: string) => void
   /** Start a chat: the user picks its project first. */
   onNewChat: () => void
+  /** Start a chat in this project, from its folder. */
+  onNewChatIn: (projectId: string) => void
   onShowSkills: () => void
   onShowSettings: () => void
   onHide: () => void
 }
 
 /**
- * Laid out like ChatGPT's: actions on top, then one scrolling list of chats.
- * Chats that need the user or are working come first; every other chat is
- * settled, in its own section below them. Each chat shows its project's icon,
- * which is how chats of different projects are told apart.
+ * Laid out like ChatGPT's: actions on top, then one scrolling list of chats,
+ * grouped one of two ways the user switches between. By status, chats that
+ * need the user or are working come first; every other chat is settled, in
+ * its own section below them, and each chat shows its project's icon, which is
+ * how chats of different projects are told apart. By project, each project is
+ * a folder that opens to its chats, in the same order.
  */
 export function Sidebar({
   open,
@@ -50,10 +57,23 @@ export function Sidebar({
   view,
   onSelectChat,
   onNewChat,
+  onNewChatIn,
   onShowSkills,
   onShowSettings,
   onHide
 }: SidebarProps): React.JSX.Element {
+  const [grouping, setGrouping] = useState(() =>
+    readPref<'status' | 'project'>('sidebarGrouping', 'status')
+  )
+  const byProject = grouping === 'project'
+  /** Projects whose folders the user opened. */
+  const [openProjects, setOpenProjects] = useState(
+    () => new Set(readPref<string[]>('openProjects', []))
+  )
+  /** How many settled chats each open folder lists, for those past the first page. */
+  const [folderShown, setFolderShown] = useState<Map<string, number>>(new Map())
+  useEffect(() => writePref('sidebarGrouping', grouping), [grouping])
+  useEffect(() => writePref('openProjects', [...openProjects]), [openProjects])
   /** Lead chats whose chats the user opened; every lead starts closed. */
   const [openLeads, setOpenLeads] = useState<Set<string>>(new Set())
   /** The selected chat that was last brought into view. */
@@ -84,16 +104,38 @@ export function Sidebar({
   useEffect(() => writePref('settledOpen', settledOpen), [settledOpen])
 
   const projects = new Map(state.projects.map((p) => [p.id, p]))
-  // Open the Settled section and the chat that leads a newly selected chat, so a new or picked
-  // chat stays in view. Done while rendering, once per selection; the user can close them after.
+  // Open the Settled section, the project's folder and the chat that leads a newly selected
+  // chat, so a new or picked chat stays in view in either grouping. Done while rendering, once
+  // per selection; the user can close them after.
   const selectedChat = state.chats.find((c) => c.id === selectedChatId)
   if (selectedChat && selectedChatId !== revealedChatId) {
     setRevealedChatId(selectedChatId)
     if (!settledOpen && !selectedChat.running) setSettledOpen(true)
+    if (!openProjects.has(selectedChat.projectId)) {
+      setOpenProjects(new Set(openProjects).add(selectedChat.projectId))
+    }
     if (selectedChat.startedBy && !openLeads.has(selectedChat.startedBy)) {
       setOpenLeads(new Set(openLeads).add(selectedChat.startedBy))
     }
   }
+  // Then scroll it into view, once the sections opened for it have finished opening: until
+  // then they clip the list, so a row near its end could not be reached.
+  useEffect(() => {
+    const nav = navRef.current
+    if (!nav || !revealedChatId) return
+    let live = true
+    const opening = nav.getAnimations({ subtree: true }).filter((a) => a instanceof CSSTransition)
+    Promise.all(opening.map((a) => a.finished.catch(() => undefined))).then(() => {
+      if (!live) return
+      // A waiting chat can also be listed in a closed section; scroll to the row that shows.
+      const rows = nav.querySelectorAll<HTMLElement>(`[data-chat="${CSS.escape(revealedChatId)}"]`)
+      const shown = [...rows].find((row) => row.offsetHeight > 0)
+      shown?.scrollIntoView({ block: 'nearest' })
+    })
+    return () => {
+      live = false
+    }
+  }, [revealedChatId])
   const q = query?.trim().toLowerCase() ?? ''
   const matches = (chat: Chat): boolean =>
     !q ||
@@ -131,15 +173,14 @@ export function Sidebar({
     Boolean(started.get(chat.id)?.some((c) => c.id === selectedChatId))
 
   function toggleLead(chatId: string): void {
-    setOpenLeads((current) => {
-      const next = new Set(current)
-      if (next.has(chatId)) next.delete(chatId)
-      else next.add(chatId)
-      return next
-    })
+    setOpenLeads((current) => toggled(current, chatId))
   }
 
-  /** One chat, led by its project's icon. */
+  function toggleProject(projectId: string): void {
+    setOpenProjects((current) => toggled(current, projectId))
+  }
+
+  /** One chat, led by its project's icon; in a project's folder, the folder shows it instead. */
   function chatRow(chat: Chat): React.JSX.Element {
     const project = projects.get(chat.projectId)
     const led = q ? undefined : started.get(chat.id)
@@ -160,7 +201,7 @@ export function Sidebar({
           .join(' · ')}
         onClick={() => onSelectChat(chat.id)}
       >
-        {project ? <ProjectTile project={project} size={12} /> : <span />}
+        {project && !byProject ? <ProjectTile project={project} size={12} /> : <span />}
         <div className="chat-line">
           {renaming === chat.id ? (
             <RenameField
@@ -242,22 +283,116 @@ export function Sidebar({
     edge.addEventListener('pointercancel', onUp)
   }
 
-  function settledList(): React.JSX.Element {
-    const limit = q ? settled.length : settledShown
-    const visible = settled.slice(0, limit)
-    const selected = settled.find(holdsSelected)
+  /** Settled chats up to `shown`, then "Show more", which asks for the next page past `limit`. */
+  function pagedRows(
+    list: Chat[],
+    shown: number,
+    onMore: (limit: number) => void
+  ): React.JSX.Element {
+    const limit = q ? list.length : shown
+    const visible = list.slice(0, limit)
+    const selected = list.find(holdsSelected)
     if (selected && !visible.includes(selected)) visible.push(selected)
     return (
       <>
         {visible.map(chatRow)}
-        {settled.length > limit && (
+        {list.length > limit && (
           <div className="chat-more">
-            <button onClick={() => setSettledShown(limit + SETTLED_PAGE)}>
-              Show more ({settled.length - limit})
-            </button>
+            <button onClick={() => onMore(limit)}>Show more ({list.length - limit})</button>
           </div>
         )}
       </>
+    )
+  }
+
+  /** The chats grouped by status: Needs you, Working, then Settled. */
+  function statusLists(): React.JSX.Element {
+    return (
+      <>
+        {waiting.length > 0 && (
+          <>
+            <div className="side-label waiting">
+              Needs you <b>{waiting.length}</b>
+            </div>
+            {waiting.map(chatRow)}
+          </>
+        )}
+        {running.length > 0 && (
+          <>
+            <div className="side-label">
+              Working <b>{running.length}</b>
+            </div>
+            {running.map(chatRow)}
+          </>
+        )}
+        {settled.length > 0 && (
+          <>
+            <button
+              className={`side-label side-toggle${settledShut ? '' : ' open'}`}
+              aria-expanded={!settledShut}
+              onClick={() => setSettledOpen((o) => !o)}
+            >
+              Settled <b>{settled.length}</b>
+              <ChevronIcon width={10} height={10} className="chevron" />
+            </button>
+            <Collapse open={!settledShut}>
+              {pagedRows(settled, settledShown, (limit) => setSettledShown(limit + SETTLED_PAGE))}
+            </Collapse>
+          </>
+        )}
+      </>
+    )
+  }
+
+  /**
+   * A project's folder: its chats in the order of the status lists, waiting, then working, then
+   * settled. A chat another chat started is under it, as in those lists, and one that waits is
+   * also listed first. While searching, only folders with matches are listed, all of them open.
+   */
+  function projectFolder(project: Project): React.JSX.Element | null {
+    const own = chats.filter((c) => c.projectId === project.id)
+    if (q && own.length === 0) return null
+    const listed = own.filter((c) => c.waiting || !nested(c))
+    const active = [
+      ...listed.filter((c) => c.waiting),
+      ...listed.filter((c) => working(c) && !c.waiting)
+    ]
+    const rest = listed.filter((c) => !working(c) && !c.waiting)
+    const isOpen = Boolean(q) || openProjects.has(project.id)
+    return (
+      <Fragment key={project.id}>
+        <div
+          className={`chat-row project-row${isOpen ? ' open' : ''}`}
+          title={project.path}
+          aria-expanded={isOpen}
+          onClick={() => toggleProject(project.id)}
+        >
+          <ProjectTile project={project} size={14} />
+          <div className="chat-line">
+            <span className="chat-title">{project.name}</span>
+            {/* Open, its chats show their own. */}
+            {!isOpen && <FolderStatus chats={own} working={working} />}
+            <button
+              className="icon-btn small project-new"
+              title={`New chat in ${project.name}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                onNewChatIn(project.id)
+              }}
+            >
+              <ComposeIcon width={14} height={14} />
+            </button>
+            <ChevronIcon width={10} height={10} className="chevron" />
+          </div>
+        </div>
+        <Collapse open={isOpen}>
+          {active.map(chatRow)}
+          {pagedRows(rest, folderShown.get(project.id) ?? FOLDER_PAGE, (limit) =>
+            setFolderShown((current) => new Map(current).set(project.id, limit + FOLDER_PAGE))
+          )}
+          {own.length === 0 && <div className="project-empty">No chats</div>}
+        </Collapse>
+      </Fragment>
     )
   }
 
@@ -275,6 +410,14 @@ export function Sidebar({
       />
       {/* The window buttons sit at its left; it drags the window. */}
       <div className="sidebar-top">
+        <button
+          className={`icon-btn${byProject ? ' on' : ''}`}
+          title={byProject ? 'Group chats by status' : 'Group chats by project'}
+          aria-pressed={byProject}
+          onClick={() => setGrouping(byProject ? 'status' : 'project')}
+        >
+          <FolderIcon />
+        </button>
         <button className="icon-btn" title="Hide sidebar (⌘B)" onClick={onHide}>
           <SidebarIcon />
         </button>
@@ -323,34 +466,13 @@ export function Sidebar({
         </label>
       )}
       <div className="sidebar-scroll">
-        {waiting.length > 0 && (
+        {byProject ? (
           <>
-            <div className="side-label waiting">
-              Needs you <b>{waiting.length}</b>
-            </div>
-            {waiting.map(chatRow)}
+            <div className="side-label">Projects</div>
+            {state.projects.map(projectFolder)}
           </>
-        )}
-        {running.length > 0 && (
-          <>
-            <div className="side-label">
-              Working <b>{running.length}</b>
-            </div>
-            {running.map(chatRow)}
-          </>
-        )}
-        {settled.length > 0 && (
-          <>
-            <button
-              className={`side-label side-toggle${settledShut ? '' : ' open'}`}
-              aria-expanded={!settledShut}
-              onClick={() => setSettledOpen((o) => !o)}
-            >
-              Settled <b>{settled.length}</b>
-              <ChevronIcon width={10} height={10} className="chevron" />
-            </button>
-            <Collapse open={!settledShut}>{settledList()}</Collapse>
-          </>
+        ) : (
+          statusLists()
         )}
         {q && chats.length === 0 && <div className="side-empty">No matching chats</div>}
       </div>
@@ -362,9 +484,9 @@ export function Sidebar({
             title="Settings (⌘,)"
             onClick={onShowSettings}
           >
-            <span className="avatar">JH</span>
+            <span className="avatar">B</span>
             <span className="profile-text">
-              <span className="profile-name">Just Harness</span>
+              <span className="profile-name">Barebone</span>
               {version && <span className="profile-sub">v{version}</span>}
             </span>
           </button>
@@ -500,4 +622,25 @@ function ChatStatus({ chat, working }: { chat: Chat; working: boolean }): React.
   if (chat.running) return <span className="chat-status chat-dot running" />
   if (working) return <span className="chat-status chat-dot background" />
   return null
+}
+
+/** A closed folder's status: the most urgent of its chats', so a closed folder hides none. */
+function FolderStatus({
+  chats,
+  working
+}: {
+  chats: Chat[]
+  working: (chat: Chat) => boolean
+}): React.JSX.Element | null {
+  const busiest =
+    chats.find((c) => c.waiting) ?? chats.find((c) => c.running) ?? chats.find(working)
+  return busiest ? <ChatStatus chat={busiest} working /> : null
+}
+
+/** The set with `id` added, or taken out when it is in it. */
+function toggled(set: Set<string>, id: string): Set<string> {
+  const next = new Set(set)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  return next
 }

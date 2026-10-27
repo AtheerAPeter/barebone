@@ -10,19 +10,19 @@
 const REFUSALS = new Map([
   [
     'shell',
-    'Not run: in Just Harness, a command with background set to true cannot wake this chat when it ends, so you would never hear back. ' +
+    'Not run: in Barebone, a command with background set to true cannot wake this chat when it ends, so you would never hear back. ' +
       'For a long command (a download, a long build or render, a server), call the harness_chats tool run_in_background instead: ' +
       'it wakes this chat with the result. For a short command, leave background out.'
   ],
   [
     'subagent',
-    'Not started: in Just Harness, a subagent with background set to true cannot wake this chat when it finishes, so you would never hear back. ' +
+    'Not started: in Barebone, a subagent with background set to true cannot wake this chat when it finishes, so you would never hear back. ' +
       'Run it without background, or hand the task to a new chat with the harness_chats tool start_chat, which reports back.'
   ]
 ])
 
 export default {
-  id: 'just-harness',
+  id: 'barebone',
   async setup(ctx) {
     await ctx.tool.hook('execute.before', (event) => {
       const refusal = REFUSALS.get(event.tool)

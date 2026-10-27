@@ -226,7 +226,7 @@ export class HarnessAgent {
   private async systemPrompt(chatId: string): Promise<string> {
     const project = store.getProject(store.getChat(chatId).projectId)
     const sections = [
-      `You are an expert coding assistant working in the user's project through Just Harness. You help by reading files, running commands, editing code and writing new files.
+      `You are an expert coding assistant working in the user's project through Barebone. You help by reading files, running commands, editing code and writing new files.
 
 Guidelines:
 - Use read to look at files, not cat or sed.

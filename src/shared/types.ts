@@ -252,6 +252,8 @@ export interface AppState {
   theme?: Theme
   /** The user's own instructions, added to the system prompt of the app's own agent's new chats. */
   instructions?: string
+  /** Whether agents get the browser tools that draw on pages, and the browser-tutorial skill. Off when missing. */
+  annotations?: boolean
 }
 
 /** A session option exposed by the agent (model, mode, reasoning effort, ...). */
@@ -429,7 +431,8 @@ export interface Rect {
   height: number
 }
 
-export type SkillScope = 'project' | 'global'
+/** 'builtin' skills come with the app and cannot be changed. */
+export type SkillScope = 'project' | 'global' | 'builtin'
 
 export interface Skill {
   name: string

@@ -48,7 +48,8 @@ export function SkillsView({ project }: SkillsViewProps): React.JSX.Element {
   }
 
   const current = skills.find((s) => s.path === selected)
-  const dirty = content !== saved
+  const builtin = current?.scope === 'builtin'
+  const dirty = !builtin && content !== saved
 
   function save(path: string): Promise<void> {
     return run(async () => {
@@ -59,7 +60,11 @@ export function SkillsView({ project }: SkillsViewProps): React.JSX.Element {
   }
   const groups: { scope: SkillScope; title: string }[] = [
     ...(project ? [{ scope: 'project' as const, title: project.name }] : []),
-    { scope: 'global', title: 'Global' }
+    { scope: 'global', title: 'Global' },
+    // Listed only while their setting is on, so the group shows only then.
+    ...(skills.some((s) => s.scope === 'builtin')
+      ? [{ scope: 'builtin' as const, title: 'Built in' }]
+      : [])
   ]
 
   return (
@@ -116,34 +121,45 @@ export function SkillsView({ project }: SkillsViewProps): React.JSX.Element {
               <div>
                 <strong>{current.name}</strong>
                 <div className="muted small">
-                  Used by{' '}
-                  {current.agents.map((a) => AGENTS.find((x) => x.id === a)?.label).join(' and ')} ·{' '}
+                  {builtin
+                    ? 'Comes with Barebone and cannot be changed. Other agents are pointed to it by the browser tools'
+                    : `Used by ${current.agents.map((a) => AGENTS.find((x) => x.id === a)?.label).join(' and ')}`}{' '}
+                  ·{' '}
                   <button className="link" onClick={() => window.api.skills.reveal(current.path)}>
                     {current.path}
                   </button>
                 </div>
               </div>
               <div className="spacer" />
-              <button
-                className="btn"
-                onClick={() =>
-                  confirm(`Delete the skill "${current.name}"?`) &&
-                  run(async () => {
-                    await window.api.skills.remove(current.path, projectPath)
-                    setSelected(undefined)
-                    await refresh()
-                  })
-                }
-              >
-                Delete
-              </button>
-              <button className="btn primary" disabled={!dirty} onClick={() => save(current.path)}>
-                Save
-              </button>
+              {!builtin && (
+                <>
+                  <button
+                    className="btn"
+                    onClick={() =>
+                      confirm(`Delete the skill "${current.name}"?`) &&
+                      run(async () => {
+                        await window.api.skills.remove(current.path, projectPath)
+                        setSelected(undefined)
+                        await refresh()
+                      })
+                    }
+                  >
+                    Delete
+                  </button>
+                  <button
+                    className="btn primary"
+                    disabled={!dirty}
+                    onClick={() => save(current.path)}
+                  >
+                    Save
+                  </button>
+                </>
+              )}
             </div>
             <textarea
               className="skill-textarea"
               spellCheck={false}
+              readOnly={builtin}
               value={content}
               onChange={(e) => setContent(e.target.value)}
               onKeyDown={(e) => {

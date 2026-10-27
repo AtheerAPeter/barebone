@@ -80,7 +80,7 @@ export class McpOAuth implements OAuthClientProvider {
   get clientMetadata(): NativeClientMetadata {
     const oauth = this.server.oauth || {}
     return {
-      client_name: 'Just Harness',
+      client_name: 'Barebone',
       application_type: 'native',
       redirect_uris: [this.redirectUrl],
       grant_types: ['authorization_code', 'refresh_token'],
@@ -172,7 +172,7 @@ export class McpOAuth implements OAuthClientProvider {
 }
 
 const PAGE = (message: string): string =>
-  `<!doctype html><meta charset="utf-8"><title>Just Harness</title><body style="font:15px -apple-system,system-ui,sans-serif;margin:4em auto;max-width:32em;color:#222">${message}</body>`
+  `<!doctype html><meta charset="utf-8"><title>Barebone</title><body style="font:15px -apple-system,system-ui,sans-serif;margin:4em auto;max-width:32em;color:#222">${message}</body>`
 
 /**
  * Wait for the browser to come back to the redirect address with the
@@ -197,12 +197,12 @@ export function waitForRedirect(
       const error = url.searchParams.get('error')
       if (!oauth.checkState(url.searchParams.get('state'))) {
         response.writeHead(400, { 'Content-Type': 'text/html' })
-        response.end(PAGE('This sign-in was not started by Just Harness.'))
+        response.end(PAGE('This sign-in was not started by Barebone.'))
         return
       }
       if (code) {
         response.writeHead(200, { 'Content-Type': 'text/html' })
-        response.end(PAGE('Signed in. You can close this tab and go back to Just Harness.'))
+        response.end(PAGE('Signed in. You can close this tab and go back to Barebone.'))
         finish(() => resolve(code))
       } else {
         const reason = url.searchParams.get('error_description') || error || 'no code was sent'
@@ -228,7 +228,7 @@ export function waitForRedirect(
         reject(
           error.code === 'EADDRINUSE'
             ? new Error(
-                `port ${redirect.port} is in use by another app, so the browser cannot come back to Just Harness`
+                `port ${redirect.port} is in use by another app, so the browser cannot come back to Barebone`
               )
             : error
         )

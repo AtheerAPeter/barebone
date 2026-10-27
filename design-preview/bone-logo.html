@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Barebone logo</title>
+<style>
+  :root { --bg: #f2f2f4; --panel: #fff; --text: #1d1d1f; --muted: #6e6e73; --line: #e2e2e6; --accent: #2f6fed; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0d0d0e; --panel: #1a1a1c; --text: #f2f2f4; --muted: #9a9aa0; --line: #2a2a2e; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 -apple-system, system-ui, sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 40px 16px 64px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px; }
+  p.lead { color: var(--muted); margin: 0 0 28px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+  .card.pick { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .card h2 { font-size: 15px; font-weight: 600; margin: 0 0 2px; display: flex; gap: 8px; align-items: center; }
+  .tag { font-size: 11px; font-weight: 600; color: #fff; background: var(--accent); border-radius: 99px; padding: 1px 8px; }
+  .card p { color: var(--muted); margin: 0 0 14px; font-size: 13px; }
+  .hero { width: 100%; aspect-ratio: 1; display: block; }
+  .sizes { display: flex; align-items: flex-end; gap: 12px; margin-top: 12px; }
+  .dock { margin-top: 32px; padding: 10px 14px; border-radius: 22px; display: inline-flex; gap: 10px;
+          background: rgba(120, 120, 128, .18); border: 1px solid var(--line); }
+  .dock img { width: 64px; height: 64px; }
+  h3 { font-size: 15px; font-weight: 600; margin: 32px 0 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Barebone logo</h1>
+  <p class="lead">A bone on the same rounded tile as the old icon. Each version is shown large, then at 128, 64, 32 and 16 px.</p>
+  <div class="grid">
+    <section class="card">
+      <h2>Graphite</h2>
+      <p>Silver bone on the dark metallic tile. Same finish as the old JH icon.</p>
+      <img class="hero" src="bone-graphite.svg" alt="Silver bone on a graphite tile">
+      <div class="sizes">
+        <img src="bone-graphite.svg" width="128" height="128" alt=""><img src="bone-graphite.svg" width="64" height="64" alt=""><img src="bone-graphite.svg" width="32" height="32" alt=""><img src="bone-graphite.svg" width="16" height="16" alt="">
+      </div>
+    </section>
+    <section class="card">
+      <h2>Blue</h2>
+      <p>White bone on the app's accent blue (#2f6fed). Stands out most in the Dock.</p>
+      <img class="hero" src="bone-blue.svg" alt="White bone on a blue tile">
+      <div class="sizes">
+        <img src="bone-blue.svg" width="128" height="128" alt=""><img src="bone-blue.svg" width="64" height="64" alt=""><img src="bone-blue.svg" width="32" height="32" alt=""><img src="bone-blue.svg" width="16" height="16" alt="">
+      </div>
+    </section>
+    <section class="card pick">
+      <h2>Paper <span class="tag">In the app</span></h2>
+      <p>Ink bone on a warm paper tile. The quietest of the three.</p>
+      <img class="hero" src="bone-paper.svg" alt="Ink bone on a paper tile">
+      <div class="sizes">
+        <img src="bone-paper.svg" width="128" height="128" alt=""><img src="bone-paper.svg" width="64" height="64" alt=""><img src="bone-paper.svg" width="32" height="32" alt=""><img src="bone-paper.svg" width="16" height="16" alt="">
+      </div>
+    </section>
+  </div>
+  <h3>Side by side, at Dock size</h3>
+  <div class="dock">
+    <img src="bone-graphite.svg" alt="Graphite"><img src="bone-blue.svg" alt="Blue"><img src="bone-paper.svg" alt="Paper">
+  </div>
+</main>
+</body>
+</html>

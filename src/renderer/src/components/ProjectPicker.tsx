@@ -110,7 +110,7 @@ export function ProjectPicker({
                       e.stopPropagation()
                       if (
                         confirm(
-                          `Remove "${project.name}" and its chats from Just Harness? Files on disk are not touched.`
+                          `Remove "${project.name}" and its chats from Barebone? Files on disk are not touched.`
                         )
                       ) {
                         window.api.removeProject(project.id)

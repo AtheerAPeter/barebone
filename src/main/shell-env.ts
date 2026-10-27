@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { userInfo } from 'node:os'
 
-const MARKER = '__JUST_HARNESS_PATH__'
+const MARKER = '__BAREBONE_PATH__'
 
 let loading: Promise<void> | undefined
 

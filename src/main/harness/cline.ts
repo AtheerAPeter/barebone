@@ -227,7 +227,7 @@ export const cline: Provider = {
       signIn: SIGN_IN,
       key,
       chatURL: API,
-      headers: { 'HTTP-Referer': 'https://cline.bot', 'X-Title': 'Just Harness' },
+      headers: { 'HTTP-Referer': 'https://cline.bot', 'X-Title': 'Barebone' },
       reasoning: 'reasoning',
       cacheControl: isAnthropic,
       streamUsage: true

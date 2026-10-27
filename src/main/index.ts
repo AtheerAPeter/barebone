@@ -1,3 +1,5 @@
+// First: moves the data folder of the app's former name before anything uses it.
+import './former-name'
 import { app, shell, BrowserWindow, ipcMain, dialog, nativeTheme } from 'electron'
 import { basename, join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -107,7 +109,7 @@ function createWindow(): BuiltinBrowser {
     if (details.reason === 'clean-exit' || mainWindow.isDestroyed()) return
     if (Date.now() - lastReload < 30_000) {
       dialog.showErrorBox(
-        'Just Harness stopped responding',
+        'Barebone stopped responding',
         'The window crashed again right after reloading. Quit and open the app again.'
       )
       return
@@ -185,6 +187,10 @@ function registerIpc(browser: BuiltinBrowser): void {
   ipcMain.handle('theme:set', (_e, theme: Theme) => setTheme(theme))
   ipcMain.handle('instructions:set', (_e, text: string) => {
     store.setInstructions(text)
+    send('state:changed', store.getState())
+  })
+  ipcMain.handle('annotations:set', (_e, on: boolean) => {
+    store.setAnnotations(on)
     send('state:changed', store.getState())
   })
   ipcMain.handle('state:get', () => store.getState())
@@ -382,14 +388,14 @@ app.on('activate', () => {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
 })
 
-app.setName('Just Harness')
+app.setName('Barebone')
 registerImageScheme()
 
 app.whenReady().then(async () => {
   // A packaged build takes its icon from the bundle; in development the Electron
   // binary's own icon would show, so set it here.
   if (!app.isPackaged) app.dock?.setIcon(appIcon)
-  electronApp.setAppUserModelId('dev.justharness.app')
+  electronApp.setAppUserModelId('dev.barebone.app')
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
 
   // Only commands need PATH, and they wait for it; the window does not.

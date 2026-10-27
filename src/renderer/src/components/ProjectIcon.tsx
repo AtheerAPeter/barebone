@@ -148,7 +148,7 @@ export function ProjectStyle({
           </button>
         )}
         <button
-          title="Choose an image (PNG, SVG or JPG), saved in the project as .just-harness/icon"
+          title="Choose an image (PNG, SVG or JPG), saved in the project as .barebone/icon"
           onClick={async () => {
             const chosen = await window.api.chooseProjectIcon(project.id)
             if (chosen !== undefined) setImage(project.id, chosen)

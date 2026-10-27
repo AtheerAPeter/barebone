@@ -916,6 +916,29 @@ img.project-icon {
   border-radius: var(--radius-sm);
 }
 
+/* A project's folder: its name opens and closes its chats, and its compose button starts one. */
+.project-row .chevron {
+  margin-right: 4px;
+}
+
+.project-row.open .chevron {
+  transform: rotate(90deg);
+}
+
+.project-row .project-new {
+  opacity: 0;
+}
+
+.project-row:is(:hover, :focus-within) .project-new {
+  opacity: 1;
+}
+
+.project-empty {
+  padding: 4px 10px 6px 36px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
 .chat-more {
   display: flex;
   gap: 12px;
@@ -3217,6 +3240,11 @@ img.project-icon {
 .settings-row {
   display: flex;
   gap: 8px;
+}
+
+.settings-switch {
+  align-self: flex-start;
+  width: 160px;
 }
 
 .settings-row input {

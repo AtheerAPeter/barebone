@@ -1,10 +1,10 @@
 {
-  "name": "just-harness",
+  "name": "barebone",
   "version": "1.0.63",
   "description": "Minimal GUI for opencode and cline",
   "main": "./out/main/index.js",
   "author": "AtheerAPeter",
-  "homepage": "https://github.com/AtheerAPeter/just-harness",
+  "homepage": "https://github.com/AtheerAPeter/barebone",
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
@@ -53,11 +53,11 @@
     "yaml": "^2.9.1",
     "zod": "^4.6.5"
   },
-  "productName": "Just Harness",
+  "productName": "Barebone",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AtheerAPeter/just-harness.git"
+    "url": "git+https://github.com/AtheerAPeter/barebone.git"
   },
   "license": "MIT"
 }

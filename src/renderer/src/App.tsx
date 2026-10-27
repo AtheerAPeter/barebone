@@ -139,6 +139,7 @@ export default function App(): React.JSX.Element {
           setView('chat')
         }}
         onNewChat={() => setPicking(true)}
+        onNewChatIn={newChat}
         onShowSkills={() => setView((v) => (v === 'skills' ? 'chat' : 'skills'))}
         onShowSettings={() => setView((v) => (v === 'settings' ? 'chat' : 'settings'))}
         onHide={() => setSidebarOpen(false)}
@@ -173,7 +174,7 @@ export default function App(): React.JSX.Element {
                     ? 'Settings'
                     : chat
                       ? chat.title
-                      : 'Just Harness'
+                      : 'Barebone'
               }
             />
           </div>
@@ -207,6 +208,7 @@ export default function App(): React.JSX.Element {
         ) : view === 'settings' ? (
           <SettingsView
             instructions={state.instructions}
+            annotations={state.annotations === true}
             onProvidersChange={() => readStatus('custom-api')}
           />
         ) : chat && project ? (

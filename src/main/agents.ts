@@ -109,7 +109,7 @@ const CANCEL_TIMEOUT_MS = 10_000
  * the count (the user decides when the turn continues); every other message
  * from the agent restarts it.
  */
-const STALL_TIMEOUT_MS = stallTimeout('JUST_HARNESS_STALL_TIMEOUT_MS', 5 * 60_000)
+const STALL_TIMEOUT_MS = stallTimeout('BAREBONE_STALL_TIMEOUT_MS', 5 * 60_000)
 
 /**
  * While a tool call runs, the agent sends nothing until it ends (opencode
@@ -120,7 +120,7 @@ const STALL_TIMEOUT_MS = stallTimeout('JUST_HARNESS_STALL_TIMEOUT_MS', 5 * 60_00
  * Long commands are meant for run_in_background, and opencode stops its own
  * shell commands after two minutes unless the model asks for longer.
  */
-const TOOL_STALL_TIMEOUT_MS = stallTimeout('JUST_HARNESS_TOOL_STALL_TIMEOUT_MS', 30 * 60_000)
+const TOOL_STALL_TIMEOUT_MS = stallTimeout('BAREBONE_TOOL_STALL_TIMEOUT_MS', 30 * 60_000)
 
 const STALL_CHECK_MS = Math.min(Math.floor(STALL_TIMEOUT_MS / 3), 30_000)
 
@@ -473,7 +473,7 @@ class AgentProcess implements AgentBackend {
       Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>,
       Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>
     )
-    const connection = client({ name: 'just-harness' })
+    const connection = client({ name: 'barebone' })
       .onNotification(methods.client.session.update, (ctx) => this.onUpdate(ctx.params))
       .onRequest(methods.client.session.requestPermission, (ctx) => this.onPermission(ctx.params))
       .connect(stream)
@@ -503,7 +503,7 @@ class AgentProcess implements AgentBackend {
     const initResult = await connection.agent.request(methods.agent.initialize, {
       protocolVersion: PROTOCOL_VERSION,
       clientCapabilities: {},
-      clientInfo: { name: 'just-harness', version: '1.0.0' }
+      clientInfo: { name: 'barebone', version: '1.0.0' }
     })
     if (this.run !== run) throw new Error(`${this.agent} was restarted.`)
     this.initResult = initResult
@@ -1608,7 +1608,7 @@ export class AgentManager implements ChatsApi {
    * for the chat tools, which proves who calls.
    */
   private withChatId(chatId: string, text: string): string {
-    return `${text}\n\n(Your Just Harness chat ID is "${browserId(chatId)}". Pass it as the "browser" argument in every ${BROWSER_SERVER} tool call. For anything done in a browser, use the ${BROWSER_SERVER} tools, the browser panel in the app: never start Chrome, Safari or a headless browser yourself, or drive one with Playwright or Puppeteer, unless the user names that browser. Pass your private key "${chatKey(chatId)}" as "chat" in every ${CHATS_SERVER} tool call, and never put it in a message.)`
+    return `${text}\n\n(Your Barebone chat ID is "${browserId(chatId)}". Pass it as the "browser" argument in every ${BROWSER_SERVER} tool call. For anything done in a browser, use the ${BROWSER_SERVER} tools, the browser panel in the app: never start Chrome, Safari or a headless browser yourself, or drive one with Playwright or Puppeteer, unless the user names that browser. Pass your private key "${chatKey(chatId)}" as "chat" in every ${CHATS_SERVER} tool call, and never put it in a message.)`
   }
 
   /**
@@ -2347,7 +2347,7 @@ export class AgentManager implements ChatsApi {
         store.upsertItem(chat.id, {
           kind: 'notice',
           id: crypto.randomUUID(),
-          text: `Just Harness quit while this chat had ${what} going. Quitting stopped ${them}, so nothing will wake this chat for ${them}.`
+          text: `Barebone quit while this chat had ${what} going. Quitting stopped ${them}, so nothing will wake this chat for ${them}.`
         })
       )
       store.updateChat(chat.id, { background: undefined })

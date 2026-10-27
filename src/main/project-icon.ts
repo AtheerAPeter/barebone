@@ -1,6 +1,6 @@
 import { dialog, type BrowserWindow } from 'electron'
 import { existsSync } from 'node:fs'
-import { copyFile, mkdir, readFile, rm, stat } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rm, rmdir, stat } from 'node:fs/promises'
 import { extname, join } from 'node:path'
 import { listProjectFiles } from './files'
 
@@ -19,8 +19,12 @@ const CUSTOM_TYPES = ['png', 'svg', 'jpg', 'jpeg']
 const MAX_SIZE = 512 * 1024
 
 /** The icon the user chose for a project, kept in the project itself. */
-const customIcon = (projectPath: string, type: string): string =>
-  join(projectPath, '.just-harness', `icon.${type}`)
+const ICON_DIR = '.barebone'
+/** Where it was kept while the app was called Just Harness; still read. */
+const FORMER_ICON_DIR = '.just-harness'
+
+const customIcon = (projectPath: string, type: string, dir = ICON_DIR): string =>
+  join(projectPath, dir, `icon.${type}`)
 
 const found = new Map<string, Promise<string | null>>()
 
@@ -54,16 +58,22 @@ export async function chooseProjectIcon(
   const source = result.filePaths[0]
   if (result.canceled || !source) return undefined
   const type = extname(source).slice(1).toLowerCase()
-  await mkdir(join(projectPath, '.just-harness'), { recursive: true })
-  for (const other of CUSTOM_TYPES) await rm(customIcon(projectPath, other), { force: true })
+  await mkdir(join(projectPath, ICON_DIR), { recursive: true })
+  for (const dir of [ICON_DIR, FORMER_ICON_DIR]) {
+    for (const other of CUSTOM_TYPES) await rm(customIcon(projectPath, other, dir), { force: true })
+  }
+  // The former folder only ever held the icon; leave it if something else is in it.
+  await rmdir(join(projectPath, FORMER_ICON_DIR)).catch(() => undefined)
   await copyFile(source, customIcon(projectPath, type))
   found.delete(projectPath)
   return projectIcon(projectPath)
 }
 
 async function findIcon(projectPath: string): Promise<string | null> {
-  const custom = CUSTOM_TYPES.find((type) => existsSync(customIcon(projectPath, type)))
-  if (custom) return dataUrl(customIcon(projectPath, custom), custom)
+  for (const dir of [ICON_DIR, FORMER_ICON_DIR]) {
+    const custom = CUSTOM_TYPES.find((type) => existsSync(customIcon(projectPath, type, dir)))
+    if (custom) return dataUrl(customIcon(projectPath, custom, dir), custom)
+  }
 
   const pathspecs = NAMES.map((name) => `:(glob,icase)**/${name}.*`)
   const candidates = (await listProjectFiles(projectPath, pathspecs))

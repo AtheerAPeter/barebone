@@ -1,6 +1,6 @@
 # Third-party notices
 
-Just Harness includes code from the projects below under the Apache License, Version 2.0. The license text is at the end.
+Barebone includes code from the projects below under the Apache License, Version 2.0. The license text is at the end.
 
 ## Playwright
 

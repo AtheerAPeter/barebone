@@ -9,10 +9,12 @@ import {
   writeFileSync
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join, relative, isAbsolute } from 'node:path'
+import { basename, dirname, join, relative, isAbsolute } from 'node:path'
 import { parse } from 'yaml'
+import browserTutorialSkill from '../../resources/skills/browser-tutorial/SKILL.md?asset&asarUnpack'
 import type { AgentId, Skill, SkillScope } from '../shared/types'
 import { HARNESS_AGENTS } from './harness/provider'
+import { getState } from './store'
 
 /**
  * Where each CLI discovers skills (https://opencode.ai/docs/skills,
@@ -37,6 +39,15 @@ const PROJECT_DIRS: { dir: string; agents: AgentId[] }[] = [
   { dir: '.cline/skills', agents: ['cline'] },
   { dir: '.clinerules/skills', agents: ['cline'] },
   { dir: '.commandcode/skills', agents: ['commandcode', ...HARNESS_AGENTS] }
+]
+/**
+ * Skills that come with the app, each listed while its setting is on. The
+ * CLIs do not look in the app, so only the app's own agents discover them;
+ * the others are pointed to the file (see the browser tools' descriptions).
+ */
+export const BROWSER_TUTORIAL_SKILL = browserTutorialSkill
+const BUILTIN: { path: string; on: () => boolean }[] = [
+  { path: BROWSER_TUTORIAL_SKILL, on: () => getState().annotations === true }
 ]
 const PRIMARY_GLOBAL = GLOBAL_DIRS[0].dir
 /** Global folders that get a symlink to each global skill the app creates. */
@@ -88,6 +99,17 @@ export function listSkills(projectPath?: string): Skill[] {
       scan(join(projectPath, dir), 'project', agents, found)
   }
   for (const { dir, agents } of GLOBAL_DIRS) scan(dir, 'global', agents, found)
+  for (const { path, on } of BUILTIN) {
+    if (!on()) continue
+    const meta = parseFrontmatter(readFileSync(path, 'utf8'))
+    found.set(`builtin:${path}`, {
+      name: meta.name || basename(dirname(path)),
+      description: meta.description ?? '',
+      path,
+      scope: 'builtin',
+      agents: [...HARNESS_AGENTS]
+    })
+  }
   return [...found.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
@@ -107,7 +129,8 @@ function assertSkillPath(path: string, projectPath?: string): void {
 }
 
 export function readSkill(path: string, projectPath?: string): string {
-  assertSkillPath(path, projectPath)
+  // Built-in skills can be read, not changed.
+  if (!BUILTIN.some((skill) => skill.path === path)) assertSkillPath(path, projectPath)
   return readFileSync(path, 'utf8')
 }
 
@@ -121,6 +144,8 @@ export function createSkill(name: string, scope: SkillScope, projectPath?: strin
       'Skill names use lowercase letters, digits and single hyphens (max 64 characters).'
     )
   }
+  if (scope !== 'project' && scope !== 'global')
+    throw new Error(`Skills cannot be created in ${scope}.`)
   if (scope === 'project' && !projectPath) throw new Error('Select a project first.')
   const root = scope === 'project' ? join(projectPath!, '.claude/skills') : PRIMARY_GLOBAL
   const dir = join(root, name)

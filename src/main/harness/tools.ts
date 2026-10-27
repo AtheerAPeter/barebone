@@ -14,6 +14,7 @@ import {
 } from '../browser-mcp'
 import { chatKey, SERVER_NAME as CHATS_SERVER } from '../chats-mcp'
 import { exaKey } from '../exa-key'
+import { getState } from '../store'
 import { loadShellPath } from '../shell-env'
 import type { Part, ToolSpec } from './types'
 
@@ -330,7 +331,7 @@ const bash: Tool = {
     const { text: all, file } = await output.finish()
     let shown = tail(all)
     if (file || shown !== all) {
-      const path = file ?? join(tmpdir(), `just-harness-${crypto.randomUUID().slice(0, 8)}.log`)
+      const path = file ?? join(tmpdir(), `barebone-${crypto.randomUUID().slice(0, 8)}.log`)
       if (!file) await writeFile(path, all)
       shown += `\n\n[Output cut to its end. Full output: ${path}]`
     }
@@ -369,7 +370,7 @@ class CommandOutput {
     this.chunks.push(data)
     this.size += data.length
     if (!this.log && this.size > OUTPUT_IN_MEMORY) {
-      const path = join(tmpdir(), `just-harness-${crypto.randomUUID().slice(0, 8)}.log`)
+      const path = join(tmpdir(), `barebone-${crypto.randomUUID().slice(0, 8)}.log`)
       this.log = { path, stream: createWriteStream(path), dropped: false }
       // A failed write (a full disk) only costs the file; the end is still shown.
       this.log.stream.on('error', (error) => console.error('[harness] command log:', error))
@@ -562,7 +563,7 @@ export const WEB_SEARCH: Tool = {
     const body = await response.text()
     if (response.status === 429 && !key) {
       throw new Error(
-        "Exa's free search limit was reached. The user can add an Exa API key in Just Harness Settings."
+        "Exa's free search limit was reached. The user can add an Exa API key in Barebone Settings."
       )
     }
     if (!response.ok) throw new Error(`Exa answered ${response.status}: ${body.slice(0, 500)}`)
@@ -599,12 +600,18 @@ interface AppServer {
   kind: Tool['kind']
   /** Files a call touches, for project-only mode. */
   paths: (name: string, args: Record<string, unknown>) => string[]
+  /** The setting the server's tool list depends on; the tools are listed again when it changes. */
+  variant?: () => unknown
 }
 
-/** The tools of one of the app's servers, listed once per launch. */
+/** The tools of one of the app's servers, listed once per launch, and again when its variant changes. */
 function appServerTools(server: AppServer): () => Promise<Tool[]> {
   let connected: Promise<Tool[]> | undefined
+  let listedFor: unknown
   return async () => {
+    const variant = server.variant?.()
+    if (variant !== listedFor) connected = undefined
+    listedFor = variant
     connected ??= connectAppServer(server).catch((error) => {
       connected = undefined
       throw error
@@ -624,6 +631,8 @@ export const browserTools = appServerTools({
   chatValue: browserId,
   server: BROWSER_SERVER,
   kind: 'fetch',
+  // Settings adds or removes the tools that draw on pages.
+  variant: () => getState().annotations === true,
   paths: (name, args) =>
     name === 'upload' || name === 'paste_image'
       ? Object.values(args).flatMap(stringsIn)
@@ -647,7 +656,7 @@ async function connectAppServer(server: AppServer): Promise<Tool[]> {
   const { StreamableHTTPClientTransport } =
     await import('@modelcontextprotocol/sdk/client/streamableHttp.js')
   const endpoint = server.endpoint()
-  const client = new Client({ name: 'just-harness', version: '1.0.0' })
+  const client = new Client({ name: 'barebone', version: '1.0.0' })
   await client.connect(
     new StreamableHTTPClientTransport(new URL(endpoint.url), {
       requestInit: { headers: { Authorization: `Bearer ${endpoint.token}` } }

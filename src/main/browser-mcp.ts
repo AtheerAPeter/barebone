@@ -13,6 +13,9 @@ import { z } from 'zod'
 import { normalizeUrl, type BuiltinBrowser, type ChatPage, type PageDialog } from './browser'
 import { buildChatsServer, SERVER_NAME as CHATS_SERVER, type ChatsApi } from './chats-mcp'
 import { withTimeout, type Modifier } from './page-driver'
+import { COLORS, type Color, type Shape, type Target } from './page-overlay'
+import { BROWSER_TUTORIAL_SKILL } from './skills'
+import { getState } from './store'
 
 /**
  * An MCP server that drives the built-in browser, on loopback HTTP guarded by a
@@ -31,7 +34,7 @@ export const SERVER_NAME = 'harness_browser'
  * tools (opencode has one named `browser`), so say plainly which one to use.
  */
 export const BROWSER_GUIDANCE =
-  "These tools control the browser panel inside the user's Just Harness app. The user can watch it, " +
+  "These tools control the browser panel inside the user's Barebone app. The user can watch it, " +
   'and it is signed in to their accounts. It is the only browser to use: for anything done in a ' +
   'browser (opening a site, testing a web app, reading or filling a page, a screenshot, saving a page ' +
   'or an HTML file as a PDF), use these tools. Never start Chrome, Chromium, Safari or any other ' +
@@ -128,7 +131,7 @@ function dialogNote(dialog: PageDialog): string {
   const opened = `The page opened ${kind} from ${dialog.site}: ${JSON.stringify(dialog.message)}.`
   return dialog.answer
     ? `${opened} The page is paused until it is answered: call handle_dialog (accept or dismiss) before anything else on this page.`
-    : `${opened} Only the user can answer this one, in Just Harness; ask them to, then continue.`
+    : `${opened} Only the user can answer this one, in Barebone; ask them to, then continue.`
 }
 
 /** Mentions a dialog the page opened, for the end of a tool result. */
@@ -273,6 +276,53 @@ const pointArg = {
   y: z.number().describe('Pixels from the top edge of the latest screenshot')
 }
 
+/** What a drawing marks: an element, or a point of the latest screenshot. */
+const markArgs = {
+  ref: z
+    .string()
+    .optional()
+    .describe(
+      'Element ref from the latest snapshot, like e12. Drawings on elements follow them as the page scrolls.'
+    ),
+  x: pointArg.x
+    .optional()
+    .describe('Without ref: pixels from the left edge of the latest screenshot'),
+  y: pointArg.y
+    .optional()
+    .describe('Without ref: pixels from the top edge of the latest screenshot')
+}
+
+const colorArg = z.enum(COLORS).optional().describe('red if left out')
+
+/**
+ * The longest one wait for the user's click lasts. MCP clients give up on a
+ * tool call after 60 s by default (the MCP SDK, Cline), so a longer wait is
+ * made of several calls.
+ */
+const CLICK_WAIT_SECONDS = 50
+
+/** A drawing's target from its ref, or its x and y (and size); `what` names it in errors. */
+function markTarget(
+  mark: { ref?: string; x?: number; y?: number; width?: number; height?: number },
+  what: string
+): Target {
+  if (mark.ref) {
+    if (mark.x !== undefined || mark.y !== undefined) {
+      throw new Error(`${what}: pass either ref or x and y, not both.`)
+    }
+    return { ref: mark.ref }
+  }
+  if (mark.x === undefined || mark.y === undefined) {
+    throw new Error(`${what}: pass a ref, or x and y.`)
+  }
+  return { x: mark.x, y: mark.y, width: mark.width, height: mark.height }
+}
+
+/** How a drawing's target reads in a tool result. */
+function described(target: Target): string {
+  return 'ref' in target ? target.ref : `(${target.x}, ${target.y})`
+}
+
 export interface BrowserRouting {
   /** The chat whose browser ID this is (IDs are the start of the chat id). */
   chatForBrowserId(id: string): string | undefined
@@ -371,7 +421,7 @@ async function buildServer(
     'navigate',
     {
       description:
-        "Open a URL in the user's Just Harness browser (signed in to their accounts) and return the page snapshot. Use these tools for anything done in a browser: never start Chrome, Safari or a headless browser yourself, or drive one with Playwright or Puppeteer, unless the user names that browser. After changing code a page shows, use it to check the change works before you call it done: start the dev server, open the page, try the feature, and check the console for errors. Test only with actions safe to repeat: never send, pay, delete, publish or spend credits to test unless the user asked.",
+        "Open a URL in the user's Barebone browser (signed in to their accounts) and return the page snapshot. Use these tools for anything done in a browser: never start Chrome, Safari or a headless browser yourself, or drive one with Playwright or Puppeteer, unless the user names that browser. After changing code a page shows, use it to check the change works before you call it done: start the dev server, open the page, try the feature, and check the console for errors. Test only with actions safe to repeat: never send, pay, delete, publish or spend credits to test unless the user asked.",
       inputSchema: { url: z.string().describe('URL to open'), ...pageArgs }
     },
     ({ url, browser: id, tab }) => act(id, tab, (page) => load(page, url))
@@ -789,7 +839,7 @@ async function buildServer(
       act(id, tab, async (page) => {
         if (browser.windowHidden) {
           throw new Error(
-            "Just Harness's window is closed or minimized, so pages cannot be captured now. Use snapshot to read the page."
+            "Barebone's window is closed or minimized, so pages cannot be captured now. Use snapshot to read the page."
           )
         }
         const result = await untilDialog(page, () => page.driver.screenshot())
@@ -868,6 +918,196 @@ async function buildServer(
         return text(log.map((entry) => `${entry.level}\t${entry.text}`).join('\n'))
       })
   )
+
+  // Drawing on pages, for teaching and explaining; only listed when Settings turns it on.
+  if (getState().annotations) {
+    server.registerTool(
+      'annotate',
+      {
+        description: `Draw on the page for the user to see, to teach or explain: a box around an element or area, or an arrow pointing at one, each with an optional label. Drawings take no clicks, are not in snapshots, and stay until clear_annotations or the page navigates. Check them with a screenshot. Before a tutorial, walkthrough or explanation of a page, read the browser-tutorial skill: ${BROWSER_TUTORIAL_SKILL}`,
+        inputSchema: {
+          shapes: z
+            .array(
+              z.object({
+                type: z
+                  .enum(['box', 'arrow'])
+                  .describe('box: a frame around it. arrow: points at it.'),
+                ...markArgs,
+                width: z.number().optional().describe('A box at x and y: its width in pixels'),
+                height: z.number().optional().describe('A box at x and y: its height in pixels'),
+                text: z
+                  .string()
+                  .optional()
+                  .describe('A short label: above a box, at the tail of an arrow'),
+                from_ref: z
+                  .string()
+                  .optional()
+                  .describe(
+                    'Arrow: the element it starts from. With neither from_ref nor from_x and from_y, it starts up and to the side of what it points at.'
+                  ),
+                from_x: z
+                  .number()
+                  .optional()
+                  .describe('Arrow: where it starts, in screenshot pixels'),
+                from_y: z
+                  .number()
+                  .optional()
+                  .describe('Arrow: where it starts, in screenshot pixels'),
+                color: colorArg
+              })
+            )
+            .min(1)
+            .max(12),
+          clear: z.boolean().optional().describe('Remove the shapes drawn before first'),
+          ...pageArgs
+        }
+      },
+      ({ shapes, clear, browser: id, tab }) =>
+        act(id, tab, async (page) => {
+          const drawn = shapes.map((shape, n): Shape => {
+            const what = `Shape ${n + 1} (${shape.type})`
+            const target = markTarget(shape, what)
+            const color: Color = shape.color ?? 'red'
+            if (shape.type === 'box') {
+              if (!('ref' in target) && !(target.width && target.height)) {
+                throw new Error(`${what}: a box at x and y needs a width and height.`)
+              }
+              return { kind: 'box', target, label: shape.text, color }
+            }
+            const from =
+              shape.from_ref || shape.from_x !== undefined || shape.from_y !== undefined
+                ? markTarget(
+                    { ref: shape.from_ref, x: shape.from_x, y: shape.from_y },
+                    `${what} start`
+                  )
+                : undefined
+            return { kind: 'arrow', target, from, label: shape.text, color }
+          })
+          const result = await untilDialog(page, () =>
+            page.driver.overlay({ type: 'draw', shapes: drawn, clear: clear ?? false })
+          )
+          if ('dialog' in result) return text(dialogNote(result.dialog))
+          const { revealed, shapes: total } = result.value
+          return text(
+            `Drew ${drawn.length} shape${drawn.length === 1 ? '' : 's'}; ${total} on the page now.${revealed ? ` Scrolled ${revealed} into view.` : ''} Take a screenshot to check them.`
+          )
+        })
+    )
+
+    server.registerTool(
+      'point',
+      {
+        description:
+          'Show a pointer on the page and glide it to an element or point, with an optional message beside it, to show the user where to look or what to click. It does not click. With neither ref nor x and y, the pointer goes away.',
+        inputSchema: {
+          ...markArgs,
+          text: z.string().optional().describe('A short message beside the pointer'),
+          color: colorArg,
+          ...pageArgs
+        }
+      },
+      ({ ref, x, y, text: message, color, browser: id, tab }) =>
+        act(id, tab, async (page) => {
+          const hide = !ref && x === undefined && y === undefined
+          const target = hide ? undefined : markTarget({ ref, x, y }, 'The pointer')
+          const result = await untilDialog(page, () =>
+            page.driver.overlay({ type: 'point', target, text: message, color: color ?? 'red' })
+          )
+          if ('dialog' in result) return text(dialogNote(result.dialog))
+          if (!target) return text('The pointer is gone.')
+          const { revealed } = result.value
+          return text(
+            `The pointer is on ${described(target)}.${revealed ? ` Scrolled ${revealed} into view.` : ''}`
+          )
+        })
+    )
+
+    server.registerTool(
+      'caption',
+      {
+        description:
+          'Show a message on the page, on a card at the bottom (or top) of the browser panel: what a step of a tutorial is about, or what the user is looking at. It replaces the caption shown before; empty text removes it.',
+        inputSchema: {
+          text: z.string().describe('The message, a sentence or two'),
+          position: z.enum(['bottom', 'top']).optional().describe('bottom if left out'),
+          ...pageArgs
+        }
+      },
+      ({ text: message, position, browser: id, tab }) =>
+        act(id, tab, async (page) => {
+          const result = await untilDialog(page, () =>
+            page.driver.overlay({
+              type: 'caption',
+              text: message.trim(),
+              position: position ?? 'bottom'
+            })
+          )
+          if ('dialog' in result) return text(dialogNote(result.dialog))
+          return text(message.trim() ? 'Showing the caption.' : 'Removed the caption.')
+        })
+    )
+
+    server.registerTool(
+      'wait_for_click',
+      {
+        description: `Wait for the user to click on the page, for feedback in a tutorial: show them what to click (point, caption), then call this. It returns their first click: what they clicked and, with ref, whether it was that element. One wait lasts at most ${CLICK_WAIT_SECONDS}s; when it ends without a click, call it again to keep waiting, or ask in the chat. It watches the page, or the iframe that holds ref.`,
+        inputSchema: {
+          ref: z
+            .string()
+            .optional()
+            .describe('The element the user should click, from the latest snapshot'),
+          seconds: z
+            .number()
+            .int()
+            .min(5)
+            .max(CLICK_WAIT_SECONDS)
+            .optional()
+            .describe(`How long to wait; ${CLICK_WAIT_SECONDS} if left out`),
+          ...pageArgs
+        }
+      },
+      ({ ref, seconds, browser: id, tab }, { signal }) =>
+        act(id, tab, async (page) => {
+          const before = page.contents.getURL()
+          const wait = seconds ?? CLICK_WAIT_SECONDS
+          const result = await untilDialog(page, () =>
+            page.awaitUser(() => page.driver.waitForClick(ref, wait * 1000, signal))
+          )
+          if ('dialog' in result) return text(dialogNote(result.dialog))
+          const click = result.value
+          if ('ended' in click) {
+            if (click.ended === 'navigated') {
+              return acted(page, 'The page changed before the user clicked.', before)
+            }
+            if (click.ended === 'cancelled') return text('Stopped waiting.')
+            return text(
+              `The user did not click within ${wait}s. Call wait_for_click again to keep waiting, or ask them in the chat.`
+            )
+          }
+          const done =
+            ref === undefined
+              ? `The user clicked ${click.clicked}.`
+              : click.onTarget
+                ? `The user clicked ${ref} (${click.clicked}), as asked.`
+                : `The user clicked ${click.clicked}, not ${ref}.`
+          return acted(page, done, before)
+        })
+    )
+
+    server.registerTool(
+      'clear_annotations',
+      {
+        description: 'Remove every drawing from the page: shapes, the pointer and the caption.',
+        inputSchema: { ...pageArgs }
+      },
+      ({ browser: id, tab }) =>
+        act(id, tab, async (page) => {
+          const result = await untilDialog(page, () => page.driver.overlay({ type: 'clear' }))
+          if ('dialog' in result) return text(dialogNote(result.dialog))
+          return text('Removed the drawings, the pointer and the caption.')
+        })
+    )
+  }
 
   return server
 }
