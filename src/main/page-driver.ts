@@ -183,6 +183,8 @@ const WATCH_CLICK = `function (ref, id) {
     return name ? role + ' "' + name + '"' : role;
   };
   const onClick = (event) => {
+    // A click the page made itself, with element.click() or dispatchEvent, is not the user's.
+    if (!event.isTrusted) return;
     stop();
     const path = event.composedPath();
     globalThis.${CLICKED}(JSON.stringify({
