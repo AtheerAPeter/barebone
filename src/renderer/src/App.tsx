@@ -6,7 +6,7 @@ import { SkillsView } from './components/SkillsView'
 import { SettingsView } from './components/SettingsView'
 import { BrowserPanel } from './components/BrowserPanel'
 import { ProjectPicker } from './components/ProjectPicker'
-import { ChatIcon, ComposeIcon, GlobeIcon, SidebarIcon } from './components/icons'
+import { ChatIcon, ComposeIcon, GlobeIcon, OrbIcon, SidebarIcon } from './components/icons'
 import { readPref, writePref } from './lib/prefs'
 import { waitingOn } from './lib/background'
 
@@ -22,6 +22,9 @@ export default function App(): React.JSX.Element {
   const [view, setView] = useState<'chat' | 'skills' | 'settings'>('chat')
   const [sidebarOpen, setSidebarOpen] = useState(() => readPref('sidebarOpen', true))
   const [browserWidth, setBrowserWidth] = useState(() => readPref('browserWidth', 520))
+  /** The chat is folded into the agent orb over the browser, while the browser is open. */
+  const [chatFolded, setChatFolded] = useState(() => readPref('chatFolded', false))
+  const mainRef = useRef<HTMLElement>(null)
   /** Whether the user is picking the project of a new chat. */
   const [picking, setPicking] = useState(false)
   const [statuses, setStatuses] = useState<Partial<Record<AgentId, AgentStatus>>>({})
@@ -56,6 +59,9 @@ export default function App(): React.JSX.Element {
   }, [selectedChatId])
   useEffect(() => writePref('sidebarOpen', sidebarOpen), [sidebarOpen])
   useEffect(() => writePref('browserWidth', browserWidth), [browserWidth])
+  useEffect(() => writePref('chatFolded', chatFolded), [chatFolded])
+  // Clicking the orb, or one of its subtitles, brings the chat back.
+  useEffect(() => window.api.orb.onUnfold(() => setChatFolded(false)), [])
 
   const chat = state.chats.find((c) => c.id === selectedChatId)
   // Between turns, what will wake the chat, so it does not look done.
@@ -70,6 +76,9 @@ export default function App(): React.JSX.Element {
     const current = stateRef.current.chats.find((c) => c.id === chatId)
     window.api.browser.setOpen(chatId, open ?? !current?.browserOpen)
   }, [])
+
+  // Folding needs the browser beside the chat; Skills and Settings always show whole.
+  const folded = chatFolded && browserOpen && view === 'chat' && Boolean(chat)
 
   // Each chat has its own browser page; the panel shows the selected chat's.
   const chatId = chat?.id
@@ -127,7 +136,7 @@ export default function App(): React.JSX.Element {
   }
 
   return (
-    <div className={`app${sidebarOpen ? '' : ' sidebar-hidden'}`}>
+    <div className={`app${sidebarOpen ? '' : ' sidebar-hidden'}${folded ? ' chat-folded' : ''}`}>
       {/* Stays mounted so hiding it can slide instead of cut. */}
       <Sidebar
         open={sidebarOpen}
@@ -144,7 +153,8 @@ export default function App(): React.JSX.Element {
         onShowSettings={() => setView((v) => (v === 'settings' ? 'chat' : 'settings'))}
         onHide={() => setSidebarOpen(false)}
       />
-      <main className="main">
+      {/* Hidden, not unmounted, while folded: the chat keeps its place and its live output. */}
+      <main className="main" ref={mainRef}>
         <header className="topbar">
           {/* With the sidebar hidden, its toggle and New chat move here, as in ChatGPT. */}
           {!sidebarOpen && (
@@ -194,6 +204,15 @@ export default function App(): React.JSX.Element {
             </span>
           )}
           <span className="spacer" />
+          {browserOpen && view === 'chat' && chat && (
+            <button
+              className="icon-btn"
+              title="Fold the chat into an orb over the browser"
+              onClick={() => setChatFolded(true)}
+            >
+              <OrbIcon />
+            </button>
+          )}
           <button
             className={`icon-btn${browserOpen ? ' on' : ''}`}
             title="Toggle browser (⇧⌘B)"
@@ -219,6 +238,7 @@ export default function App(): React.JSX.Element {
             projectPath={project.path}
             onAgentChange={changeAgent}
             onOptionChange={changeOption}
+            folded={folded}
           />
         ) : (
           <div className="welcome">
@@ -257,6 +277,22 @@ export default function App(): React.JSX.Element {
           width={browserWidth}
           onResize={setBrowserWidth}
           onClose={() => toggleBrowser(chat?.id, false)}
+          chatRef={mainRef}
+          chatFolded={folded}
+          onFoldChat={() => setChatFolded(true)}
+          leading={
+            // The chat's top bar is folded away with it, and its sidebar button too.
+            folded &&
+            !sidebarOpen && (
+              <button
+                className="icon-btn"
+                title="Show sidebar (⌘B)"
+                onClick={() => setSidebarOpen(true)}
+              >
+                <SidebarIcon />
+              </button>
+            )
+          }
         />
       )}
     </div>

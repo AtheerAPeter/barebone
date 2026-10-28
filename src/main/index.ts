@@ -12,6 +12,7 @@ import type {
   Chat,
   ChatItem,
   CustomProviderInput,
+  OrbState,
   Project,
   Rect,
   SkillScope,
@@ -32,6 +33,7 @@ import {
   saveCustomProvider
 } from './harness/custom'
 import { installMenu } from './menu'
+import { AgentOrb } from './orb'
 import { loadShellPath } from './shell-env'
 import * as skills from './skills'
 import { listProjectFiles } from './files'
@@ -146,6 +148,21 @@ function createWindow(): BuiltinBrowser {
       }
     }
   )
+
+  // The folded chat's orb, over the browser's page.
+  const orb = new AgentOrb(mainWindow, () => send('orb:unfold'))
+  browser.onPageArea = (area) => orb.setArea(area)
+  ipcMain.on('orb:state', (event, state: OrbState | null) => {
+    if (event.sender === mainWindow.webContents) orb.setState(state)
+  })
+  ipcMain.on('orb:level', (event, level: number) => {
+    if (event.sender === mainWindow.webContents) orb.setLevel(level)
+  })
+  ipcMain.on('orb:draft', (event, text: string) => {
+    if (event.sender === mainWindow.webContents) orb.draft(text)
+  })
+  // Right ⌘ held while the app lost focus: its keyup goes elsewhere, so the recording ends here.
+  mainWindow.on('blur', () => send('voice:blur'))
 
   // Links in chat messages open in the built-in browser, not the system one.
   // Other schemes (mailto: and the like) still go to their macOS handler.
@@ -393,6 +410,18 @@ app.on('second-instance', () => {
 // Clicking the Dock icon brings back a closed (hidden) window.
 app.on('activate', () => {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
+})
+
+// Right ⌘ held alone is push to talk (renderer/src/lib/voice.ts), wherever the
+// keyboard is: the chat, a browser page or the agent orb. The window learns
+// when right ⌘ goes down and up, and that another key went down with it (a
+// shortcut, not talking); never which keys are typed.
+app.on('web-contents-created', (_event, contents) => {
+  contents.on('before-input-event', (_e, input) => {
+    if (!mainWindow || (input.type !== 'keyDown' && input.type !== 'keyUp')) return
+    if (input.code === 'MetaRight') send('voice:key', input.type, input.isAutoRepeat)
+    else if (input.type === 'keyDown' && input.meta) send('voice:key', 'combo', false)
+  })
 })
 
 app.setName('Barebone')

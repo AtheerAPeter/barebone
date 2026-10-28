@@ -1,0 +1,390 @@
+/*
+ * The agent orb (Orb.tsx). Its view is transparent over the browser page, so
+ * only what is drawn here covers the page. The subtitles are dark in both
+ * themes: they sit on whatever the page shows.
+ */
+
+:root {
+  --accent: #3b7bf6;
+  --amber: #f5b14a;
+  --line: rgba(255, 255, 255, 0.14);
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+  font:
+    13px/1.4 -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    system-ui,
+    sans-serif;
+  color: #f2f2f2;
+  user-select: none;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+}
+
+button {
+  cursor: pointer;
+}
+
+/* Anchored in the view's corner; the view is sized to it. Room for shadows all round. */
+.orb-root {
+  position: fixed;
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  width: max-content;
+  box-sizing: border-box;
+}
+
+.orb-root.bottom-left {
+  left: 0;
+  bottom: 0;
+  align-items: flex-end;
+}
+
+.orb-root.bottom-right {
+  right: 0;
+  bottom: 0;
+  flex-direction: row-reverse;
+  align-items: flex-end;
+}
+
+.orb-root.top-left {
+  left: 0;
+  top: 0;
+  align-items: flex-start;
+}
+
+.orb-root.top-right {
+  right: 0;
+  top: 0;
+  flex-direction: row-reverse;
+  align-items: flex-start;
+}
+
+.orb {
+  position: relative;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: radial-gradient(circle at 35% 30%, #4a83ff, #1e3a8a 70%);
+  box-shadow:
+    /* Reaches 12px below at most: the room the root leaves, so it is never cut. */
+    0 4px 12px -4px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255, 255, 255, 0.18) inset;
+  touch-action: none;
+}
+
+/* A ring turns around the orb while the agent works. */
+.orb.working::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: #9cc0ff;
+  border-right-color: rgba(156, 192, 255, 0.35);
+  animation: spin 1.1s linear infinite;
+}
+
+/* Waiting on the user: amber, and pulsing. */
+.orb.waiting {
+  background: radial-gradient(circle at 35% 30%, #ffd08a, #c7811a 70%);
+}
+
+.orb.waiting::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid rgba(245, 177, 74, 0.55);
+  animation: pulse 1.6s ease-out infinite;
+}
+
+/* Listening to the user: red, with a ring that grows with their voice (--level, 0 to 1). */
+.orb.listening {
+  --level: 0;
+  background: radial-gradient(circle at 35% 30%, #ff7a6e, #b4231a 70%);
+}
+
+.orb.listening::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 122, 110, 0.7);
+  /* At most 65px across: within the 68px the root's padding leaves around the 44px orb. */
+  transform: scale(calc(1 + var(--level) * 0.25));
+  opacity: calc(0.35 + var(--level) * 0.65);
+  transition:
+    transform 60ms linear,
+    opacity 60ms linear;
+}
+
+.sub.voice {
+  align-items: center;
+  color: #fff;
+}
+
+.voice-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #ff5a4e;
+  animation: voice-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes voice-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Newest nearest the orb: at the bottom in the bottom corners, at the top in the top ones. */
+.orb-column {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.top-left .orb-column,
+.top-right .orb-column {
+  flex-direction: column-reverse;
+}
+
+.bottom-left .orb-column,
+.top-left .orb-column {
+  align-items: flex-start;
+}
+
+.bottom-right .orb-column,
+.top-right .orb-column {
+  align-items: flex-end;
+}
+
+.sub {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: rgba(12, 12, 12, 0.9);
+  box-shadow: 0 6px 18px -8px rgba(0, 0, 0, 0.6);
+  text-align: left;
+  animation: rise 0.45s ease-out;
+}
+
+.sub > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Messages and thoughts wrap to two lines; a call stays one. */
+.sub.say > span:last-child,
+.sub.thought > span:last-child,
+.sub.ask > span:last-child,
+.sub.error > span:last-child {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.sub.call {
+  color: #c9c9c9;
+  font-size: 12.5px;
+  align-items: center;
+}
+
+.sub-target {
+  color: #fff;
+}
+
+.sub.thought {
+  color: #c4c4c4;
+}
+
+.sub-label {
+  flex-shrink: 0;
+  color: #8f8f8f;
+  font-weight: 600;
+}
+
+.sub.ask {
+  background: rgba(60, 40, 8, 0.94);
+}
+
+.sub.ask .sub-label {
+  color: var(--amber);
+}
+
+.sub.error {
+  background: rgba(70, 14, 12, 0.92);
+}
+
+/* Older lines keep their backing so they stay readable on any page; only the text dims. */
+.sub.old,
+.sub.old .sub-target {
+  color: #a8a8a8;
+}
+
+.sub.older,
+.sub.older .sub-target {
+  color: #6f6f6f;
+}
+
+.sub-spinner {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.6px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  animation: spin 0.8s linear infinite;
+}
+
+/* A light band sweeps across what runs now, as in the chat. */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    #8f8f8f 0%,
+    #8f8f8f 40%,
+    #f2f2f2 50%,
+    #8f8f8f 60%,
+    #8f8f8f 100%
+  );
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: sweep 2s linear infinite;
+}
+
+.orb-input {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 360px;
+  max-width: 100%;
+  height: 40px;
+  padding: 0 4px 0 14px;
+  box-sizing: border-box;
+  border-radius: 20px;
+  background: rgba(18, 18, 18, 0.96);
+  border: 1px solid var(--line);
+  box-shadow: 0 14px 34px -12px rgba(0, 0, 0, 0.7);
+  animation: rise 0.2s ease-out;
+}
+
+.orb-input input {
+  flex: 1;
+  min-width: 0;
+  outline: none;
+  user-select: text;
+}
+
+.orb-input input::placeholder {
+  color: #8f8f8f;
+}
+
+.orb-icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #b4b4b4;
+}
+
+.orb-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.orb-send {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: #fff;
+}
+
+.orb-send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse {
+  from {
+    transform: scale(0.9);
+    opacity: 1;
+  }
+  to {
+    /* 67px across at most, inside the root's padding like the voice ring. */
+    transform: scale(1.2);
+    opacity: 0;
+  }
+}
+
+@keyframes sweep {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sub,
+  .orb-input {
+    animation: none;
+  }
+  .orb.working::before,
+  .sub-spinner,
+  .shimmer {
+    animation-duration: 3s;
+  }
+}

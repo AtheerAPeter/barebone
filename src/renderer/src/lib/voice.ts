@@ -10,16 +10,22 @@ export type VoiceState = 'idle' | 'recording' | 'transcribing'
 const HOLD_MS = 250
 /** Shorter recordings are dropped: nothing was said, and Whisper makes up words for silence. */
 const MIN_RECORDING_MS = 500
+/** The loudness range the level spans: quieter is 0, louder is 1. */
+const QUIET_DB = -55
+const LOUD_DB = -12
 
 /**
  * Voice input for the composer, push to talk: hold the mic button or right ⌘
  * while speaking, and on letting go the text Whisper heard goes to `onText`.
  * A click on the button records until the next click instead. A recording
  * still going when the composer goes away (another chat opened) is dropped.
+ * While recording, `level` holds how loud the microphone is, 0 to 1, for
+ * meters that redraw every frame without re-rendering.
  */
 export function useVoiceInput(onText: (text: string) => void): {
   state: VoiceState
   error?: string
+  level: React.RefObject<number>
   /** The mic button went down. */
   press: () => void
   /** The mic button came up. */
@@ -27,6 +33,7 @@ export function useVoiceInput(onText: (text: string) => void): {
 } {
   const [state, setState] = useState<VoiceState>('idle')
   const [error, setError] = useState<string>()
+  const level = useRef(0)
   const recorder = useRef<MediaRecorder>(undefined)
   /** From a start until the recorder runs or the start fails. */
   const starting = useRef(false)
@@ -76,11 +83,13 @@ export function useVoiceInput(onText: (text: string) => void): {
         return
       }
       const started = new MediaRecorder(stream)
+      const stopMeasuring = measure(stream, level)
       let startedAt = 0
       const chunks: Blob[] = []
       started.onstart = (e) => (startedAt = e.timeStamp)
       started.ondataavailable = (e) => chunks.push(e.data)
       started.onstop = (e) => {
+        stopMeasuring()
         stream.getTracks().forEach((track) => track.stop())
         // Dropped: the composer went away.
         if (recorder.current !== started) return
@@ -131,22 +140,22 @@ export function useVoiceInput(onText: (text: string) => void): {
     if (at !== undefined && Date.now() - at >= HOLD_MS) stop()
   }
 
-  const onKeyDown = useEffectEvent((e: KeyboardEvent) => {
-    if (e.code === 'MetaRight' && !e.repeat) {
+  /** Right ⌘ went down, or another key while it was held (a shortcut, not talking). */
+  const onKeyDown = useEffectEvent((key: 'keyDown' | 'combo', repeat: boolean) => {
+    if (key === 'keyDown' && !repeat) {
       if (state !== 'idle') return
       keyTimer.current = setTimeout(() => {
         keyTimer.current = undefined
         keyHeld.current = true
         start()
       }, HOLD_MS)
-    } else if (keyTimer.current) {
-      // Right ⌘ with another key: a shortcut.
+    } else if (key === 'combo' && keyTimer.current) {
       clearTimeout(keyTimer.current)
       keyTimer.current = undefined
     }
   })
 
-  /** Right ⌘ let go, or the window left while it was held (its keyup then never comes). */
+  /** Right ⌘ let go, or the app lost focus while it was held (its keyup then goes elsewhere). */
   const onKeyRelease = useEffectEvent(() => {
     clearTimeout(keyTimer.current)
     keyTimer.current = undefined
@@ -155,22 +164,43 @@ export function useVoiceInput(onText: (text: string) => void): {
     stop()
   })
 
+  // From the main process, which sees right ⌘ wherever the keyboard is in the app.
   useEffect(() => {
-    const down = (e: KeyboardEvent): void => onKeyDown(e)
-    const up = (e: KeyboardEvent): void => {
-      if (e.code === 'MetaRight') onKeyRelease()
-    }
-    const blur = (): void => onKeyRelease()
-    window.addEventListener('keydown', down)
-    window.addEventListener('keyup', up)
-    window.addEventListener('blur', blur)
+    const offKey = window.api.voice.onKey((key, repeat) => {
+      if (key === 'keyUp') onKeyRelease()
+      else onKeyDown(key, repeat)
+    })
+    const offBlur = window.api.voice.onBlur(() => onKeyRelease())
     return () => {
-      window.removeEventListener('keydown', down)
-      window.removeEventListener('keyup', up)
-      window.removeEventListener('blur', blur)
+      offKey()
+      offBlur()
       clearTimeout(keyTimer.current)
     }
   }, [])
 
-  return { state, error, press, release }
+  return { state, error, level, press, release }
+}
+
+/**
+ * Keep `level` at how loud the microphone is, every frame, until the returned
+ * function is called.
+ */
+function measure(stream: MediaStream, level: React.RefObject<number>): () => void {
+  const context = new AudioContext()
+  const analyser = context.createAnalyser()
+  context.createMediaStreamSource(stream).connect(analyser)
+  const samples = new Float32Array(analyser.fftSize)
+  let frame = requestAnimationFrame(function read() {
+    analyser.getFloatTimeDomainData(samples)
+    let power = 0
+    for (const sample of samples) power += sample * sample
+    const db = 10 * Math.log10(power / samples.length || 1e-10)
+    level.current = Math.min(1, Math.max(0, (db - QUIET_DB) / (LOUD_DB - QUIET_DB)))
+    frame = requestAnimationFrame(read)
+  })
+  return () => {
+    cancelAnimationFrame(frame)
+    level.current = 0
+    context.close()
+  }
 }

@@ -7,9 +7,12 @@ import type {
   Chat,
   ChatBackground,
   ChatItem,
+  OrbLine,
+  OrbState,
   Skill
 } from '../../../shared/types'
 import { renderMarkdown } from '../lib/markdown'
+import type { VoiceState } from '../lib/voice'
 import { Composer } from './Composer'
 import { Collapse } from './Collapse'
 import { Thumbnails } from './Thumbnails'
@@ -38,6 +41,8 @@ interface ChatViewProps {
   projectPath: string
   onAgentChange: (agent: AgentId, settings: Record<string, string>) => void
   onOptionChange: (optionId: string, value: string) => Promise<void>
+  /** The chat is folded away; the agent orb over the browser shows what it does. */
+  folded: boolean
 }
 
 export function ChatView({
@@ -45,7 +50,8 @@ export function ChatView({
   statuses,
   projectPath,
   onAgentChange,
-  onOptionChange
+  onOptionChange,
+  folded
 }: ChatViewProps): React.JSX.Element {
   const [items, setItems] = useState<ChatItem[]>([])
   const [options, setOptions] = useState<AgentOption[]>()
@@ -142,6 +148,24 @@ export function ChatView({
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [chat.id, chat.running])
 
+  // While folded, the orb shows what the agent says and does, as it happens,
+  // and that the user's voice is being heard.
+  const [voice, setVoice] = useState<VoiceState>('idle')
+  const orb = useMemo(
+    (): OrbState | null =>
+      folded
+        ? {
+            chatId: chat.id,
+            status: chat.waiting ? 'waiting' : chat.running ? 'working' : 'idle',
+            lines: orbLines(items),
+            ...(voice === 'idle' ? {} : { voice })
+          }
+        : null,
+    [folded, chat.id, chat.running, chat.waiting, items, voice]
+  )
+  useEffect(() => window.api.orb.update(orb), [orb])
+  useEffect(() => () => window.api.orb.update(null), [])
+
   // Follow new output unless the user has scrolled up to read.
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -193,6 +217,8 @@ export function ChatView({
           projectPath={projectPath}
           onAgentChange={onAgentChange}
           onOptionChange={onOptionChange}
+          folded={folded}
+          onVoiceChange={setVoice}
         />
       </div>
     </div>
@@ -1264,6 +1290,50 @@ function BackgroundStrip({
       )}
     </div>
   )
+}
+
+/** The agent orb's subtitles at most. */
+const ORB_LINES = 3
+/** Longer messages and thoughts show their end, as subtitles do: what the agent says now. */
+const ORB_TEXT = 140
+
+/**
+ * The orb's subtitles: what the agent said, thought and did in the current
+ * turn, newest last. A subagent's own calls stay with its line in the chat.
+ */
+function orbLines(items: ChatItem[]): OrbLine[] {
+  const lines: OrbLine[] = []
+  for (const item of items.slice(items.findLastIndex((i) => i.kind === 'user') + 1)) {
+    if (item.kind === 'text' || item.kind === 'thought' || item.kind === 'error') {
+      const text = spoken(item.text)
+      if (text) lines.push({ id: item.id, kind: item.kind === 'text' ? 'say' : item.kind, text })
+    } else if (item.kind === 'tool' && !item.parentId) {
+      const live = isRunning(item)
+      const [done, doing] = callVerb(item)
+      lines.push({
+        id: item.id,
+        kind: 'call',
+        verb: live ? doing : done,
+        text: toolKindAndTarget(item)[1],
+        live
+      })
+    } else if (item.kind === 'permission' && item.resolved === undefined) {
+      lines.push({ id: item.id, kind: 'ask', text: item.question ?? item.title })
+    }
+  }
+  return lines.slice(-ORB_LINES)
+}
+
+/** A message as one line of plain text, its end when it is long. */
+function spoken(text: string): string {
+  const plain = text
+    .replace(/^#+\s*/gm, '')
+    .replace(/\*\*|`/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (plain.length <= ORB_TEXT) return plain
+  const end = plain.slice(-ORB_TEXT)
+  return `…${end.slice(end.indexOf(' ') + 1)}`
 }
 
 /** "12s", then "1m 05s", then "1h 02m 05s", like Codex's status line. */

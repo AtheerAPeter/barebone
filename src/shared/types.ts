@@ -395,6 +395,31 @@ export type ChatItem =
   /** Something the app tells the user about the chat, such as a finished compaction. */
   | { kind: 'notice'; id: string; text: string }
 
+/**
+ * A subtitle next to the agent orb: something the agent said or thought, a
+ * tool call (`verb` and what it acted on, `live` while it runs), a question
+ * waiting for the user, or an error.
+ */
+export interface OrbLine {
+  id: string
+  kind: 'say' | 'thought' | 'call' | 'ask' | 'error'
+  text: string
+  verb?: string
+  live?: boolean
+}
+
+/** What the agent orb shows for the selected chat while the chat is folded away. */
+export interface OrbState {
+  chatId: string
+  status: 'working' | 'waiting' | 'idle'
+  lines: OrbLine[]
+  /** The user is dictating (push to talk), or what they said is being written out. */
+  voice?: 'recording' | 'transcribing'
+}
+
+/** The corner of the browser page the agent orb sits in. */
+export type OrbCorner = 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right'
+
 /** A chat's browser tabs as saved between launches: their pages and which one was active. */
 export interface SavedTabs {
   urls: string[]

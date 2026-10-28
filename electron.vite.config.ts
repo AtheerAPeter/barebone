@@ -28,7 +28,9 @@ export default defineConfig({
           index: resolve('src/preload/index.ts'),
           // Imports nothing but `electron`, so it builds to one file: a sandboxed
           // preload cannot load other files.
-          page: resolve('src/preload/page.ts')
+          page: resolve('src/preload/page.ts'),
+          // The agent orb's page, sandboxed too.
+          orb: resolve('src/preload/orb.ts')
         },
         // Browser pages are sandboxed, and a sandboxed preload must be a plain
         // CommonJS script. `.cjs` because package.json declares "type": "module".
@@ -46,6 +48,13 @@ export default defineConfig({
     build: {
       // electron-vite leaves output unminified by default; the renderer loads faster minified.
       minify: true,
+      rollupOptions: {
+        input: {
+          index: resolve('src/renderer/index.html'),
+          // The agent orb over the browser page (main/orb.ts).
+          orb: resolve('src/renderer/orb.html')
+        }
+      },
       // Fonts stay files: the page's CSP allows fonts from 'self', not data: URLs.
       assetsInlineLimit: (file) => (/\.woff2?$/.test(file) ? false : undefined)
     }

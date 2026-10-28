@@ -14,6 +14,7 @@ import type {
   CustomProvider,
   CustomProviderCheck,
   CustomProviderInput,
+  OrbState,
   Project,
   Rect,
   Skill,
@@ -59,6 +60,18 @@ const api = {
     setKey: (key: string | null): Promise<string | null> => ipcRenderer.invoke('exa:setKey', key)
   },
 
+  /** The agent orb over the browser page, which stands in for the chat while it is folded away. */
+  orb: {
+    /** What the orb shows for the selected chat; null hides it. */
+    update: (state: OrbState | null): void => ipcRenderer.send('orb:state', state),
+    /** The user clicked the orb or a subtitle: the chat unfolds. */
+    onUnfold: (listener: () => void) => on('orb:unfold', listener),
+    /** How loud the microphone is, 0 to 1, while the user dictates with the chat folded. */
+    level: (level: number): void => ipcRenderer.send('orb:level', level),
+    /** Dictated text, into the orb's input, as the composer is out of sight. */
+    draft: (text: string): void => ipcRenderer.send('orb:draft', text)
+  },
+
   /** Voice input in the composer, written out by Whisper on Groq. */
   voice: {
     /** The saved Groq API key's last four characters; null when none is saved. */
@@ -69,7 +82,15 @@ const api = {
     microphone: (): Promise<boolean> => ipcRenderer.invoke('voice:microphone'),
     /** The text spoken in a recording; rejects with why it could not be written out. */
     transcribe: (audio: Uint8Array, mimeType: string): Promise<string> =>
-      ipcRenderer.invoke('voice:transcribe', audio, mimeType)
+      ipcRenderer.invoke('voice:transcribe', audio, mimeType),
+    /**
+     * Right ⌘, from anywhere in the app (a browser page too): down, up, or
+     * `combo` when another key went down while it was held.
+     */
+    onKey: (listener: (key: 'keyDown' | 'keyUp' | 'combo', repeat: boolean) => void) =>
+      on('voice:key', listener),
+    /** The app lost focus: a held key's release goes elsewhere. */
+    onBlur: (listener: () => void) => on('voice:blur', listener)
   },
 
   /** The providers added in Settings, which the Custom providers agent runs on. */

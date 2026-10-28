@@ -302,7 +302,7 @@ kbd {
   position: relative;
   flex: 1;
   /* The chat always keeps a usable width; the browser pane gives way instead. */
-  min-width: 420px;
+  min-width: 340px;
   display: flex;
   flex-direction: column;
   background: var(--panel-main);
@@ -2017,6 +2017,58 @@ img.project-icon {
   min-width: 0;
 }
 
+/* While the user dictates, this takes the text field's place: they see they are heard. */
+.voice-live {
+  grid-area: primary;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 8px;
+  font-size: 16px;
+}
+
+.composer.listening textarea {
+  visibility: hidden;
+}
+
+.voice-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--danger);
+  animation: voice-pulse 1.2s ease-in-out infinite;
+}
+
+.voice-word {
+  color: var(--text);
+}
+
+/* Bars that move with the voice (VoiceMeter). */
+.voice-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+}
+
+.voice-meter i {
+  width: 3px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--danger);
+  transform: scaleY(0.2);
+  transition: transform 80ms linear;
+}
+
+@keyframes voice-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
 /* Red while it records, so a microphone left on is seen. */
 .voice-button.recording,
 .voice-button.recording:hover:not(:disabled) {
@@ -2837,6 +2889,21 @@ img.project-icon {
   display: flex;
   flex-direction: column;
   border-left: 1px solid var(--border);
+}
+
+/* The chat folded into the agent orb (main/orb.ts): it stays mounted, out of sight. */
+.chat-folded .main {
+  display: none;
+}
+
+.browser.chat-folded {
+  flex: 1;
+  border-left: 0;
+}
+
+/* With the sidebar hidden too, the window buttons sit over the tabs. */
+.sidebar-hidden.chat-folded .browser-tabs {
+  padding-left: 80px;
 }
 
 /* Grabbed on the line left of the panel. */

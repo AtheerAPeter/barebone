@@ -15,13 +15,33 @@ interface BrowserPanelProps {
   width: number
   onResize: (width: number) => void
   onClose: () => void
+  /** The chat pane left of the panel, whose width the divider sets. */
+  chatRef: React.RefObject<HTMLElement | null>
+  /** The chat is folded into the agent orb over the page, and the panel fills its place. */
+  chatFolded: boolean
+  onFoldChat: () => void
+  /** Shown first in the tab row, as the sidebar button when the chat's top bar is folded away. */
+  leading?: React.ReactNode
 }
+
+/** The narrowest the chat gets by dragging; dragging further folds it into the agent orb. */
+const CHAT_MIN_WIDTH = 340
+/** The browser's own narrowest. */
+const BROWSER_MIN_WIDTH = 320
 
 /**
  * The page itself is a native WebContentsView owned by the main process. This
  * component draws the toolbar and reports where the view should sit.
  */
-export function BrowserPanel({ width, onResize, onClose }: BrowserPanelProps): React.JSX.Element {
+export function BrowserPanel({
+  width,
+  onResize,
+  onClose,
+  chatRef,
+  chatFolded,
+  onFoldChat,
+  leading
+}: BrowserPanelProps): React.JSX.Element {
   const viewportRef = useRef<HTMLDivElement>(null)
   const [state, setState] = useState<BrowserState>()
   /** The text being typed in the address bar; null shows the current page URL. */
@@ -86,29 +106,42 @@ export function BrowserPanel({ width, onResize, onClose }: BrowserPanelProps): R
     return () => window.api.browser.setHidden(false)
   }, [parked])
 
+  /**
+   * Drag the divider: the panel takes the width the chat gives up, down to the
+   * chat's narrowest. Dragging well past that folds the chat into the agent orb.
+   */
   function startDrag(event: React.PointerEvent): void {
     event.preventDefault()
-    const startX = event.clientX
-    const startWidth = width
+    const chatLeft = chatRef.current?.getBoundingClientRect().left ?? 0
     setDragging(true)
-    const onMove = (e: PointerEvent): void => {
-      const next = startWidth + (startX - e.clientX)
-      onResize(Math.min(Math.max(next, 320), window.innerWidth - 480))
-    }
-    const onUp = (): void => {
+    const stop = (): void => {
       setDragging(false)
       window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointerup', stop)
+    }
+    const onMove = (e: PointerEvent): void => {
+      const chatWidth = e.clientX - chatLeft
+      if (chatWidth < CHAT_MIN_WIDTH / 2) {
+        stop()
+        onFoldChat()
+        return
+      }
+      const next = window.innerWidth - Math.max(e.clientX, chatLeft + CHAT_MIN_WIDTH)
+      onResize(Math.max(next, BROWSER_MIN_WIDTH))
     }
     window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointerup', stop)
   }
 
   return (
-    <aside className="browser" style={{ width }}>
-      <div className="browser-resize" onPointerDown={startDrag} />
+    <aside
+      className={`browser${chatFolded ? ' chat-folded' : ''}`}
+      style={chatFolded ? undefined : { width }}
+    >
+      {!chatFolded && <div className="browser-resize" onPointerDown={startDrag} />}
       {/* Tabs on top, as in Chrome, in the panels' shared top row. */}
       <div className="browser-tabs" role="tablist">
+        {leading}
         {state?.tabs.map((tab) => (
           <div
             key={tab.id}

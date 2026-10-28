@@ -15,7 +15,7 @@ import { EffortPicker } from './EffortPicker'
 import { ModelPicker } from './model-picker/ModelPicker'
 import { CompletionMenu, type CompletionItem } from './CompletionMenu'
 import { writePref } from '../lib/prefs'
-import { useVoiceInput } from '../lib/voice'
+import { useVoiceInput, type VoiceState } from '../lib/voice'
 import {
   CloseIcon,
   FileIcon,
@@ -40,6 +40,10 @@ interface ComposerProps {
   /** Switch agents, starting with the given settings (e.g. the model picked with it). */
   onAgentChange: (agent: AgentId, settings: Record<string, string>) => void
   onOptionChange: (optionId: string, value: string) => Promise<void>
+  /** The chat is folded into the agent orb: dictation goes to the orb's input. */
+  folded: boolean
+  /** Voice input started, ended or is being written out, for the orb to show. */
+  onVoiceChange: (state: VoiceState) => void
 }
 
 /** How much the agent may do without asking, per chat. */
@@ -76,7 +80,9 @@ export function Composer({
   skills,
   projectPath,
   onAgentChange,
-  onOptionChange
+  onOptionChange,
+  folded,
+  onVoiceChange
 }: ComposerProps): React.JSX.Element {
   // ChatView is keyed by chat, so each chat's composer starts from its saved draft.
   const [text, setText] = useState(chat.draft ?? '')
@@ -246,8 +252,12 @@ export function Composer({
     setCaret(0)
   }
 
-  /** Put dictated text at the caret, as if typed there, with a space on each side it needs one. */
+  /**
+   * Put dictated text at the caret, as if typed there, with a space on each
+   * side it needs one. With the chat folded away, it goes to the orb's input.
+   */
   function insertSpoken(spoken: string): void {
+    if (folded) return window.api.orb.draft(spoken)
     const el = textareaRef.current
     if (!el) return
     const before = el.value.slice(0, el.selectionEnd)
@@ -263,6 +273,14 @@ export function Composer({
     })
   }
   const voice = useVoiceInput(insertSpoken)
+  useEffect(() => onVoiceChange(voice.state), [onVoiceChange, voice.state])
+  // The orb shows how loud the microphone is while the chat is folded.
+  const { level } = voice
+  useEffect(() => {
+    if (!folded || voice.state !== 'recording') return
+    const timer = setInterval(() => window.api.orb.level(level.current), LEVEL_MS)
+    return () => clearInterval(timer)
+  }, [folded, voice.state, level])
 
   /** Take a waiting message back into the composer, before what is typed there, to edit it. */
   async function editWaiting(id: string): Promise<void> {
@@ -306,7 +324,7 @@ export function Composer({
   return (
     <>
       <div
-        className={`composer${expanded ? ' expanded' : ''}${dragging ? ' dragging' : ''}`}
+        className={`composer${expanded ? ' expanded' : ''}${dragging ? ' dragging' : ''}${voice.state !== 'idle' ? ' listening' : ''}`}
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes('Files')) return
           e.preventDefault()
@@ -389,6 +407,19 @@ export function Composer({
             <PlusIcon width={20} height={20} />
           </button>
         </div>
+        {voice.state !== 'idle' && (
+          <div className="voice-live" aria-live="polite">
+            {voice.state === 'recording' ? (
+              <>
+                <span className="voice-dot" />
+                <span className="voice-word">Listening</span>
+                <VoiceMeter level={voice.level} />
+              </>
+            ) : (
+              <span className="voice-word shimmer">Writing out…</span>
+            )}
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           value={text}
@@ -531,6 +562,39 @@ export function Composer({
         )}
       </div>
     </>
+  )
+}
+
+/** How often the orb is told the microphone's level while dictating. */
+const LEVEL_MS = 50
+/** The meter's bars, by how far each moves with the voice: tallest in the middle. */
+const METER_BARS = [0.55, 0.85, 1, 0.75, 0.5]
+
+/**
+ * Bars that move with the microphone's level, redrawn every frame from the
+ * level the voice hook keeps, without re-rendering the composer.
+ */
+function VoiceMeter({ level }: { level: React.RefObject<number> }): React.JSX.Element {
+  const ref = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    let frame = requestAnimationFrame(function draw() {
+      const bars = ref.current?.children
+      if (bars) {
+        for (let i = 0; i < bars.length; i++) {
+          const height = 0.2 + 0.8 * Math.min(1, level.current * METER_BARS[i] * 1.4)
+          ;(bars[i] as HTMLElement).style.transform = `scaleY(${height})`
+        }
+      }
+      frame = requestAnimationFrame(draw)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [level])
+  return (
+    <span className="voice-meter" ref={ref}>
+      {METER_BARS.map((_, i) => (
+        <i key={i} />
+      ))}
+    </span>
   )
 }
 

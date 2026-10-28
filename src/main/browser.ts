@@ -245,6 +245,8 @@ export class BuiltinBrowser {
   /** The panel is open but its page is out of sight for a moment, while the user resizes it. */
   private panelHidden = false
   private waitingForPanel: (() => void)[] = []
+  /** Told where the panel's page is after every layout; undefined while none shows. */
+  onPageArea?: (area: Electron.Rectangle | undefined) => void
 
   constructor(
     private readonly window: BrowserWindow,
@@ -650,6 +652,7 @@ export class BuiltinBrowser {
       }
     }
     this.showDialog()
+    this.onPageArea?.(this.panelHidden ? undefined : this.panelBounds)
   }
 
   /** The chat whose browser the panel shows. */

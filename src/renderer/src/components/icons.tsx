@@ -131,6 +131,13 @@ export const SidebarIcon = (p: IconProps): React.JSX.Element => (
     <path d="M9 4v16" />
   </Icon>
 )
+/** A window with a dot in its corner: the chat folded into the agent orb over the browser. */
+export const OrbIcon = (p: IconProps): React.JSX.Element => (
+  <Icon {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <circle cx="8" cy="15" r="2" fill="currentColor" stroke="none" />
+  </Icon>
+)
 export const SunIcon = (p: IconProps): React.JSX.Element => (
   <Icon {...p}>
     <circle cx="12" cy="12" r="4" />
