@@ -46,8 +46,8 @@ export const BROWSER_GUIDANCE =
   'navigate or snapshot, then act on elements by the refs in the snapshot (e12, or f1e3 inside an ' +
   'iframe). Pages can open tabs; results say when, and the new tab becomes the active one. Tools act ' +
   'on the active tab unless given a tab id; tabs, new_tab, select_tab and close_tab manage them. ' +
-  'Refs change when the page does: when an action fails, take a new snapshot instead of ' +
-  'retrying the same ref. Prefer snapshots; take a screenshot only when how the page looks matters. ' +
+  'Actions on a page reply with what changed on it, so take a snapshot only to read a page anew. ' +
+  'When an action fails, take a new snapshot instead of retrying the same ref. Prefer snapshots; take a screenshot only when how the page looks matters. ' +
   'Only for what the snapshot has no ref for, such as a canvas (a remote desktop or VM, an emulator, ' +
   'a game), use click_at, move_mouse, drag, type_text and scroll with x and y, at points of the latest ' +
   'screenshot. ' +
@@ -173,8 +173,51 @@ async function settle(page: ChatPage): Promise<void> {
 async function snapshot(page: ChatPage, note = ''): Promise<ToolResult> {
   const result = await untilDialog(page, () => page.driver.snapshot())
   if ('dialog' in result) return text(dialogNote(result.dialog))
+  return shown(page, result.value, note)
+}
+
+function shown(page: ChatPage, tree: string, note: string): ToolResult {
   const header = `Tab: ${page.id}\nURL: ${page.contents.getURL()}\nTitle: ${page.contents.getTitle()}`
-  return text(`${header}${note ? `\n${note}` : ''}\n\n${result.value}`)
+  return text(`${header}${note ? `\n${note}` : ''}\n\n${tree}`)
+}
+
+/** How long an action that changed nothing yet is watched for an update it started (a request, an animation). */
+const CHANGE_WAIT_MS = 1500
+const CHANGE_POLL_MS = 250
+
+/**
+ * After an action that left the page where it was: what changed on it since
+ * the agent last saw it, so it need not take a snapshot to find out. Point
+ * actions (`see` screenshot) act on what snapshots cannot show, such as a
+ * canvas, so an unchanged tree is not watched for them.
+ */
+async function changed(
+  page: ChatPage,
+  done: string,
+  see: 'snapshot' | 'screenshot'
+): Promise<ToolResult> {
+  const deadline = Date.now() + (see === 'snapshot' ? CHANGE_WAIT_MS : 0)
+  for (;;) {
+    const result = await untilDialog(page, () => page.driver.changes())
+    if ('dialog' in result) return text(`${done} ${dialogNote(result.dialog)}`)
+    const { changes, full } = result.value
+    // A document the agent has not seen: all of it is new.
+    if (changes === undefined) return shown(page, full, done)
+    const at = `${done} Now at ${page.contents.getURL()}.`
+    if (changes) {
+      return text(
+        `${at} What changed on the page since you last saw it (unchanged elements show as [unchanged]):\n\n${changes}`
+      )
+    }
+    if (Date.now() >= deadline) {
+      return text(
+        see === 'snapshot'
+          ? `${at} Nothing on the page changed.`
+          : `${at} Nothing changed that a snapshot shows; take a screenshot to see the result.`
+      )
+    }
+    await sleep(CHANGE_POLL_MS)
+  }
 }
 
 function filePath(path: string): string {
@@ -397,8 +440,8 @@ async function buildServer(
 
   /**
    * Report an action, and show the page when it moved, as navigate does. Else
-   * point to how to see the result: a snapshot, or a screenshot for input at
-   * a point, which acts on what snapshots cannot show.
+   * say what changed on it (a screenshot shows the result of input at a point,
+   * which acts on what snapshots cannot show).
    */
   const acted = async (
     page: ChatPage,
@@ -414,7 +457,7 @@ async function buildServer(
         : 'The page changed.'
       return snapshot(page, `${done} ${note}`)
     }
-    return text(`${done} Now at ${page.contents.getURL()}. Take a ${see} to see the result.`)
+    return changed(page, done, see)
   }
 
   server.registerTool(
@@ -447,6 +490,7 @@ async function buildServer(
     ({ ref, browser: id, tab }) =>
       act(id, tab, async (page) => {
         const before = page.contents.getURL()
+        await page.driver.checkRef(ref)
         const result = await untilDialog(page, () => page.driver.click(ref))
         if ('dialog' in result) return text(`Clicked ${ref}. ${dialogNote(result.dialog)}`)
         return acted(page, `Clicked ${ref}.`, before)
@@ -462,9 +506,11 @@ async function buildServer(
     },
     ({ ref, browser: id, tab }) =>
       act(id, tab, async (page) => {
+        const before = page.contents.getURL()
+        await page.driver.checkRef(ref)
         const result = await untilDialog(page, () => page.driver.hover(ref))
         if ('dialog' in result) return text(`Hovered ${ref}. ${dialogNote(result.dialog)}`)
-        return text(`Hovered over ${ref}. Take a snapshot to see what opened.`)
+        return acted(page, `Hovered over ${ref}.`, before)
       })
   )
 
@@ -483,8 +529,11 @@ async function buildServer(
     ({ ref, text: value, submit, browser: id, tab }) =>
       act(id, tab, async (page) => {
         const before = page.contents.getURL()
+        await page.driver.checkRef(ref)
         const result = await untilDialog(page, () => page.driver.fill(ref, value))
-        if ('dialog' in result) return text(`Typed into ${ref}. ${dialogNote(result.dialog)}`)
+        if ('dialog' in result) {
+          return text(`Typed into ${ref}. ${dialogNote(result.dialog)}`)
+        }
         if (!submit) return text(`Typed into ${ref}.${dialogSuffix(page)}`)
         await pressKey(page, 'Enter')
         return acted(page, `Typed into ${ref} and pressed Enter.`, before)
@@ -505,8 +554,11 @@ async function buildServer(
     ({ ref, values, browser: id, tab }) =>
       act(id, tab, async (page) => {
         const before = page.contents.getURL()
+        await page.driver.checkRef(ref)
         const result = await untilDialog(page, () => page.driver.select(ref, values))
-        if ('dialog' in result) return text(`Selected in ${ref}. ${dialogNote(result.dialog)}`)
+        if ('dialog' in result) {
+          return text(`Selected in ${ref}. ${dialogNote(result.dialog)}`)
+        }
         return acted(
           page,
           `Selected ${result.value.map((v) => JSON.stringify(v)).join(', ')} in ${ref}.`,
@@ -569,11 +621,9 @@ async function buildServer(
     },
     ({ path, browser: id, tab }) =>
       act(id, tab, async (page) => {
+        const before = page.contents.getURL()
         await pasteImage(page.contents, path)
-        await settle(page)
-        return text(
-          `Pasted the image. Take a snapshot to confirm it was attached.${dialogSuffix(page)}`
-        )
+        return acted(page, 'Pasted the image.', before)
       })
   )
 
@@ -601,6 +651,7 @@ async function buildServer(
             `Turned the wheel ${pixels}px at (${x}, ${y}). Take a screenshot to see the result.${dialogSuffix(page)}`
           )
         }
+        if (ref) await page.driver.checkRef(ref)
         const result = await untilDialog(page, () => page.driver.scroll(pixels, ref))
         if ('dialog' in result) return text(dialogNote(result.dialog))
         const { moved, area } = result.value
@@ -722,12 +773,11 @@ async function buildServer(
         const files = paths.map(filePath)
         const missing = files.filter((file) => !existsSync(file))
         if (missing.length) throw new Error(`File not found: ${missing.join(', ')}`)
+        const before = page.contents.getURL()
+        await page.driver.checkRef(ref)
         const result = await untilDialog(page, () => page.driver.upload(ref, files))
         if ('dialog' in result) return text(dialogNote(result.dialog))
-        await settle(page)
-        return text(
-          `Attached ${files.length} file(s) via ${ref}. Take a snapshot to confirm.${dialogSuffix(page)}`
-        )
+        return acted(page, `Attached ${files.length} file(s) via ${ref}.`, before)
       })
   )
 

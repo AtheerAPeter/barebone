@@ -35,6 +35,8 @@ const ACTION_TIMEOUT = 5_000
 const FRAMES_TIMEOUT = 2_000
 /** Longest snapshot returned, in characters, so one page cannot flood the model. */
 const MAX_SNAPSHOT = 50_000
+/** Elements a stale ref could mean that an error lists. */
+const MAX_CANDIDATES = 10
 /** Longest console or network message kept, in characters. */
 const MAX_LOG_TEXT = 2_000
 /** Console and network errors kept per page, oldest first. */
@@ -127,15 +129,56 @@ const FAILED_STATE = `const failedState = (states) => {
     }
   };`
 
-const SNAPSHOT = `function (refPrefix) {
+/**
+ * Keeps the role and name of every ref a tree has given out in this document,
+ * so a ref whose element the page replaced can be found again (see LOCATE).
+ * Kept in the isolated world, so a new document starts without them.
+ */
+const REMEMBER_REFS = `const known = (globalThis.${INJECTED}Refs ??= new Map());
+  for (const [ref, element] of injected._lastAriaSnapshotForQuery.elements) {
+    if (element._ariaRef) known.set(ref, { role: element._ariaRef.role, name: element._ariaRef.name });
+  }`
+
+/**
+ * The frame's ARIA tree. `track` also gives what changed since the last
+ * tracked tree, as Playwright renders it (unchanged elements as
+ * `ref=e5 [unchanged]`), and makes this tree the one the next compares with.
+ */
+const SNAPSHOT = `function (refPrefix, track) {
   const injected = globalThis.${INJECTED};
   const root = document.body || document.documentElement;
   if (!root) return { full: '', iframeRefs: [] };
-  const snapshot = injected.incrementalAriaSnapshot(root, { mode: 'ai', refPrefix });
+  const snapshot = injected.incrementalAriaSnapshot(root, { mode: 'ai', refPrefix, track: track ? 'agent' : undefined });
+  ${REMEMBER_REFS}
   return {
     full: snapshot.full,
+    incremental: snapshot.incremental,
     iframeRefs: snapshot.iframeRefs.filter((ref) => ref in snapshot.iframeDepths)
   };
+}`
+
+/**
+ * The element a ref names now. Pages that re-render (React and the like)
+ * replace elements, which leaves the ref pointing at nothing; the elements in
+ * a fresh tree with the ref's role and name are then the candidates. That tree
+ * is not tracked, so changes stay relative to what the agent was last shown.
+ */
+const LOCATE = `function (ref) {
+  const injected = globalThis.${INJECTED};
+  const last = injected._lastAriaSnapshotForQuery;
+  const current = last && last.elements.get(ref);
+  if (current && current.isConnected) return { ref };
+  const was = globalThis.${INJECTED}Refs && globalThis.${INJECTED}Refs.get(ref);
+  const root = document.body || document.documentElement;
+  if (!was || !root) return {};
+  injected.incrementalAriaSnapshot(root, { mode: 'ai', refPrefix: ref.replace(/e\\d+$/, '') });
+  ${REMEMBER_REFS}
+  const matches = [];
+  for (const [other, element] of injected._lastAriaSnapshotForQuery.elements) {
+    const named = element._ariaRef;
+    if (named && named.role === was.role && named.name === was.name) matches.push(other);
+  }
+  return { was, matches };
 }`
 
 const ELEMENT = `function (ref) {
@@ -421,6 +464,12 @@ interface Point {
   y: number
 }
 
+/** A frame's ARIA tree, and what changed in it (undefined when it has nothing to compare with). */
+interface FrameTree {
+  full: string
+  changes?: string
+}
+
 /** A page function's answer: the result, or why the element is not ready yet. */
 type Attempt<T> = { done: T } | { problem: string; by?: string }
 
@@ -517,6 +566,8 @@ export class PageDriver {
   private interceptedDrag?: unknown
   /** Console and network errors and warnings, oldest first, for the console tool. */
   private readonly log: PageLogEntry[] = []
+  /** The last tree read, without focus, to tell a focus move from a change (see changes). */
+  private lastTree?: string
   /** Requests in flight, by request id, to name the ones that fail. */
   private readonly requests = new Map<string, string>()
   private readonly eventListeners = new Set<
@@ -834,12 +885,64 @@ export class PageDriver {
     this.send('Runtime.releaseObject', { objectId }, frame.sessionId).catch(() => undefined)
   }
 
-  /** The page as an ARIA tree with refs, iframes included. */
+  /** The page as an ARIA tree with refs, iframes included. `changes` compares with it next. */
   async snapshot(): Promise<string> {
+    return compact((await this.read()).full)
+  }
+
+  /**
+   * What changed on the page since the last snapshot or changes: the parts of
+   * the tree that differ, empty when nothing did. Focus moving is not a change
+   * here: every click moves it, and an update the click started (a request)
+   * would otherwise look like it already came. Undefined when there is nothing
+   * to compare with (a new document); `full` is the whole tree.
+   */
+  async changes(): Promise<{ changes?: string; full: string }> {
+    const before = this.lastTree
+    const { full, changes } = await this.read()
+    if (changes === undefined) return { full: compact(full) }
+    return { full: compact(full), changes: this.lastTree === before ? '' : compact(changes) }
+  }
+
+  private async read(): Promise<FrameTree> {
     await this.attach()
     this.frames = new Map()
     const tree = await this.frameSnapshot(await this.mainFrame(), '', Date.now() + FRAMES_TIMEOUT)
-    return compact(tree)
+    this.lastTree = tree.full.replaceAll(' [active]', '')
+    return tree
+  }
+
+  /**
+   * Fail before an action when its ref names nothing on the page, saying what
+   * the page has in its place: the elements with the ref's role and name. The
+   * action never moves to one of them by itself, since the one left may be
+   * another ("Delete" on the next row): the agent decides.
+   */
+  async checkRef(ref: string): Promise<void> {
+    const frame = await this.frameOf(ref)
+    const found = await this.call<{
+      ref?: string
+      was?: { role: string; name: string }
+      matches?: string[]
+    }>(frame, { contextId: await this.context(frame) }, LOCATE, [ref])
+    if (found.ref) return
+    if (!found.was || !found.matches) throw new Error(staleRef(ref))
+    const was = found.was.name
+      ? `${found.was.role} ${JSON.stringify(found.was.name)}`
+      : found.was.role
+    const nothing = `Nothing was done: ${ref} (${was}) is no longer on the page`
+    const [only, ...others] = found.matches
+    if (!only) throw new Error(`${nothing}. Take a new snapshot.`)
+    if (!others.length) {
+      throw new Error(
+        `${nothing}, as the page replaced it. The page has one ${was} now, ${only}: act on it if it is the one you mean.`
+      )
+    }
+    const listed = found.matches.slice(0, MAX_CANDIDATES).join(', ')
+    const more = found.matches.length > MAX_CANDIDATES ? ' and more' : ''
+    throw new Error(
+      `${nothing}, as the page replaced it. The page has ${found.matches.length} like it now: ${listed}${more}. Act on the one you mean, or take a new snapshot to tell them apart.`
+    )
   }
 
   /** Keep a console or network message for the console tool. */
@@ -857,15 +960,14 @@ export class PageDriver {
     frame: FrameTarget,
     refPrefix: string,
     deadline: number
-  ): Promise<string> {
+  ): Promise<FrameTree> {
     const contextId = await this.context(frame)
-    const { full, iframeRefs } = await this.call<{ full: string; iframeRefs: string[] }>(
-      frame,
-      { contextId },
-      SNAPSHOT,
-      [refPrefix]
-    )
-    if (!iframeRefs.length) return full
+    const { full, incremental, iframeRefs } = await this.call<{
+      full: string
+      incremental?: string
+      iframeRefs: string[]
+    }>(frame, { contextId }, SNAPSHOT, [refPrefix, true])
+    if (!iframeRefs.length) return { full, changes: incremental }
     const children = new Map(
       await Promise.all(
         iframeRefs.map(
@@ -873,17 +975,29 @@ export class PageDriver {
         )
       )
     )
+    const under = (line: string, child: string): string[] => {
+      const indent = `${/^\s*/.exec(line)![0]}  `
+      return child.split('\n').map((childLine) => indent + childLine)
+    }
     // Each iframe's content goes under its line, as in Playwright.
-    return full
+    const tree = full
       .split('\n')
       .flatMap((line) => {
         const ref = /^\s*- iframe (?:\[active\] )?\[ref=([^\]]+)\]/.exec(line)?.[1]
         const child = ref && children.get(ref)
         if (!child) return [line]
-        const indent = `${/^\s*/.exec(line)![0]}  `
-        return [`${line}:`, ...child.split('\n').map((childLine) => indent + childLine)]
+        return [`${line}:`, ...under(line, child.full)]
       })
       .join('\n')
+    if (incremental === undefined) return { full: tree }
+    // An iframe's changes follow the frame's own; a new document in it is all new.
+    const changes = [...children].flatMap(([ref, child]) => {
+      const changed = child && (child.changes ?? child.full)
+      if (!changed) return []
+      const line = `- <changed> iframe [ref=${ref}]`
+      return [`${line}:`, ...under(line, changed)]
+    })
+    return { full: tree, changes: [incremental, ...changes].filter(Boolean).join('\n') }
   }
 
   /** An iframe's content, or a note when it cannot be read in the time left. */
@@ -892,8 +1006,8 @@ export class PageDriver {
     parentContext: number,
     ref: string,
     deadline: number
-  ): Promise<string | undefined> {
-    const read = async (): Promise<string | undefined> => {
+  ): Promise<FrameTree | undefined> {
+    const read = async (): Promise<FrameTree | undefined> => {
       const objectId = await this.element(parent, parentContext, ELEMENT, [ref])
       if (!objectId) return undefined
       const { node } = await this.send<{ node: { frameId?: string } }>(
@@ -918,11 +1032,11 @@ export class PageDriver {
     // Said, so that an iframe that is slow to answer does not look empty.
     const unread =
       '[This iframe could not be read in time. Take a new snapshot, or a screenshot to see it.]'
+    // Not a change: an iframe that answers next time is compared with its last tree.
+    const late: FrameTree = { full: unread, changes: '' }
     const remaining = deadline - Date.now()
-    if (remaining <= 0) return unread
-    return withTimeout(read(), remaining, () => new Error('iframe took too long')).catch(
-      () => unread
-    )
+    if (remaining <= 0) return late
+    return withTimeout(read(), remaining, () => new Error('iframe took too long')).catch(() => late)
   }
 
   /** The frame a ref is in: the page itself, or the iframe numbered n for fn refs. */
