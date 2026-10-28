@@ -6,6 +6,7 @@ import {
   overlayFunction,
   type OverlayCommand,
   type OverlayResult,
+  type Shape,
   type Target
 } from './page-overlay'
 
@@ -1599,21 +1600,28 @@ export class PageDriver {
   async overlay(command: OverlayCommand): Promise<OverlayResult> {
     await this.attach()
     const inPage = (target: Target): Promise<Target> => this.inPageTarget(target)
+    const shapesInPage = (shapes: Shape[]): Promise<Shape[]> =>
+      Promise.all(
+        shapes.map(async (shape) => ({
+          ...shape,
+          target: await inPage(shape.target),
+          ...('from' in shape && shape.from ? { from: await inPage(shape.from) } : {})
+        }))
+      )
     const placed: OverlayCommand =
       command.type === 'draw'
-        ? {
-            ...command,
-            shapes: await Promise.all(
-              command.shapes.map(async (shape) => ({
-                ...shape,
-                target: await inPage(shape.target),
-                ...('from' in shape && shape.from ? { from: await inPage(shape.from) } : {})
-              }))
-            )
-          }
-        : command.type === 'point' && command.target
-          ? { ...command, target: await inPage(command.target) }
-          : command
+        ? { ...command, shapes: await shapesInPage(command.shapes) }
+        : command.type === 'step'
+          ? {
+              ...command,
+              shapes: await shapesInPage(command.shapes),
+              ...(command.point
+                ? { point: { ...command.point, target: await inPage(command.point.target) } }
+                : {})
+            }
+          : command.type === 'point' && command.target
+            ? { ...command, target: await inPage(command.target) }
+            : command
     const frame = await this.mainFrame()
     const result = await this.call<OverlayResult>(
       frame,

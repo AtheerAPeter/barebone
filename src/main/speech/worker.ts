@@ -10,7 +10,7 @@ import { chunks, Supertonic, type Language } from './supertonic'
 
 export type ToWorker =
   | { type: 'load'; dir: string; voice: string }
-  | { type: 'speak'; id: string; text: string; lang: Language }
+  | { type: 'speak'; id: string; text: string; lang: Language; pace: number }
   | { type: 'cancel'; id: string }
 
 export type FromWorker =
@@ -55,7 +55,7 @@ async function next(): Promise<void> {
     const parts = chunks(request.text, request.lang)
     for (const [index, part] of parts.entries()) {
       if (cancelled.has(request.id)) break
-      const samples = await tts.speak(part, request.lang)
+      const samples = await tts.speak(part, request.lang, request.pace)
       if (cancelled.has(request.id)) break
       post({
         type: 'audio',

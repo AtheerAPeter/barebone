@@ -278,6 +278,12 @@ export interface SpokenAudio {
   last: boolean
 }
 
+/** What to stop playing: one message, what one chat said, or everything when empty. */
+export interface SpeechStop {
+  id?: string
+  chatId?: string
+}
+
 /** A session option exposed by the agent (model, mode, reasoning effort, ...). */
 export interface AgentOption {
   id: string

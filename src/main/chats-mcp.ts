@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import type { Finished, Running } from './background'
+import type { Spoken } from './speech'
 import { LANGUAGES, type Language } from './speech/supertonic'
 
 /**
@@ -103,12 +104,12 @@ export interface ChatsApi {
   cancelTimer(caller: string): boolean
 }
 
-/** The voice agents speak with (main/speech), as the speak tool uses it. */
+/** The voice agents speak with (main/speech), as the speak tool and show_step use it. */
 export interface SpeechApi {
-  /** Whether speech is on and the voice is on this Mac; the tool is listed only then. */
+  /** Whether speech is on and the voice is on this Mac; the tools offer it only then. */
   on(): boolean
-  /** Say a message out loud; throws why it cannot be said. */
-  speak(chatId: string, text: string, language: Language): void
+  /** Say a message out loud, after what plays already; throws why it cannot be said. */
+  speak(chatId: string, text: string, language: Language, pace?: number): Spoken
 }
 
 /** The voice the chat servers speak with; given once, when they start (browser-mcp.ts). */
@@ -118,10 +119,32 @@ export function provideSpeech(api: SpeechApi): void {
   speech = api
 }
 
-/** Whether the chat servers offer the speak tool now. */
+/** Whether the chat servers offer the speak tool now, and show_step its `say`. */
 export function speechOffered(): boolean {
   return speech?.on() === true
 }
+
+/** The voice, while it is offered. */
+export function offeredSpeech(): SpeechApi | undefined {
+  return speechOffered() ? speech : undefined
+}
+
+/** The language of something to say, as the voice takes it. */
+export const languageArg = z
+  .enum(LANGUAGES)
+  .describe(
+    'The language of the text: ar Arabic, en English, de German, fr French, es Spanish, and so on (ISO 639-1); na for a language not listed'
+  )
+
+/** How fast to say something, as the voice takes it. */
+export const paceArg = z
+  .number()
+  .min(0.7)
+  .max(1.5)
+  .optional()
+  .describe(
+    'How fast to talk: 1 is normal (when left out); slower, down to 0.7, for something tricky or calming; faster, up to 1.5, for something light or quick'
+  )
 
 /** A chat as list_chats shows it. */
 export interface ChatListing {
@@ -391,19 +414,16 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
       'speak',
       {
         description:
-          'Say something to the user out loud, in a natural voice played on their computer, as well as writing your reply. Use it whenever hearing you helps: when you need their answer or permission, when a long task is done or something went wrong, or to keep them in the loop while they watch the browser instead of the chat. Keep it short and spoken: one to three plain sentences, in the language you write to them in. Never read out code, file paths, URLs, lists or tables; they stay in your written reply. It returns at once, while the voice plays.',
+          "Say something to the user out loud, in a natural voice played on their computer, as well as writing your reply. Use it whenever hearing you helps: when you need their answer or permission, when a long task is done or something went wrong, or to keep them in the loop while they watch the browser instead of the chat. Keep it short and spoken: one to three plain sentences, in the language you write to them in. Never read out code, file paths, URLs, lists or tables; they stay in your written reply. It returns at once, while the voice plays. To narrate a step of a tutorial in the browser, use show_step's say instead, which shows the step as the voice begins.",
         inputSchema: {
           text: z.string().describe('What to say: plain spoken sentences'),
-          language: z
-            .enum(LANGUAGES)
-            .describe(
-              'The language of the text: ar Arabic, en English, de German, fr French, es Spanish, and so on (ISO 639-1); na for a language not listed'
-            ),
+          language: languageArg,
+          pace: paceArg,
           ...chatArg
         }
       },
-      ({ text: said, language, chat }) => {
-        voice.speak(chatForKey(chat), said, language)
+      ({ text: said, language, pace, chat }) => {
+        voice.speak(chatForKey(chat), said, language, pace)
         return text('Speaking it to the user now.')
       }
     )

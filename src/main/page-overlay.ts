@@ -28,12 +28,29 @@ export type Shape =
   /** Points at the target, from `from`, or from a spot up and to the side of it. */
   | { kind: 'arrow'; target: Target; from?: Target; label?: string; color: Color }
 
+/**
+ * Where the caption card goes: `auto` is the bottom, or the top when at the
+ * bottom it would cover something the drawings mark.
+ */
+export type CaptionPosition = 'top' | 'bottom' | 'auto'
+
 export type OverlayCommand =
   | { type: 'draw'; shapes: Shape[]; clear: boolean }
   /** No target hides the pointer. */
   | { type: 'point'; target?: Target; text?: string; color: Color }
   /** Empty text hides the caption. */
-  | { type: 'caption'; text: string; position: 'top' | 'bottom' }
+  | { type: 'caption'; text: string; position: CaptionPosition }
+  /**
+   * One step of a tutorial, in one go: the shapes drawn before go, these are
+   * drawn, the pointer moves (or goes, without `point`), and the caption changes.
+   */
+  | {
+      type: 'step'
+      caption: string
+      position: CaptionPosition
+      point?: { target: Target; text?: string; color: Color }
+      shapes: Shape[]
+    }
   | { type: 'clear' }
 
 export interface OverlayResult {
@@ -43,6 +60,11 @@ export interface OverlayResult {
   revealed?: string
   /** Shapes on the page after the command. */
   shapes: number
+  /**
+   * What is in the way, so the agent need not look: something a drawing marks
+   * that is hidden or off the page, or that the caption or a label covers.
+   */
+  problems: string[]
 }
 
 /**
@@ -64,25 +86,26 @@ export function overlayFunction(injected: string): string {
 
   // Every ref is resolved before anything changes, so a stale one draws nothing.
   const targets = [];
-  if (command.type === 'draw') {
+  if (command.type === 'draw' || command.type === 'step') {
     for (const shape of command.shapes) targets.push(shape.target, shape.from);
-  } else if (command.type === 'point') {
-    targets.push(command.target);
   }
+  if (command.type === 'point') targets.push(command.target);
+  if (command.type === 'step' && command.point) targets.push(command.point.target);
   const placed = new Map();
   for (const target of targets) {
     if (!target) continue;
     if (target.ref) {
       const element = injected.querySelectorAll(injected.parseSelector('aria-ref=' + target.ref), document)[0];
-      if (!element) return { missing: target.ref, shapes: 0 };
-      placed.set(target, { element, ref: target.ref });
+      if (!element) return { missing: target.ref, shapes: 0, problems: [] };
+      placed.set(target, { element, ref: target.ref, name: target.ref });
     } else {
       // Points are in the viewport now; kept in the document, they scroll with the content.
       placed.set(target, {
         x: target.x + scrollX,
         y: target.y + scrollY,
         width: target.width || 0,
-        height: target.height || 0
+        height: target.height || 0,
+        name: 'the point at ' + Math.round(target.x) + ', ' + Math.round(target.y)
       });
     }
   }
@@ -207,6 +230,8 @@ export function overlayFunction(injected: string): string {
     const nodes = label ? [rect, label] : [rect];
     return {
       nodes,
+      place,
+      label,
       update() {
         const r = rectOf(place);
         show(nodes, r);
@@ -242,6 +267,8 @@ export function overlayFunction(injected: string): string {
     const nodes = label ? [line, head, label] : [line, head];
     return {
       nodes,
+      place,
+      label,
       update() {
         const r = rectOf(place);
         const f = from ? rectOf(from) : r && tail(r);
@@ -370,6 +397,67 @@ export function overlayFunction(injected: string): string {
     host.showPopover();
   }
 
+  /** Show the caption, or remove it when \`text\` is empty; \`auto\` keeps it off what is marked. */
+  function setCaption(text, position) {
+    removeCaption();
+    if (!text) return;
+    overlay.caption = element('div', 'text caption' + (position === 'top' ? ' top' : ''), text);
+    overlay.root.append(overlay.caption);
+    if (position === 'auto' && covered(overlay.caption.getBoundingClientRect()).length) {
+      overlay.caption.classList.add('top');
+    }
+  }
+
+  /** What the drawings and the pointer mark, by name. */
+  function marked() {
+    const marks = overlay.items.map((item) => ({ place: item.place, item }));
+    if (overlay.pointer) marks.push({ place: overlay.pointer.place });
+    return marks;
+  }
+
+  /** Whether a box hides much of a marked rect, or the point a rect without size is. */
+  function hides(box, r) {
+    if (!r.width || !r.height) {
+      const c = center(r);
+      return c.x >= box.left && c.x <= box.right && c.y >= box.top && c.y <= box.bottom;
+    }
+    const w = Math.min(r.left + r.width, box.right) - Math.max(r.left, box.left);
+    const h = Math.min(r.top + r.height, box.bottom) - Math.max(r.top, box.top);
+    return w > 0 && h > 0 && w * h >= 0.3 * r.width * r.height;
+  }
+
+  /** The names of what a box covers, but the mark of \`except\`, the item it belongs to. */
+  function covered(box, except) {
+    const names = [];
+    for (const { place, item } of marked()) {
+      if (item && item === except) continue;
+      const r = rectOf(place);
+      if (r && hides(box, r)) names.push(place.name);
+    }
+    return names;
+  }
+
+  function problems() {
+    const found = new Set();
+    for (const { place } of marked()) {
+      const r = rectOf(place);
+      if (!r) found.add(place.name + ' is hidden or has no size, so nothing shows on it');
+      else if (r.top + r.height < 0 || r.top > innerHeight || r.left + r.width < 0 || r.left > innerWidth) {
+        found.add(place.name + ' is outside the visible part of the page');
+      }
+    }
+    if (overlay.caption) {
+      for (const name of covered(overlay.caption.getBoundingClientRect())) found.add('The caption covers ' + name);
+    }
+    for (const item of overlay.items) {
+      if (!item.label || item.label.style.display === 'none') continue;
+      for (const name of covered(item.label.getBoundingClientRect(), item)) {
+        found.add('The label on ' + item.place.name + ' covers ' + name);
+      }
+    }
+    return [...found];
+  }
+
   /** Scroll the first element the command names into view when it is out of it. */
   function reveal() {
     for (const target of targets) {
@@ -385,23 +473,21 @@ export function overlayFunction(injected: string): string {
   }
 
   const revealed = reveal();
+  const makers = { box: makeBox, arrow: makeArrow };
   switch (command.type) {
-    case 'draw': {
+    case 'draw':
       if (command.clear) removeItems();
-      const makers = { box: makeBox, arrow: makeArrow };
       for (const shape of command.shapes) overlay.items.push(makers[shape.kind](shape));
       break;
-    }
     case 'point':
       if (command.target) point(command.target, command.text, command.color);
       else removePointer();
       break;
-    case 'caption':
-      removeCaption();
-      if (command.text) {
-        overlay.caption = element('div', 'text caption' + (command.position === 'top' ? ' top' : ''), command.text);
-        overlay.root.append(overlay.caption);
-      }
+    case 'step':
+      removeItems();
+      for (const shape of command.shapes) overlay.items.push(makers[shape.kind](shape));
+      if (command.point) point(command.point.target, command.point.text, command.point.color);
+      else removePointer();
       break;
     case 'clear':
       removeItems();
@@ -411,8 +497,11 @@ export function overlayFunction(injected: string): string {
   }
   raise();
   if (overlay.frame) cancelAnimationFrame(overlay.frame);
-  // Placed now, so a screenshot right after shows them where they belong.
+  // Placed now, so what is checked below, and a screenshot right after, find them where they belong.
   frame();
-  return { revealed, shapes: overlay.items.length };
+  // The caption last: where it goes depends on where the rest is.
+  if (command.type === 'caption') setCaption(command.text, command.position);
+  if (command.type === 'step') setCaption(command.caption, command.position);
+  return { revealed, shapes: overlay.items.length, problems: problems() };
 }`
 }

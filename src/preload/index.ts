@@ -17,6 +17,7 @@ import type {
   OrbState,
   Project,
   SpeechStatus,
+  SpeechStop,
   SpokenAudio,
   Rect,
   Skill,
@@ -92,8 +93,12 @@ const api = {
     stop: (chatId?: string): Promise<void> => ipcRenderer.invoke('speech:stop', chatId),
     /** A piece of a spoken message, to play. */
     onAudio: (listener: (audio: SpokenAudio) => void) => on('speech:audio', listener),
-    /** Stop playing what a chat said; every chat's when null. */
-    onStop: (listener: (chatId: string | null) => void) => on('speech:stop', listener)
+    /** Stop playing a message, or what a chat said, or everything. */
+    onStop: (listener: (which: SpeechStop) => void) => on('speech:stop', listener),
+    /** The player is about to play a message: what is shown with it can go ahead. */
+    begun: (id: string): void => ipcRenderer.send('speech:begun', id),
+    /** The player played a message to its end. */
+    ended: (id: string): void => ipcRenderer.send('speech:ended', id)
   },
 
   /** Voice input in the composer, written out by Whisper on Groq. */

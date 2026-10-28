@@ -52,9 +52,12 @@ let quitting = false
 /** How long quitting waits for the agents and the browser to stop. */
 const QUIT_DEADLINE = 5000
 
-function send(channel: string, ...args: unknown[]): void {
+/** Tell the window; false when there is no window to tell. */
+function send(channel: string, ...args: unknown[]): boolean {
   // Nothing to tell before the window exists; it asks for the state it shows when it loads.
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, ...args)
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+  mainWindow.webContents.send(channel, ...args)
+  return true
 }
 
 const agents = new AgentManager(
@@ -114,8 +117,13 @@ function createWindow(): BuiltinBrowser {
   // A crashed renderer leaves the window blank. Chats live in this process, so
   // loading the window again loses nothing; one that keeps crashing is left to the user.
   let lastReload = 0
+  // The voice plays in the window (lib/speech.ts): what it was playing is gone with it.
+  mainWindow.webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) speech.stop()
+  })
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     console.error(`The window's renderer is gone: ${details.reason} (${details.exitCode})`)
+    speech.stop()
     if (details.reason === 'clean-exit' || mainWindow.isDestroyed()) return
     if (Date.now() - lastReload < 30_000) {
       dialog.showErrorBox(
@@ -233,10 +241,12 @@ function registerIpc(browser: BuiltinBrowser): void {
     store.setSpeech(false)
     send('state:changed', store.getState())
   })
-  ipcMain.handle('speech:sample', (_e, text: string, language: Language) =>
+  ipcMain.handle('speech:sample', (_e, text: string, language: Language) => {
     speech.speak(undefined, text, language)
-  )
+  })
   ipcMain.handle('speech:stop', (_e, chatId?: string) => speech.stop(chatId))
+  ipcMain.on('speech:begun', (_e, id: string) => speech.begun(id))
+  ipcMain.on('speech:ended', (_e, id: string) => speech.ended(id))
   ipcMain.handle('state:get', () => store.getState())
   ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('update:available', () => availableUpdate())
@@ -472,7 +482,7 @@ app.whenReady().then(async () => {
   speech = new Speech({
     status: (status) => send('speech:status', status),
     audio: (audio) => send('speech:audio', audio),
-    stop: (chatId) => send('speech:stop', chatId ?? null)
+    stop: (which) => send('speech:stop', which)
   })
   browser = createWindow()
   registerIpc(browser)
@@ -489,7 +499,7 @@ app.whenReady().then(async () => {
     {
       // Offered once the voice is on this Mac, so an agent never speaks into a missing one.
       on: () => store.speechOn() && speech.status().state === 'ready',
-      speak: (chatId, text, language) => speech.speak(chatId, text, language)
+      speak: (chatId, text, language, pace) => speech.speak(chatId, text, language, pace)
     }
   )
   // Only when cline is installed; failures are logged and the app works without it.

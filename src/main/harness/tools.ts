@@ -631,8 +631,8 @@ export const browserTools = appServerTools({
   chatValue: browserId,
   server: BROWSER_SERVER,
   kind: 'fetch',
-  // Settings adds or removes the tools that draw on pages.
-  variant: () => getState().annotations === true,
+  // Settings adds or removes the tools that draw on pages, and the voice show_step's say.
+  variant: () => `${getState().annotations === true} ${speechOffered()}`,
   paths: (name, args) =>
     name === 'upload' || name === 'paste_image'
       ? Object.values(args).flatMap(stringsIn)

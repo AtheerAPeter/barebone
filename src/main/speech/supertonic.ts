@@ -22,6 +22,7 @@ export type Language = (typeof LANGUAGES)[number]
 
 /** Denoising steps: the package's default, which the voice was chosen at. */
 const TOTAL_STEPS = 8
+/** How fast the voice talks at its normal pace: the package's default (0.7 to 2.0). */
 const SPEED = 1.05
 /** Longer text is spoken in chunks of whole sentences up to this length (Korean: 120). */
 const MAX_CHUNK = 300
@@ -154,8 +155,8 @@ export class Supertonic {
     )
   }
 
-  /** One chunk of text (see `chunks`) as audio samples at `sampleRate`. */
-  async speak(text: string, lang: Language): Promise<Float32Array> {
+  /** One chunk of text (see `chunks`) as audio samples at `sampleRate`, `pace` times as fast as normal. */
+  async speak(text: string, lang: Language, pace = 1): Promise<Float32Array> {
     const { ort } = this
     const ids: bigint[] = []
     for (const char of prepare(text, lang)) {
@@ -175,7 +176,7 @@ export class Supertonic {
       style_dp: this.style.dp,
       text_mask: textMask
     })
-    const seconds = (predicted[duration.outputNames[0]].data as Float32Array)[0] / SPEED
+    const seconds = (predicted[duration.outputNames[0]].data as Float32Array)[0] / (SPEED * pace)
     const encoded = await this.sessions.encoder.run({
       text_ids: textIds,
       style_ttl: this.style.ttl,

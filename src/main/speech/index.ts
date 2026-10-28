@@ -4,7 +4,7 @@ import { createWriteStream, existsSync, statSync } from 'node:fs'
 import { mkdir, rename, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type { SpeechStatus, SpokenAudio } from '../../shared/types'
+import type { SpeechStatus, SpeechStop, SpokenAudio } from '../../shared/types'
 import type { Language } from './supertonic'
 import type { FromWorker, ToWorker } from './worker'
 
@@ -40,21 +40,40 @@ const ATTEMPTS = 3
 /** The engine's process ends after this long without speaking. */
 const IDLE_MS = 5 * 60_000
 
+/** A message on its way out. */
+export interface Spoken {
+  /**
+   * True as it is about to begin (a moment before, for what is shown with it);
+   * false when it never will (it failed or was stopped).
+   */
+  started: Promise<boolean>
+  /** Once it has been heard to its end, or will not be: it failed or was stopped. */
+  ended: Promise<void>
+  /** Stop it, made or playing. */
+  stop(): void
+}
+
 export class Speech {
   private readonly dir = join(app.getPath('userData'), 'speech', 'supertonic-3')
   private download?: { received: number; abort: AbortController }
   private failure?: string
   private worker?: UtilityProcess
   private idleTimer?: ReturnType<typeof setTimeout>
-  /** Messages being made or played, with the chat that spoke them. */
+  /** Messages being made, with the chat that spoke them. */
   private readonly messages = new Map<string, { chatId?: string; text: string }>()
+  /** Messages not heard to their end yet, with what to tell when they begin and end. */
+  private readonly unsaid = new Map<
+    string,
+    { chatId?: string; begin: (begun: boolean) => void; end: () => void }
+  >()
 
   constructor(
     private readonly events: {
       status(status: SpeechStatus): void
-      audio(audio: SpokenAudio): void
-      /** Stop playing what a chat said; every chat's when undefined. */
-      stop(chatId: string | undefined): void
+      /** Play a piece of a message; false when there is nowhere to play it. */
+      audio(audio: SpokenAudio): boolean
+      /** Stop playing a message, or what a chat said, or everything. */
+      stop(which: SpeechStop): void
     }
   ) {}
 
@@ -193,17 +212,33 @@ export class Speech {
   }
 
   /**
-   * Say a message out loud; resolves once it is on its way, not when it has
-   * been said. Rejects with why it cannot be said.
+   * Say a message out loud, after what is playing already, `pace` times as
+   * fast as normal. Throws why it cannot be said.
    */
-  speak(chatId: string | undefined, text: string, lang: Language): void {
+  speak(chatId: string | undefined, text: string, lang: Language, pace = 1): Spoken {
     if (!text.trim()) throw new Error('There is nothing to say: the text is empty.')
     if (!this.ready()) {
       throw new Error('The voice is not downloaded. The user can download it in Settings.')
     }
     const id = crypto.randomUUID()
+    let begin: (begun: boolean) => void = () => undefined
+    let end: () => void = () => undefined
+    const started = new Promise<boolean>((resolve) => (begin = resolve))
+    const ended = new Promise<void>((resolve) => (end = resolve))
+    this.unsaid.set(id, { chatId, begin, end })
     this.messages.set(id, { chatId, text })
-    this.send({ type: 'speak', id, text, lang })
+    this.send({ type: 'speak', id, text, lang, pace })
+    return { started, ended, stop: () => this.stopMessage(id) }
+  }
+
+  /** The player is about to play a message (lib/speech.ts). */
+  begun(id: string): void {
+    this.unsaid.get(id)?.begin(true)
+  }
+
+  /** The player played a message to its end. */
+  ended(id: string): void {
+    this.finish(id)
   }
 
   /** Stop what a chat is saying, and what it was going to say; every chat's when undefined. */
@@ -213,13 +248,32 @@ export class Speech {
       this.messages.delete(id)
       this.worker?.postMessage({ type: 'cancel', id } satisfies ToWorker)
     }
-    this.events.stop(chatId)
+    for (const [id, message] of this.unsaid) {
+      if (chatId === undefined || message.chatId === chatId) this.finish(id)
+    }
+    this.events.stop(chatId === undefined ? {} : { chatId })
   }
 
   /** Quit: the engine's process ends with the app. */
   dispose(): void {
     this.cancelDownload()
     this.stopWorker()
+  }
+
+  /** Stop one message, made or playing. */
+  private stopMessage(id: string): void {
+    this.messages.delete(id)
+    this.worker?.postMessage({ type: 'cancel', id } satisfies ToWorker)
+    this.finish(id)
+    this.events.stop({ id })
+  }
+
+  /** A message is over: heard to its end, or never to be (a message stopped before it began never began). */
+  private finish(id: string): void {
+    const message = this.unsaid.get(id)
+    this.unsaid.delete(id)
+    message?.begin(false)
+    message?.end()
   }
 
   private send(message: ToWorker): void {
@@ -235,8 +289,7 @@ export class Speech {
     worker.on('message', (message: FromWorker) => this.onWorker(message))
     worker.on('exit', () => {
       if (this.worker === worker) this.worker = undefined
-      // Messages it was making will not come.
-      this.messages.clear()
+      this.dropMessages()
     })
     worker.postMessage({ type: 'load', dir: this.dir, voice: VOICE } satisfies ToWorker)
     this.worker = worker
@@ -247,8 +300,7 @@ export class Speech {
     if (message.type === 'audio') {
       const spoken = this.messages.get(message.id)
       if (!spoken) return
-      if (message.last) this.messages.delete(message.id)
-      this.events.audio({
+      const played = this.events.audio({
         id: message.id,
         ...(spoken.chatId ? { chatId: spoken.chatId } : {}),
         text: spoken.text,
@@ -256,9 +308,12 @@ export class Speech {
         sampleRate: message.sampleRate,
         last: message.last
       })
+      if (!played) this.stopMessage(message.id)
+      else if (message.last) this.messages.delete(message.id)
     } else if (message.type === 'failed') {
-      this.messages.delete(message.id)
       console.error('[speech] could not speak:', message.message)
+      // The rest will not come, so what came of it stops too: a message ends whole or not at all.
+      this.stopMessage(message.id)
     } else if (message.type === 'error') {
       console.error('[speech] the engine did not start:', message.message)
       this.failure = `The voice could not be loaded: ${message.message}`
@@ -279,7 +334,12 @@ export class Speech {
     clearTimeout(this.idleTimer)
     this.worker?.kill()
     this.worker = undefined
-    this.messages.clear()
+    this.dropMessages()
+  }
+
+  /** The engine ended: the messages it was making will not come. */
+  private dropMessages(): void {
+    for (const id of [...this.messages.keys()]) this.stopMessage(id)
   }
 
   private emitStatus(): void {

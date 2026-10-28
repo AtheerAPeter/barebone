@@ -14,7 +14,11 @@ import { normalizeUrl, type BuiltinBrowser, type ChatPage, type PageDialog } fro
 import {
   buildChatsServer,
   SERVER_NAME as CHATS_SERVER,
+  languageArg,
+  offeredSpeech,
+  paceArg,
   provideSpeech,
+  speechOffered,
   type ChatsApi,
   type SpeechApi
 } from './chats-mcp'
@@ -161,6 +165,18 @@ async function untilDialog<T>(
   }))
   try {
     return await Promise.race([work().then((value) => ({ value })), opened])
+  } finally {
+    stop.abort()
+  }
+}
+
+/** What a promise comes to, or undefined when the signal aborts first. */
+async function untilAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
+  if (signal.aborted) return undefined
+  const stop = new AbortController()
+  const aborted = once(signal, 'abort', { signal: stop.signal }).then(() => undefined)
+  try {
+    return await Promise.race([work, aborted])
   } finally {
     stop.abort()
   }
@@ -372,6 +388,74 @@ function described(target: Target): string {
   return 'ref' in target ? target.ref : `(${target.x}, ${target.y})`
 }
 
+/**
+ * What each chat's latest tutorial step says (show_step's say), until it has
+ * been said. The chat's next change to what the user sees waits for it, so the
+ * page never moves on while the voice still talks about it.
+ */
+const narrations = new Map<string, Promise<void>>()
+/** How long the page stays as it is after a step has been told, before the chat changes it. */
+const AFTER_TELLING_MS = 800
+
+/** What the voice says with a step, as show_step takes it. */
+const sayArg = z
+  .object({
+    text: z
+      .string()
+      .describe(
+        'One to three plain spoken sentences, in the language you write to the user in; never code, paths or URLs'
+      ),
+    language: languageArg,
+    pace: paceArg
+  })
+  .optional()
+  .describe('What the voice says as the step shows')
+
+/** A box or an arrow to draw, as annotate and show_step take it. */
+const shapeArg = z.object({
+  type: z.enum(['box', 'arrow']).describe('box: a frame around it. arrow: points at it.'),
+  ...markArgs,
+  width: z.number().optional().describe('A box at x and y: its width in pixels'),
+  height: z.number().optional().describe('A box at x and y: its height in pixels'),
+  text: z.string().optional().describe('A short label: above a box, at the tail of an arrow'),
+  from_ref: z
+    .string()
+    .optional()
+    .describe(
+      'Arrow: the element it starts from. With neither from_ref nor from_x and from_y, it starts up and to the side of what it points at.'
+    ),
+  from_x: z.number().optional().describe('Arrow: where it starts, in screenshot pixels'),
+  from_y: z.number().optional().describe('Arrow: where it starts, in screenshot pixels'),
+  color: colorArg
+})
+
+/** Shapes as the overlay draws them; throws what is wrong with one. */
+function toShapes(shapes: z.infer<typeof shapeArg>[]): Shape[] {
+  return shapes.map((shape, n): Shape => {
+    const what = `Shape ${n + 1} (${shape.type})`
+    const target = markTarget(shape, what)
+    const color: Color = shape.color ?? 'red'
+    if (shape.type === 'box') {
+      if (!('ref' in target) && !(target.width && target.height)) {
+        throw new Error(`${what}: a box at x and y needs a width and height.`)
+      }
+      return { kind: 'box', target, label: shape.text, color }
+    }
+    const from =
+      shape.from_ref || shape.from_x !== undefined || shape.from_y !== undefined
+        ? markTarget({ ref: shape.from_ref, x: shape.from_x, y: shape.from_y }, `${what} start`)
+        : undefined
+    return { kind: 'arrow', target, from, label: shape.text, color }
+  })
+}
+
+/** After a drawing: what is in the way, which the overlay checked, so no screenshot is needed. */
+function layoutNote(problems: string[]): string {
+  return problems.length
+    ? ` Fix this: ${problems.join('; ')}.`
+    : ' Nothing covers what they mark, and all of it is in view.'
+}
+
 export interface BrowserRouting {
   /** The chat whose browser ID this is (IDs are the start of the chat id). */
   chatForBrowserId(id: string): string | undefined
@@ -409,15 +493,18 @@ async function buildServer(
 
   /**
    * Run a tool on a chat's page. While a dialog holds the page nothing else can
-   * run there, so only handle_dialog gets past one.
+   * run there, so only handle_dialog gets past one. A tool that changes what
+   * the user sees waits until the step the voice is telling has been told;
+   * one that only reads the page (`afterVoice: false`) goes ahead.
    */
   const act = async (
     id: string | undefined,
     tab: string | undefined,
     work: (page: ChatPage) => Promise<ToolResult>,
-    { duringDialog = false } = {}
+    { duringDialog = false, afterVoice = true } = {}
   ): Promise<ToolResult> => {
     const chatId = chatFor(id)
+    if (afterVoice) await narrations.get(chatId)
     const page = await browser.ensureReady(chatId, tab)
     if (page.dialog && !duringDialog) return text(`Nothing was done. ${dialogNote(page.dialog)}`)
     const before = new Set(browser.tabs(chatId).tabs)
@@ -483,7 +570,7 @@ async function buildServer(
         'Read the current page as an accessibility tree: roles, names, states and text, with refs (like e12, or f1e3 inside an iframe) on the elements you can act on. Use the refs with click, type, hover, select_option, scroll and upload.',
       inputSchema: { ...pageArgs }
     },
-    ({ browser: id, tab }) => act(id, tab, (page) => snapshot(page))
+    ({ browser: id, tab }) => act(id, tab, (page) => snapshot(page), { afterVoice: false })
   )
 
   server.registerTool(
@@ -614,7 +701,7 @@ async function buildServer(
           dialog.answer(accept)
           return acted(page, `${accept ? 'Accepted' : 'Dismissed'} the dialog.`, before)
         },
-        { duringDialog: true }
+        { duringDialog: true, afterVoice: false }
       )
   )
 
@@ -813,6 +900,7 @@ async function buildServer(
     },
     async ({ url, browser: id }) => {
       const chatId = chatFor(id)
+      await narrations.get(chatId)
       await browser.ensureReady(chatId)
       const page = browser.newTab(chatId)
       if (!url) return text(`Opened tab ${page.id}, now the active tab.`)
@@ -829,6 +917,7 @@ async function buildServer(
     },
     async ({ tab, browser: id }) => {
       const chatId = chatFor(id)
+      await narrations.get(chatId)
       browser.selectTab(chatId, tab)
       return act(id, tab, (page) => snapshot(page))
     }
@@ -846,6 +935,7 @@ async function buildServer(
     },
     async ({ tab, browser: id }) => {
       const chatId = chatFor(id)
+      await narrations.get(chatId)
       const closing = tab ?? browser.tabs(chatId).active.id
       browser.closeTab(chatId, closing)
       const { tabs, active } = browser.tabs(chatId)
@@ -892,16 +982,21 @@ async function buildServer(
       inputSchema: { ...pageArgs }
     },
     ({ browser: id, tab }) =>
-      act(id, tab, async (page) => {
-        if (browser.windowHidden) {
-          throw new Error(
-            "Barebone's window is closed or minimized, so pages cannot be captured now. Use snapshot to read the page."
-          )
-        }
-        const result = await untilDialog(page, () => page.driver.screenshot())
-        if ('dialog' in result) return text(dialogNote(result.dialog))
-        return { content: [{ type: 'image', data: result.value, mimeType: 'image/png' }] }
-      })
+      act(
+        id,
+        tab,
+        async (page) => {
+          if (browser.windowHidden) {
+            throw new Error(
+              "Barebone's window is closed or minimized, so pages cannot be captured now. Use snapshot to read the page."
+            )
+          }
+          const result = await untilDialog(page, () => page.driver.screenshot())
+          if ('dialog' in result) return text(dialogNote(result.dialog))
+          return { content: [{ type: 'image', data: result.value, mimeType: 'image/png' }] }
+        },
+        { afterVoice: false }
+      )
   )
 
   server.registerTool(
@@ -920,20 +1015,25 @@ async function buildServer(
       }
     },
     ({ path, pageSize, landscape, browser: id, tab }) =>
-      act(id, tab, async (page) => {
-        if (!isAbsolute(path)) throw new Error(`"path" must be absolute: ${path}`)
-        const result = await untilDialog(page, () =>
-          page.contents.printToPDF({
-            pageSize: pageSize ?? 'A4',
-            landscape: landscape ?? false,
-            printBackground: true
-          })
-        )
-        if ('dialog' in result) return text(dialogNote(result.dialog))
-        await mkdir(dirname(path), { recursive: true })
-        await writeFile(path, result.value)
-        return text(`Saved ${page.contents.getURL()} as a PDF to ${path}.`)
-      })
+      act(
+        id,
+        tab,
+        async (page) => {
+          if (!isAbsolute(path)) throw new Error(`"path" must be absolute: ${path}`)
+          const result = await untilDialog(page, () =>
+            page.contents.printToPDF({
+              pageSize: pageSize ?? 'A4',
+              landscape: landscape ?? false,
+              printBackground: true
+            })
+          )
+          if ('dialog' in result) return text(dialogNote(result.dialog))
+          await mkdir(dirname(path), { recursive: true })
+          await writeFile(path, result.value)
+          return text(`Saved ${page.contents.getURL()} as a PDF to ${path}.`)
+        },
+        { afterVoice: false }
+      )
   )
 
   server.registerTool(
@@ -968,11 +1068,16 @@ async function buildServer(
       inputSchema: { ...pageArgs }
     },
     ({ browser: id, tab }) =>
-      act(id, tab, async (page) => {
-        const log = page.driver.logs()
-        if (!log.length) return text('No console errors or failed requests yet.')
-        return text(log.map((entry) => `${entry.level}\t${entry.text}`).join('\n'))
-      })
+      act(
+        id,
+        tab,
+        async (page) => {
+          const log = page.driver.logs()
+          if (!log.length) return text('No console errors or failed requests yet.')
+          return text(log.map((entry) => `${entry.level}\t${entry.text}`).join('\n'))
+        },
+        { afterVoice: false }
+      )
   )
 
   // Drawing on pages, for teaching and explaining; only listed when Settings turns it on.
@@ -980,74 +1085,135 @@ async function buildServer(
     server.registerTool(
       'annotate',
       {
-        description: `Draw on the page for the user to see, to teach or explain: a box around an element or area, or an arrow pointing at one, each with an optional label. Drawings take no clicks, are not in snapshots, and stay until clear_annotations or the page navigates. Check them with a screenshot. Before a tutorial, walkthrough or explanation of a page, read the browser-tutorial skill: ${BROWSER_TUTORIAL_SKILL}`,
+        description: `Draw on the page for the user to see, to teach or explain: a box around an element or area, or an arrow pointing at one, each with an optional label. Drawings take no clicks, are not in snapshots, and stay until clear_annotations or the page navigates. The result says whether anything is in the way (a hidden target, the caption or a label covering one), so there is no need to check with a screenshot. For a tutorial step, show_step does the caption, the pointer and the shapes in one call. Before a tutorial, walkthrough or explanation of a page, read the browser-tutorial skill: ${BROWSER_TUTORIAL_SKILL}`,
         inputSchema: {
-          shapes: z
-            .array(
-              z.object({
-                type: z
-                  .enum(['box', 'arrow'])
-                  .describe('box: a frame around it. arrow: points at it.'),
-                ...markArgs,
-                width: z.number().optional().describe('A box at x and y: its width in pixels'),
-                height: z.number().optional().describe('A box at x and y: its height in pixels'),
-                text: z
-                  .string()
-                  .optional()
-                  .describe('A short label: above a box, at the tail of an arrow'),
-                from_ref: z
-                  .string()
-                  .optional()
-                  .describe(
-                    'Arrow: the element it starts from. With neither from_ref nor from_x and from_y, it starts up and to the side of what it points at.'
-                  ),
-                from_x: z
-                  .number()
-                  .optional()
-                  .describe('Arrow: where it starts, in screenshot pixels'),
-                from_y: z
-                  .number()
-                  .optional()
-                  .describe('Arrow: where it starts, in screenshot pixels'),
-                color: colorArg
-              })
-            )
-            .min(1)
-            .max(12),
+          shapes: z.array(shapeArg).min(1).max(12),
           clear: z.boolean().optional().describe('Remove the shapes drawn before first'),
           ...pageArgs
         }
       },
       ({ shapes, clear, browser: id, tab }) =>
         act(id, tab, async (page) => {
-          const drawn = shapes.map((shape, n): Shape => {
-            const what = `Shape ${n + 1} (${shape.type})`
-            const target = markTarget(shape, what)
-            const color: Color = shape.color ?? 'red'
-            if (shape.type === 'box') {
-              if (!('ref' in target) && !(target.width && target.height)) {
-                throw new Error(`${what}: a box at x and y needs a width and height.`)
-              }
-              return { kind: 'box', target, label: shape.text, color }
-            }
-            const from =
-              shape.from_ref || shape.from_x !== undefined || shape.from_y !== undefined
-                ? markTarget(
-                    { ref: shape.from_ref, x: shape.from_x, y: shape.from_y },
-                    `${what} start`
-                  )
-                : undefined
-            return { kind: 'arrow', target, from, label: shape.text, color }
-          })
+          const drawn = toShapes(shapes)
           const result = await untilDialog(page, () =>
             page.driver.overlay({ type: 'draw', shapes: drawn, clear: clear ?? false })
           )
           if ('dialog' in result) return text(dialogNote(result.dialog))
-          const { revealed, shapes: total } = result.value
+          const { revealed, shapes: total, problems } = result.value
           return text(
-            `Drew ${drawn.length} shape${drawn.length === 1 ? '' : 's'}; ${total} on the page now.${revealed ? ` Scrolled ${revealed} into view.` : ''} Take a screenshot to check them.`
+            `Drew ${drawn.length} shape${drawn.length === 1 ? '' : 's'}; ${total} on the page now.${revealed ? ` Scrolled ${revealed} into view.` : ''}${layoutNote(problems)}`
           )
         })
+    )
+
+    server.registerTool(
+      'show_step',
+      {
+        description: `Show one step of a tutorial in one call: the caption says what the step is about, the pointer moves to what it is about (with a short instruction beside it), and the shapes mark what matters. The shapes of the step before are removed. The result says whether anything is in the way (a hidden target, the caption or a label covering one); the caption moves to the top by itself when at the bottom it would cover a target, so there is no need to check with a screenshot.${speechOffered() ? ' With say, the voice tells the user the step: the step shows as the voice begins, after what it was saying before, and this returns then. What changes the page next (another step, a click, clearing) waits until the voice has said it; wait_for_click and snapshots go ahead at once.' : ''}`,
+        inputSchema: {
+          caption: z
+            .string()
+            .describe(
+              'What this step is about, a sentence or two, like "Step 2 of 4: pick a plan"'
+            ),
+          position: z
+            .enum(['auto', 'bottom', 'top'])
+            .optional()
+            .describe('Where the caption goes; auto if left out'),
+          point: z
+            .object({
+              ...markArgs,
+              text: z
+                .string()
+                .optional()
+                .describe('A short instruction beside it, like "Click Upgrade"'),
+              color: colorArg
+            })
+            .optional()
+            .describe('Where the pointer goes; without it, the pointer goes away'),
+          shapes: z
+            .array(shapeArg)
+            .max(6)
+            .optional()
+            .describe(
+              'At most two or three: a box around the area that matters, an arrow to something small'
+            ),
+          // Only while the voice is offered, as the speak tool is.
+          ...(speechOffered() ? { say: sayArg } : {}),
+          ...pageArgs
+        }
+      },
+      ({ caption, position, point, shapes, say, browser: id, tab }, { signal }) =>
+        act(
+          id,
+          tab,
+          async (page) => {
+            const drawn = toShapes(shapes ?? [])
+            const chatId = chatFor(id)
+            const voice = say ? offeredSpeech() : undefined
+            const before = narrations.get(chatId)
+            // The step shows as its voice begins, so what the user sees matches what they hear.
+            // Its voice comes after what is being said already, as a step without one does.
+            const spoken =
+              say && voice ? voice.speak(chatId, say.text, say.language, say.pace) : undefined
+            let heard: boolean | undefined
+            if (spoken) {
+              const told = spoken.ended.then(() => sleep(AFTER_TELLING_MS))
+              narrations.set(chatId, told)
+              void told.then(() => {
+                if (narrations.get(chatId) === told) narrations.delete(chatId)
+              })
+              heard = await untilAbort(spoken.started, signal)
+            } else {
+              await untilAbort(before ?? Promise.resolve(), signal)
+            }
+            if (signal.aborted) {
+              spoken?.stop()
+              return text('Stopped before the step was shown.')
+            }
+            const result = await untilDialog(page, () =>
+              page.driver.overlay({
+                type: 'step',
+                caption: caption.trim(),
+                position: position ?? 'auto',
+                point: point
+                  ? {
+                      target: markTarget(point, 'The pointer'),
+                      text: point.text,
+                      color: point.color ?? 'red'
+                    }
+                  : undefined,
+                shapes: drawn
+              })
+            ).catch((error: unknown) => {
+              // Not a word about a step the user cannot see.
+              spoken?.stop()
+              throw error
+            })
+            if ('dialog' in result) {
+              spoken?.stop()
+              return text(dialogNote(result.dialog))
+            }
+            const { revealed, problems } = result.value
+            const parts = [
+              'Showing the step: the caption',
+              ...(point ? [`the pointer on ${described(markTarget(point, 'The pointer'))}`] : []),
+              ...(drawn.length ? [`${drawn.length} shape${drawn.length === 1 ? '' : 's'}`] : []),
+              ...(heard ? ['and the voice saying it'] : [])
+            ]
+            const unsaid = !say
+              ? ''
+              : !voice
+                ? ' The voice is off, so nothing was said.'
+                : !heard
+                  ? ' The voice could not say it.'
+                  : ''
+            return text(
+              `${parts.join(', ')}.${unsaid}${revealed ? ` Scrolled ${revealed} into view.` : ''}${layoutNote(problems)}`
+            )
+          },
+          { afterVoice: false }
+        )
     )
 
     server.registerTool(
@@ -1071,9 +1237,9 @@ async function buildServer(
           )
           if ('dialog' in result) return text(dialogNote(result.dialog))
           if (!target) return text('The pointer is gone.')
-          const { revealed } = result.value
+          const { revealed, problems } = result.value
           return text(
-            `The pointer is on ${described(target)}.${revealed ? ` Scrolled ${revealed} into view.` : ''}`
+            `The pointer is on ${described(target)}.${revealed ? ` Scrolled ${revealed} into view.` : ''}${layoutNote(problems)}`
           )
         })
     )
@@ -1085,7 +1251,12 @@ async function buildServer(
           'Show a message on the page, on a card at the bottom (or top) of the browser panel: what a step of a tutorial is about, or what the user is looking at. It replaces the caption shown before; empty text removes it.',
         inputSchema: {
           text: z.string().describe('The message, a sentence or two'),
-          position: z.enum(['bottom', 'top']).optional().describe('bottom if left out'),
+          position: z
+            .enum(['auto', 'bottom', 'top'])
+            .optional()
+            .describe(
+              'auto if left out: at the bottom, or at the top when there it would cover what the drawings mark'
+            ),
           ...pageArgs
         }
       },
@@ -1095,18 +1266,19 @@ async function buildServer(
             page.driver.overlay({
               type: 'caption',
               text: message.trim(),
-              position: position ?? 'bottom'
+              position: position ?? 'auto'
             })
           )
           if ('dialog' in result) return text(dialogNote(result.dialog))
-          return text(message.trim() ? 'Showing the caption.' : 'Removed the caption.')
+          if (!message.trim()) return text('Removed the caption.')
+          return text(`Showing the caption.${layoutNote(result.value.problems)}`)
         })
     )
 
     server.registerTool(
       'wait_for_click',
       {
-        description: `Wait for the user to click on the page, for feedback in a tutorial: show them what to click (point, caption), then call this. It returns their first click: what they clicked and, with ref, whether it was that element. One wait lasts at most ${CLICK_WAIT_SECONDS}s; when it ends without a click, call it again to keep waiting, or ask in the chat. It watches the page, or the iframe that holds ref.`,
+        description: `Wait for the user to click on the page, for feedback in a tutorial: show them what to click (show_step), then call this. It returns their first click: what they clicked and, with ref, whether it was that element. One wait lasts at most ${CLICK_WAIT_SECONDS}s; when it ends without a click, call it again to keep waiting, or ask in the chat. It watches the page, or the iframe that holds ref.`,
         inputSchema: {
           ref: z
             .string()
@@ -1123,31 +1295,36 @@ async function buildServer(
         }
       },
       ({ ref, seconds, browser: id, tab }, { signal }) =>
-        act(id, tab, async (page) => {
-          const before = page.contents.getURL()
-          const wait = seconds ?? CLICK_WAIT_SECONDS
-          const result = await untilDialog(page, () =>
-            page.awaitUser(() => page.driver.waitForClick(ref, wait * 1000, signal))
-          )
-          if ('dialog' in result) return text(dialogNote(result.dialog))
-          const click = result.value
-          if ('ended' in click) {
-            if (click.ended === 'navigated') {
-              return acted(page, 'The page changed before the user clicked.', before)
-            }
-            if (click.ended === 'cancelled') return text('Stopped waiting.')
-            return text(
-              `The user did not click within ${wait}s. Call wait_for_click again to keep waiting, or ask them in the chat.`
+        act(
+          id,
+          tab,
+          async (page) => {
+            const before = page.contents.getURL()
+            const wait = seconds ?? CLICK_WAIT_SECONDS
+            const result = await untilDialog(page, () =>
+              page.awaitUser(() => page.driver.waitForClick(ref, wait * 1000, signal))
             )
-          }
-          const done =
-            ref === undefined
-              ? `The user clicked ${click.clicked}.`
-              : click.onTarget
-                ? `The user clicked ${ref} (${click.clicked}), as asked.`
-                : `The user clicked ${click.clicked}, not ${ref}.`
-          return acted(page, done, before)
-        })
+            if ('dialog' in result) return text(dialogNote(result.dialog))
+            const click = result.value
+            if ('ended' in click) {
+              if (click.ended === 'navigated') {
+                return acted(page, 'The page changed before the user clicked.', before)
+              }
+              if (click.ended === 'cancelled') return text('Stopped waiting.')
+              return text(
+                `The user did not click within ${wait}s. Call wait_for_click again to keep waiting, or ask them in the chat.`
+              )
+            }
+            const done =
+              ref === undefined
+                ? `The user clicked ${click.clicked}.`
+                : click.onTarget
+                  ? `The user clicked ${ref} (${click.clicked}), as asked.`
+                  : `The user clicked ${click.clicked}, not ${ref}.`
+            return acted(page, done, before)
+          },
+          { afterVoice: false }
+        )
     )
 
     server.registerTool(

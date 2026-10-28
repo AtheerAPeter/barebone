@@ -5,7 +5,7 @@ description: Teach or explain something on a web page in the Barebone browser by
 
 # Browser tutorial
 
-The browser tools `annotate`, `point`, `caption` and `clear_annotations` draw on the page in the user's browser panel, and `wait_for_click` tells you what the user clicked. The user watches the panel while you work. Drawings don't take clicks and don't show in snapshots. They stay until you clear them or the page navigates.
+The browser tools `show_step`, `annotate`, `point`, `caption` and `clear_annotations` draw on the page in the user's browser panel, and `wait_for_click` tells you what the user clicked. The user watches the panel while you work, so every reply you wait for is time they wait too: show each step in one call, not several. Drawings don't take clicks and don't show in snapshots. They stay until you clear them or the page navigates.
 
 ## Before drawing
 
@@ -15,12 +15,15 @@ The browser tools `annotate`, `point`, `caption` and `clear_annotations` draw on
 
 ## One step
 
-1. `caption` says what this step is about in a sentence or two, like "Step 2 of 4: pick a plan".
-2. `point` moves the pointer to the element the step is about. Its `text` is a short instruction, like "Click Upgrade".
-3. `annotate` adds at most two or three shapes: a `box` around the area that matters, or an `arrow` toward something small. Give each a short label when it helps. Detail that doesn't fit in a label or the caption goes in the chat.
-4. Take a `screenshot` and check the drawings: they mark the right thing, nothing covers what they explain, and the text is readable. If something is off, use `clear: true` on the next `annotate` and draw again.
+Show a step with one `show_step` call:
 
-Start the next step with `annotate` and `clear: true`, so old shapes don't pile up. The pointer and the caption move or change when you call them again.
+- `caption` says what the step is about in a sentence or two, like "Step 2 of 4: pick a plan".
+- `point` moves the pointer to the element the step is about, with a short instruction in its `text`, like "Click Upgrade".
+- `shapes` adds at most two or three: a `box` around the area that matters, or an `arrow` toward something small. Give each a short label when it helps. Detail that doesn't fit in a label or the caption goes in the chat.
+
+It removes the shapes of the step before. Its result says whether anything is in the way: a target that is hidden or off the page, or the caption or a label covering one. Fix what it names with another `show_step`; there is no need to take a screenshot to check. The caption moves to the top by itself when at the bottom it would cover a target.
+
+To tell the user the step out loud, give `show_step` a `say` (it is there when the voice is on) rather than calling `speak`. The step then shows as the voice begins, after anything said before it, and your next change to the page (a click, the next step, clearing) waits until the voice has said it, so what they see matches what they hear. Then call `wait_for_click`; it starts listening at once, while the voice talks. A step is two replies: show it, then wait.
 
 ## Pacing
 
@@ -32,7 +35,7 @@ Start the next step with `annotate` and `clear: true`, so old shapes don't pile 
 
   When a step has nothing to click (reading, typing), end your turn with a one-line chat message instead, such as "Say next when you're ready."
 - **Demo**: do the steps yourself only when the user asks you to show them. Point at each element and caption it, then click it.
-- **Overview** (for "explain this page" or "what is all this"): draw everything at once. Use numbered box labels ("1", "2", ...) and explain each number in your chat reply.
+- **Overview** (for "explain this page" or "what is all this"): draw everything at once with one `annotate` call. Use numbered box labels ("1", "2", ...) and explain each number in your chat reply.
 
 ## Writing on the page
 
