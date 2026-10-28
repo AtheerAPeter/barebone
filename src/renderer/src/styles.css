@@ -2198,8 +2198,12 @@ img.project-icon {
   line-height: 24px;
 }
 
+/* One line, cut with an ellipsis: wrapped, it would make an empty composer two lines tall. */
 .composer textarea::placeholder {
   color: var(--placeholder);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .composer.expanded textarea {
