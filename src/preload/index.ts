@@ -16,6 +16,8 @@ import type {
   CustomProviderInput,
   OrbState,
   Project,
+  SpeechStatus,
+  SpokenAudio,
   Rect,
   Skill,
   SkillScope,
@@ -70,6 +72,28 @@ const api = {
     level: (level: number): void => ipcRenderer.send('orb:level', level),
     /** Dictated text, into the orb's input, as the composer is out of sight. */
     draft: (text: string): void => ipcRenderer.send('orb:draft', text)
+  },
+
+  /** The voice agents speak with (the speak tool), run on this Mac (main/speech). */
+  speech: {
+    /** Turn speech on or off; on downloads the voice when it is not on this Mac yet. */
+    set: (on: boolean): Promise<void> => ipcRenderer.invoke('speech:set', on),
+    status: (): Promise<SpeechStatus> => ipcRenderer.invoke('speech:status'),
+    onStatus: (listener: (status: SpeechStatus) => void) => on('speech:status', listener),
+    /** Download the voice again, after a failed or cancelled download. */
+    download: (): Promise<void> => ipcRenderer.invoke('speech:download'),
+    cancelDownload: (): Promise<void> => ipcRenderer.invoke('speech:cancelDownload'),
+    /** Delete the voice from this Mac; speech turns off. */
+    remove: (): Promise<void> => ipcRenderer.invoke('speech:remove'),
+    /** Say a sample, to hear the voice. */
+    sample: (text: string, language: string): Promise<void> =>
+      ipcRenderer.invoke('speech:sample', text, language),
+    /** Stop what a chat says; every chat when undefined. */
+    stop: (chatId?: string): Promise<void> => ipcRenderer.invoke('speech:stop', chatId),
+    /** A piece of a spoken message, to play. */
+    onAudio: (listener: (audio: SpokenAudio) => void) => on('speech:audio', listener),
+    /** Stop playing what a chat said; every chat's when null. */
+    onStop: (listener: (chatId: string | null) => void) => on('speech:stop', listener)
   },
 
   /** Voice input in the composer, written out by Whisper on Groq. */

@@ -184,6 +184,16 @@ export function setAnnotations(on: boolean): void {
   scheduleFlush()
 }
 
+/** Speech is on unless the user turned it off. */
+export function setSpeech(on: boolean): void {
+  state.speech = on ? undefined : false
+  scheduleFlush()
+}
+
+export function speechOn(): boolean {
+  return state.speech !== false
+}
+
 export function addProject(project: Project): void {
   state.projects.push(project)
   scheduleFlush()

@@ -122,7 +122,7 @@ export function Orb(): React.JSX.Element | null {
     >
       <button
         ref={orbRef}
-        className={`orb ${state.voice === 'recording' ? 'listening' : state.status}`}
+        className={`orb ${state.voice === 'recording' ? 'listening' : state.speaking ? 'speaking' : state.status}`}
         title="Open the chat (drag to move)"
         onMouseEnter={enter}
         onPointerDown={(e) => {

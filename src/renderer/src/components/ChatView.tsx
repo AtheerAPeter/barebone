@@ -43,6 +43,8 @@ interface ChatViewProps {
   onOptionChange: (optionId: string, value: string) => Promise<void>
   /** The chat is folded away; the agent orb over the browser shows what it does. */
   folded: boolean
+  /** The chat's agent is speaking (the speak tool). */
+  speaking: boolean
 }
 
 export function ChatView({
@@ -51,7 +53,8 @@ export function ChatView({
   projectPath,
   onAgentChange,
   onOptionChange,
-  folded
+  folded,
+  speaking
 }: ChatViewProps): React.JSX.Element {
   const [items, setItems] = useState<ChatItem[]>([])
   const [options, setOptions] = useState<AgentOption[]>()
@@ -158,10 +161,11 @@ export function ChatView({
             chatId: chat.id,
             status: chat.waiting ? 'waiting' : chat.running ? 'working' : 'idle',
             lines: orbLines(items),
-            ...(voice === 'idle' ? {} : { voice })
+            ...(voice === 'idle' ? {} : { voice }),
+            ...(speaking ? { speaking } : {})
           }
         : null,
-    [folded, chat.id, chat.running, chat.waiting, items, voice]
+    [folded, chat.id, chat.running, chat.waiting, items, voice, speaking]
   )
   useEffect(() => window.api.orb.update(orb), [orb])
   useEffect(() => () => window.api.orb.update(null), [])
@@ -619,6 +623,19 @@ const THOUGHT_INLINE_MAX = 300
 const OUTPUT_PREVIEW = 12
 
 const BROWSER_TOOL = /^harness_browser_{1,2}(\w+)/
+/** The speak tool (chats-mcp.ts), under the names agents give MCP tools. */
+const SPEAK_TOOL = /^(?:mcp__)?harness_chats_{1,2}speak$/
+
+/** What an agent said out loud with the speak tool; undefined for any other call. */
+function spokenText(tool: ToolItem): string | undefined {
+  if (!SPEAK_TOOL.test(tool.title.split(':')[0].trim())) return undefined
+  try {
+    const { text } = JSON.parse(tool.input ?? '{}') as { text?: unknown }
+    return typeof text === 'string' ? text : ''
+  } catch {
+    return ''
+  }
+}
 
 /**
  * A short name for a tool call: drops arguments (agents put them after ":") and
@@ -729,6 +746,8 @@ const KIND_WORDS: Record<string, string> = {
 
 /** The kind column and what the call acted on. */
 function toolKindAndTarget(tool: ToolItem): [string, string] {
+  const said = spokenText(tool)
+  if (said !== undefined) return ['Voice', said.length > 120 ? `${said.slice(0, 119)}…` : said]
   const detail = toolDetail(tool)
   const browser = tool.title.match(BROWSER_TOOL)
   if (browser) return ['Browser', [humanize(browser[1]), detail].filter(Boolean).join(' ')]
@@ -762,6 +781,7 @@ const isWebSearch = (tool: ToolItem): boolean => tool.title === 'websearch'
 
 /** The verb for a call, finished and in progress: "Ran" and "Running". */
 function callVerb(tool: ToolItem): [string, string] {
+  if (spokenText(tool) !== undefined) return ['Said', 'Saying']
   if (isWebSearch(tool)) return ['Searched the web for', 'Searching the web for']
   switch (tool.toolKind) {
     case 'delete':
@@ -1307,6 +1327,8 @@ function orbLines(items: ChatItem[]): OrbLine[] {
     if (item.kind === 'text' || item.kind === 'thought' || item.kind === 'error') {
       const text = spoken(item.text)
       if (text) lines.push({ id: item.id, kind: item.kind === 'text' ? 'say' : item.kind, text })
+    } else if (item.kind === 'tool' && !item.parentId && spokenText(item) !== undefined) {
+      lines.push({ id: item.id, kind: 'say', text: spoken(spokenText(item)!) })
     } else if (item.kind === 'tool' && !item.parentId) {
       const live = isRunning(item)
       const [done, doing] = callVerb(item)

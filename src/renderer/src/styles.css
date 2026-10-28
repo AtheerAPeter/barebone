@@ -2046,21 +2046,42 @@ img.project-icon {
   color: var(--text);
 }
 
-/* Bars that move with the voice (VoiceMeter). */
-.voice-meter {
+/* Bars that move with a sound's level (LevelMeter), in the text color. */
+.level-meter {
   display: inline-flex;
   align-items: center;
   gap: 3px;
   height: 18px;
 }
 
-.voice-meter i {
+.level-meter i {
   width: 3px;
   height: 18px;
   border-radius: 2px;
-  background: var(--danger);
+  background: currentColor;
   transform: scaleY(0.2);
   transition: transform 80ms linear;
+}
+
+.voice-live .level-meter {
+  color: var(--danger);
+}
+
+/* The agent is speaking: its voice's bars, and a click stops it. */
+.status-chip.speaking {
+  gap: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.status-chip.speaking .level-meter {
+  height: 14px;
+}
+
+.status-chip.speaking .level-meter i {
+  height: 14px;
 }
 
 @keyframes voice-pulse {
@@ -3323,6 +3344,40 @@ img.project-icon {
 .settings-switch {
   align-self: flex-start;
   width: 160px;
+}
+
+/* The voice's download (SpeechCard): a bar, how far it is, and Cancel. */
+.speech-download {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+.speech-progress {
+  flex: 1;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--fill-strong);
+  overflow: hidden;
+}
+
+.speech-progress > div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 200ms linear;
+}
+
+.speech-ready {
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+.speech-ready .spacer {
+  flex: 1;
 }
 
 .settings-row input {

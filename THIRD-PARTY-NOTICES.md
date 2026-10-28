@@ -1,6 +1,6 @@
 # Third-party notices
 
-Barebone includes code from the projects below under the Apache License, Version 2.0. The license text is at the end.
+Barebone includes code from the projects below. Playwright and ZCode are under the Apache License, Version 2.0, whose text is at the end; ONNX Runtime is under the MIT License, given with it. The Supertonic 3 voice model is not part of the app: it is downloaded when speech is on, under its own license.
 
 ## Playwright
 
@@ -21,6 +21,38 @@ How the built-in browser is automated (`src/main/page-driver.ts`, the page prelo
 ```
 Copyright 2026 Z.AI Co., Ltd
 ```
+
+## ONNX Runtime
+
+Spoken messages (`src/main/speech`) run the voice model with `onnxruntime-node` 1.31.1, which the app ships for Apple Silicon Macs.
+
+```
+MIT License
+
+Copyright (c) Microsoft Corporation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Supertonic 3
+
+Spoken messages use the Supertonic 3 voice model by Supertone, with its M3 voice: https://huggingface.co/Supertone/supertonic-3. The app does not include it; it downloads the model from Hugging Face when speech is on, and runs it on the user's computer. The model is licensed under the BigScience Open RAIL-M License, whose use restrictions apply to what it is used for, among them impersonating people without their consent and passing off generated speech as a person's: https://huggingface.co/Supertone/supertonic-3/blob/main/LICENSE. How the app runs it (`src/main/speech/supertonic.ts`) is ported from the supertonic Python package 1.3.1, under the MIT License: https://github.com/supertone-inc/supertonic-py
 
 ## Apache License, Version 2.0
 

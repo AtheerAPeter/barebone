@@ -11,7 +11,13 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { McpServer as AcpMcpServer } from '@agentclientprotocol/sdk'
 import { z } from 'zod'
 import { normalizeUrl, type BuiltinBrowser, type ChatPage, type PageDialog } from './browser'
-import { buildChatsServer, SERVER_NAME as CHATS_SERVER, type ChatsApi } from './chats-mcp'
+import {
+  buildChatsServer,
+  SERVER_NAME as CHATS_SERVER,
+  provideSpeech,
+  type ChatsApi,
+  type SpeechApi
+} from './chats-mcp'
 import { withTimeout, type Modifier } from './page-driver'
 import { COLORS, type Color, type Shape, type Target } from './page-overlay'
 import { BROWSER_TUTORIAL_SKILL } from './skills'
@@ -1171,8 +1177,10 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
 export async function startBrowserMcp(
   browser: BuiltinBrowser,
   routing: BrowserRouting,
-  chats: ChatsApi
+  chats: ChatsApi,
+  speech: SpeechApi
 ): Promise<BrowserMcpEndpoint> {
+  provideSpeech(speech)
   const saved = readSaved()
   const token = saved?.token ?? randomBytes(24).toString('hex')
   const http = createServer(async (req, res) => {

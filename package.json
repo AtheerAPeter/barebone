@@ -59,5 +59,8 @@
     "type": "git",
     "url": "git+https://github.com/AtheerAPeter/barebone.git"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "onnxruntime-node": "^1.31.1"
+  }
 }

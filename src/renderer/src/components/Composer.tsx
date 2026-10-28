@@ -14,6 +14,7 @@ import { Picker } from './Picker'
 import { EffortPicker } from './EffortPicker'
 import { ModelPicker } from './model-picker/ModelPicker'
 import { CompletionMenu, type CompletionItem } from './CompletionMenu'
+import { LevelMeter } from './LevelMeter'
 import { writePref } from '../lib/prefs'
 import { useVoiceInput, type VoiceState } from '../lib/voice'
 import {
@@ -274,6 +275,10 @@ export function Composer({
   }
   const voice = useVoiceInput(insertSpoken)
   useEffect(() => onVoiceChange(voice.state), [onVoiceChange, voice.state])
+  // Talking over an agent that speaks: it stops, and does not end up in the recording.
+  useEffect(() => {
+    if (voice.state === 'recording') void window.api.speech.stop()
+  }, [voice.state])
   // The orb shows how loud the microphone is while the chat is folded.
   const { level } = voice
   useEffect(() => {
@@ -413,7 +418,7 @@ export function Composer({
               <>
                 <span className="voice-dot" />
                 <span className="voice-word">Listening</span>
-                <VoiceMeter level={voice.level} />
+                <LevelMeter level={voice.level} />
               </>
             ) : (
               <span className="voice-word shimmer">Writing out…</span>
@@ -567,37 +572,6 @@ export function Composer({
 
 /** How often the orb is told the microphone's level while dictating. */
 const LEVEL_MS = 50
-/** The meter's bars, by how far each moves with the voice: tallest in the middle. */
-const METER_BARS = [0.55, 0.85, 1, 0.75, 0.5]
-
-/**
- * Bars that move with the microphone's level, redrawn every frame from the
- * level the voice hook keeps, without re-rendering the composer.
- */
-function VoiceMeter({ level }: { level: React.RefObject<number> }): React.JSX.Element {
-  const ref = useRef<HTMLSpanElement>(null)
-  useEffect(() => {
-    let frame = requestAnimationFrame(function draw() {
-      const bars = ref.current?.children
-      if (bars) {
-        for (let i = 0; i < bars.length; i++) {
-          const height = 0.2 + 0.8 * Math.min(1, level.current * METER_BARS[i] * 1.4)
-          ;(bars[i] as HTMLElement).style.transform = `scaleY(${height})`
-        }
-      }
-      frame = requestAnimationFrame(draw)
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [level])
-  return (
-    <span className="voice-meter" ref={ref}>
-      {METER_BARS.map((_, i) => (
-        <i key={i} />
-      ))}
-    </span>
-  )
-}
-
 /** Image files the composer shows a thumbnail of; the types agents accept as images. */
 const IMAGE_FILE = /\.(png|jpe?g|gif|webp)$/i
 

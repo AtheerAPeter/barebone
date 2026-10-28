@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { SpeechStatus } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
 import { useUpdateInstall } from '../lib/update'
 import { ProvidersCard } from './ProvidersCard'
@@ -6,15 +7,18 @@ import { ProvidersCard } from './ProvidersCard'
 /**
  * `instructions`: the saved custom instructions.
  * `annotations`: whether agents get the browser tools that draw on pages.
+ * `speech`: whether agents may speak out loud (the speak tool).
  * `onProvidersChange`: a provider was added, changed or removed.
  */
 export function SettingsView({
   instructions,
   annotations,
+  speech,
   onProvidersChange
 }: {
   instructions: string | undefined
   annotations: boolean
+  speech: boolean
   onProvidersChange: () => void
 }): React.JSX.Element {
   return (
@@ -44,6 +48,7 @@ export function SettingsView({
         </p>
         <KeyForm label="Groq API key" saved={window.api.voice} />
       </section>
+      <SpeechCard on={speech} />
       <UpdatesCard />
     </div>
   )
@@ -195,6 +200,139 @@ function AnnotationsCard({ on }: { on: boolean }): React.JSX.Element {
           On
         </button>
       </div>
+      {error && <div className="msg-error">{error}</div>}
+    </section>
+  )
+}
+
+/** What the samples say, in the languages the voice was chosen for. */
+const SAMPLES = [
+  {
+    language: 'ar',
+    name: 'Arabic',
+    text: 'مرحبا، أنا الصوت الذي يتحدث به وكلاؤك. سأخبرك عندما يحتاج شيء إلى انتباهك.'
+  },
+  {
+    language: 'en',
+    name: 'English',
+    text: "Hi, I'm the voice your agents speak with. I'll tell you when something needs you."
+  },
+  {
+    language: 'de',
+    name: 'German',
+    text: 'Hallo, ich bin die Stimme deiner Agenten. Ich sage dir Bescheid, wenn etwas dich braucht.'
+  }
+]
+
+const megabytes = (bytes: number): string => `${Math.round(bytes / 1_000_000)} MB`
+
+/**
+ * Whether agents may speak out loud (the speak tool), and the voice they speak
+ * with, which runs on this Mac and is downloaded once.
+ */
+function SpeechCard({ on }: { on: boolean }): React.JSX.Element {
+  const [status, setStatus] = useState<SpeechStatus>()
+  const [error, setError] = useState<string>()
+
+  useEffect(() => {
+    window.api.speech.status().then(setStatus)
+    return window.api.speech.onStatus(setStatus)
+  }, [])
+
+  async function run(action: () => Promise<void>): Promise<void> {
+    setError(undefined)
+    try {
+      await action()
+    } catch (e) {
+      setError(errorMessage(e))
+    }
+  }
+
+  return (
+    <section className="settings-card">
+      <h3>Spoken messages</h3>
+      <p>
+        Agents can say things out loud, such as when they need you or finish a long task, in a
+        natural voice that runs on this Mac: Arabic, English, German and 28 more languages. The
+        voice (Supertonic 3) is downloaded once{status ? `, ${megabytes(status.total)}` : ''}.
+      </p>
+      <div className="segmented settings-switch" role="group" aria-label="Spoken messages">
+        <button
+          type="button"
+          className={on ? '' : 'on'}
+          onClick={() => run(() => window.api.speech.set(false))}
+        >
+          Off
+        </button>
+        <button
+          type="button"
+          className={on ? 'on' : ''}
+          onClick={() => run(() => window.api.speech.set(true))}
+        >
+          On
+        </button>
+      </div>
+      {status?.state === 'downloading' && (
+        <div className="speech-download">
+          <div className="speech-progress">
+            <div style={{ width: `${(100 * status.received) / status.total}%` }} />
+          </div>
+          <span>
+            Downloading the voice: {megabytes(status.received)} of {megabytes(status.total)}
+          </span>
+          <button type="button" className="btn" onClick={() => window.api.speech.cancelDownload()}>
+            Cancel
+          </button>
+        </div>
+      )}
+      {on && status?.state === 'missing' && (
+        <div className="settings-row">
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => run(() => window.api.speech.download())}
+          >
+            Download the voice
+          </button>
+        </div>
+      )}
+      {status?.state === 'failed' && (
+        <>
+          <div className="msg-error">{status.message}</div>
+          <div className="settings-row">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => run(() => window.api.speech.download())}
+            >
+              Try again
+            </button>
+          </div>
+        </>
+      )}
+      {status?.state === 'ready' && (
+        <div className="settings-row speech-ready">
+          <span>Hear it:</span>
+          {SAMPLES.map((sample) => (
+            <button
+              key={sample.language}
+              type="button"
+              className="btn"
+              onClick={() => run(() => window.api.speech.sample(sample.text, sample.language))}
+            >
+              {sample.name}
+            </button>
+          ))}
+          <span className="spacer" />
+          <button
+            type="button"
+            className="btn"
+            onClick={() => run(() => window.api.speech.remove())}
+          >
+            Remove the voice
+          </button>
+        </div>
+      )}
       {error && <div className="msg-error">{error}</div>}
     </section>
   )

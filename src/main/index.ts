@@ -34,6 +34,8 @@ import {
 } from './harness/custom'
 import { installMenu } from './menu'
 import { AgentOrb } from './orb'
+import { Speech } from './speech'
+import type { Language } from './speech/supertonic'
 import { loadShellPath } from './shell-env'
 import * as skills from './skills'
 import { listProjectFiles } from './files'
@@ -43,13 +45,16 @@ import { availableUpdate, checkForUpdates, installUpdate, watchForUpdates } from
 
 let mainWindow: BrowserWindow
 let browser: BuiltinBrowser | undefined
+/** The voice agents speak with; made once the app has its name, which its data folder is under. */
+let speech: Speech
 /** Set once the app is quitting: closing the window then really closes it. */
 let quitting = false
 /** How long quitting waits for the agents and the browser to stop. */
 const QUIT_DEADLINE = 5000
 
 function send(channel: string, ...args: unknown[]): void {
-  if (!mainWindow.isDestroyed()) mainWindow.webContents.send(channel, ...args)
+  // Nothing to tell before the window exists; it asks for the state it shows when it loads.
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, ...args)
 }
 
 const agents = new AgentManager(
@@ -83,7 +88,9 @@ function createWindow(): BuiltinBrowser {
     backgroundColor: windowBackground(),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
-      sandbox: false
+      sandbox: false,
+      // What agents say (the speak tool) plays without the user having clicked first.
+      autoplayPolicy: 'no-user-gesture-required'
     }
   })
 
@@ -211,6 +218,25 @@ function registerIpc(browser: BuiltinBrowser): void {
     store.setAnnotations(on)
     send('state:changed', store.getState())
   })
+  // Speech: turning it on downloads the voice when it is not on this Mac yet.
+  ipcMain.handle('speech:set', (_e, on: boolean) => {
+    store.setSpeech(on)
+    send('state:changed', store.getState())
+    if (on) void speech.fetchModel()
+    else speech.stop()
+  })
+  ipcMain.handle('speech:status', () => speech.status())
+  ipcMain.handle('speech:download', () => void speech.fetchModel())
+  ipcMain.handle('speech:cancelDownload', () => speech.cancelDownload())
+  ipcMain.handle('speech:remove', async () => {
+    await speech.remove()
+    store.setSpeech(false)
+    send('state:changed', store.getState())
+  })
+  ipcMain.handle('speech:sample', (_e, text: string, language: Language) =>
+    speech.speak(undefined, text, language)
+  )
+  ipcMain.handle('speech:stop', (_e, chatId?: string) => speech.stop(chatId))
   ipcMain.handle('state:get', () => store.getState())
   ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('update:available', () => availableUpdate())
@@ -343,7 +369,10 @@ function registerIpc(browser: BuiltinBrowser): void {
     (_e, chatId: string, permissions: Pick<Chat, 'bypassPermissions' | 'projectOnly'>) =>
       agents.setPermissions(chatId, permissions)
   )
-  ipcMain.handle('chat:cancel', (_e, chatId: string) => agents.cancel(chatId))
+  ipcMain.handle('chat:cancel', (_e, chatId: string) => {
+    speech.stop(chatId)
+    return agents.cancel(chatId)
+  })
   ipcMain.handle('chat:takeWaiting', (_e, chatId: string, id: string) =>
     agents.takeWaiting(chatId, id)
   )
@@ -440,8 +469,15 @@ app.whenReady().then(async () => {
   // Set before the window exists so it opens in the right appearance.
   nativeTheme.themeSource = store.getState().theme ?? 'system'
   installMenu((command) => send('menu', command), nativeTheme.themeSource, setTheme)
+  speech = new Speech({
+    status: (status) => send('speech:status', status),
+    audio: (audio) => send('speech:audio', audio),
+    stop: (chatId) => send('speech:stop', chatId ?? null)
+  })
   browser = createWindow()
   registerIpc(browser)
+  // On by default: the voice downloads in the background the first time.
+  if (store.speechOn()) void speech.fetchModel()
   watchForUpdates((version) => send('update:available', version))
   const endpoint = await startBrowserMcp(
     browser,
@@ -449,7 +485,12 @@ app.whenReady().then(async () => {
       chatForBrowserId: (id) => store.getState().chats.find((c) => c.id.startsWith(id))?.id,
       fallbackChat: () => agents.latestActiveChat()
     },
-    agents
+    agents,
+    {
+      // Offered once the voice is on this Mac, so an agent never speaks into a missing one.
+      on: () => store.speechOn() && speech.status().state === 'ready',
+      speak: (chatId, text, language) => speech.speak(chatId, text, language)
+    }
   )
   // Only when cline is installed; failures are logged and the app works without it.
   // One at a time: each rewrites cline's settings file.
@@ -478,6 +519,7 @@ app.on('before-quit', (event) => {
     console.error('Could not save before quitting:', error)
   }
   browser?.closeAll()
+  speech.dispose()
   // Waited for up to a limit: one that never settles (an MCP server that never
   // answers) would otherwise keep the app open, and the updater replaces it.
   const waits = { agents: stopped, browser: browser?.flush() }

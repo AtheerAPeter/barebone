@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import type { Finished, Running } from './background'
+import { LANGUAGES, type Language } from './speech/supertonic'
 
 /**
  * An MCP server that lets a chat start other chats in its project and message
@@ -100,6 +101,26 @@ export interface ChatsApi {
   setTimer(caller: string, seconds: number, note: string): void
   /** Clear the caller's timer; false when it had none. */
   cancelTimer(caller: string): boolean
+}
+
+/** The voice agents speak with (main/speech), as the speak tool uses it. */
+export interface SpeechApi {
+  /** Whether speech is on and the voice is on this Mac; the tool is listed only then. */
+  on(): boolean
+  /** Say a message out loud; throws why it cannot be said. */
+  speak(chatId: string, text: string, language: Language): void
+}
+
+/** The voice the chat servers speak with; given once, when they start (browser-mcp.ts). */
+let speech: SpeechApi | undefined
+
+export function provideSpeech(api: SpeechApi): void {
+  speech = api
+}
+
+/** Whether the chat servers offer the speak tool now. */
+export function speechOffered(): boolean {
+  return speech?.on() === true
 }
 
 /** A chat as list_chats shows it. */
@@ -363,6 +384,30 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
           .join('\n')
       )
   )
+
+  if (speech && speechOffered()) {
+    const voice = speech
+    server.registerTool(
+      'speak',
+      {
+        description:
+          'Say something to the user out loud, in a natural voice played on their computer, as well as writing your reply. Use it whenever hearing you helps: when you need their answer or permission, when a long task is done or something went wrong, or to keep them in the loop while they watch the browser instead of the chat. Keep it short and spoken: one to three plain sentences, in the language you write to them in. Never read out code, file paths, URLs, lists or tables; they stay in your written reply. It returns at once, while the voice plays.',
+        inputSchema: {
+          text: z.string().describe('What to say: plain spoken sentences'),
+          language: z
+            .enum(LANGUAGES)
+            .describe(
+              'The language of the text: ar Arabic, en English, de German, fr French, es Spanish, and so on (ISO 639-1); na for a language not listed'
+            ),
+          ...chatArg
+        }
+      },
+      ({ text: said, language, chat }) => {
+        voice.speak(chatForKey(chat), said, language)
+        return text('Speaking it to the user now.')
+      }
+    )
+  }
 
   return server
 }

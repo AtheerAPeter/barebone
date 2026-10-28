@@ -254,6 +254,28 @@ export interface AppState {
   instructions?: string
   /** Whether agents get the browser tools that draw on pages, and the browser-tutorial skill. Off when missing. */
   annotations?: boolean
+  /** False when the user turned off speech: the speak tool, which says a message out loud (main/speech). On when missing. */
+  speech?: boolean
+}
+
+/** The voice agents speak with (main/speech): its model on this Mac, and its download. */
+export type SpeechStatus =
+  | { state: 'missing'; total: number }
+  | { state: 'downloading'; received: number; total: number }
+  | { state: 'ready'; total: number }
+  | { state: 'failed'; message: string; total: number }
+
+/** A piece of a spoken message, as the window plays it. */
+export interface SpokenAudio {
+  /** The message it belongs to; a message comes in pieces of whole sentences. */
+  id: string
+  /** The chat that spoke; none for the sample played from Settings. */
+  chatId?: string
+  text: string
+  samples: Float32Array
+  sampleRate: number
+  /** The message's last piece. */
+  last: boolean
 }
 
 /** A session option exposed by the agent (model, mode, reasoning effort, ...). */
@@ -415,6 +437,8 @@ export interface OrbState {
   lines: OrbLine[]
   /** The user is dictating (push to talk), or what they said is being written out. */
   voice?: 'recording' | 'transcribing'
+  /** The agent is speaking (the speak tool). */
+  speaking?: boolean
 }
 
 /** The corner of the browser page the agent orb sits in. */

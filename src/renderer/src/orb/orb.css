@@ -139,6 +139,24 @@ button {
     opacity 60ms linear;
 }
 
+/* The agent speaking (the speak tool): a ring that grows with its voice, sized as the listening one. */
+.orb.speaking {
+  --level: 0;
+}
+
+.orb.speaking::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid rgba(156, 192, 255, 0.85);
+  transform: scale(calc(1 + var(--level) * 0.25));
+  opacity: calc(0.4 + var(--level) * 0.6);
+  transition:
+    transform 60ms linear,
+    opacity 60ms linear;
+}
+
 .sub.voice {
   align-items: center;
   color: #fff;

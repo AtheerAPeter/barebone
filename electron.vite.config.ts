@@ -6,7 +6,20 @@ export default defineConfig({
   main: {
     // Dependencies are bundled in, not loaded from node_modules at runtime: one
     // file starts faster than hundreds of small ones read out of the asar.
-    build: { externalizeDeps: false, minify: true },
+    // ONNX Runtime is native code, which cannot be bundled: it is a dependency
+    // the app ships (see electron-builder.yml).
+    build: {
+      externalizeDeps: false,
+      minify: true,
+      rollupOptions: {
+        input: {
+          index: resolve('src/main/index.ts'),
+          // The speech engine's own process (main/speech).
+          'speech-worker': resolve('src/main/speech/worker.ts')
+        },
+        external: ['onnxruntime-node']
+      }
+    },
     resolve: {
       alias: {
         // Playwright's in-page runtime, bundled into the main process. Its package

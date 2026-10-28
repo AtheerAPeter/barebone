@@ -8,7 +8,12 @@ import { BrowserPanel } from './components/BrowserPanel'
 import { ProjectPicker } from './components/ProjectPicker'
 import { ChatIcon, ComposeIcon, GlobeIcon, OrbIcon, SidebarIcon } from './components/icons'
 import { readPref, writePref } from './lib/prefs'
+import { useSpeechPlayer } from './lib/speech'
+import { LevelMeter } from './components/LevelMeter'
 import { waitingOn } from './lib/background'
+
+/** How often the orb is told the agent's voice level while it speaks. */
+const ORB_LEVEL_MS = 50
 
 export default function App(): React.JSX.Element {
   const [state, setState] = useState<AppState>({ projects: [], chats: [] })
@@ -60,6 +65,8 @@ export default function App(): React.JSX.Element {
   useEffect(() => writePref('sidebarOpen', sidebarOpen), [sidebarOpen])
   useEffect(() => writePref('browserWidth', browserWidth), [browserWidth])
   useEffect(() => writePref('chatFolded', chatFolded), [chatFolded])
+  // What agents say out loud (the speak tool), played here.
+  const speech = useSpeechPlayer()
   // Clicking the orb, or one of its subtitles, brings the chat back.
   useEffect(() => window.api.orb.onUnfold(() => setChatFolded(false)), [])
 
@@ -79,6 +86,14 @@ export default function App(): React.JSX.Element {
 
   // Folding needs the browser beside the chat; Skills and Settings always show whole.
   const folded = chatFolded && browserOpen && view === 'chat' && Boolean(chat)
+  // The orb's ring follows the agent's voice while it speaks with the chat folded.
+  const speakingHere = folded && speech.speaking?.chatId === chat?.id
+  const speechLevel = speech.level
+  useEffect(() => {
+    if (!speakingHere) return
+    const timer = setInterval(() => window.api.orb.level(speechLevel.current), ORB_LEVEL_MS)
+    return () => clearInterval(timer)
+  }, [speakingHere, speechLevel])
 
   // Each chat has its own browser page; the panel shows the selected chat's.
   const chatId = chat?.id
@@ -197,6 +212,16 @@ export default function App(): React.JSX.Element {
               Working
             </span>
           )}
+          {view === 'chat' && chat && speech.speaking?.chatId === chat.id && (
+            <button
+              className="status-chip speaking"
+              title="Stop speaking"
+              onClick={() => window.api.speech.stop(chat.id)}
+            >
+              <LevelMeter level={speech.level} />
+              Speaking
+            </button>
+          )}
           {view === 'chat' && waitingFor && (
             <span className="status-chip running" title="It is woken when they end">
               <span className="spinner background" />
@@ -228,6 +253,7 @@ export default function App(): React.JSX.Element {
           <SettingsView
             instructions={state.instructions}
             annotations={state.annotations === true}
+            speech={state.speech !== false}
             onProvidersChange={() => readStatus('custom-api')}
           />
         ) : chat && project ? (
@@ -239,6 +265,7 @@ export default function App(): React.JSX.Element {
             onAgentChange={changeAgent}
             onOptionChange={changeOption}
             folded={folded}
+            speaking={speech.speaking?.chatId === chat.id}
           />
         ) : (
           <div className="welcome">
