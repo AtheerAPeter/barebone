@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { createWriteStream, existsSync, statSync } from 'node:fs'
 import { mkdir, rename, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import type { SpeechStatus, SpokenAudio } from '../../shared/types'
 import type { Language } from './supertonic'
 import type { FromWorker, ToWorker } from './worker'
@@ -30,6 +31,11 @@ const FILES = [
   { path: 'onnx/vector_estimator.onnx', size: 256534781, sha256: '883ac868ea0275ef0e991524dc64f16b3c0376efd7c320af6b53f5b780d7c61c' }
 ] // prettier-ignore
 const TOTAL = FILES.reduce((sum, file) => sum + file.size, 0)
+
+/** A file that receives nothing this long has stalled: it is stopped and tried again. */
+const STALL_MS = 30_000
+/** Tries of each file before the download fails. */
+const ATTEMPTS = 3
 
 /** The engine's process ends after this long without speaking. */
 const IDLE_MS = 5 * 60_000
@@ -82,7 +88,19 @@ export class Speech {
           this.download.received += file.size
           continue
         }
-        await this.fetchFile(file, path, abort.signal)
+        for (let attempt = 1; ; attempt++) {
+          const before = this.download.received
+          try {
+            await this.fetchFile(file, path, abort.signal)
+            break
+          } catch (error) {
+            if (abort.signal.aborted || attempt === ATTEMPTS) throw error
+            console.error(`[speech] ${file.path}, try ${attempt}:`, (error as Error).message)
+            this.download.received = before
+            this.emitStatus()
+            await sleep(attempt * 2000)
+          }
+        }
       }
     } catch (error) {
       if (!abort.signal.aborted) {
@@ -100,16 +118,39 @@ export class Speech {
     signal: AbortSignal
   ): Promise<void> {
     await mkdir(dirname(path), { recursive: true })
-    const response = await net.fetch(`${REPO}/${file.path}`, { signal })
-    if (!response.ok || !response.body) throw new Error(`Hugging Face answered ${response.status}`)
+    // Stopped when the user cancels, and when nothing arrives for STALL_MS:
+    // a connection that stalls would otherwise wait forever, with no error.
+    const stop = new AbortController()
+    let stalled = false
+    const cancel = (): void => stop.abort()
+    signal.addEventListener('abort', cancel)
+    // A read waiting on the body ends at once when it is cancelled, whatever the connection does.
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+    stop.signal.addEventListener('abort', () => void reader?.cancel().catch(() => undefined))
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const watch = (): void => {
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        stalled = true
+        stop.abort()
+      }, STALL_MS)
+    }
     const partial = `${path}.part`
     const out = createWriteStream(partial)
     const hash = createHash('sha256')
-    const reader = response.body.getReader()
     let lastEmit = 0
     try {
+      watch()
+      const response = await net.fetch(`${REPO}/${file.path}`, { signal: stop.signal })
+      if (!response.ok || !response.body) {
+        throw new Error(`Hugging Face answered ${response.status}`)
+      }
+      reader = response.body.getReader()
       for (;;) {
         const { done, value } = await reader.read()
+        // Ended by cancelling, not by the file being complete.
+        if (stop.signal.aborted) throw new Error('stopped')
+        watch()
         if (done) break
         hash.update(value)
         if (!out.write(value))
@@ -126,7 +167,10 @@ export class Speech {
     } catch (error) {
       out.destroy()
       await rm(partial, { force: true })
-      throw error
+      throw stalled ? new Error(`nothing arrived for ${STALL_MS / 1000} seconds`) : error
+    } finally {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', cancel)
     }
     if (hash.digest('hex') !== file.sha256) {
       await rm(partial, { force: true })
