@@ -8,17 +8,20 @@ import { ProvidersCard } from './ProvidersCard'
  * `instructions`: the saved custom instructions.
  * `annotations`: whether agents get the browser tools that draw on pages.
  * `speech`: whether agents may speak out loud (the speak tool).
+ * `sounds`: whether what they say may start with a sound for fun.
  * `onProvidersChange`: a provider was added, changed or removed.
  */
 export function SettingsView({
   instructions,
   annotations,
   speech,
+  sounds,
   onProvidersChange
 }: {
   instructions: string | undefined
   annotations: boolean
   speech: boolean
+  sounds: boolean
   onProvidersChange: () => void
 }): React.JSX.Element {
   return (
@@ -48,7 +51,7 @@ export function SettingsView({
         </p>
         <KeyForm label="Groq API key" saved={window.api.voice} />
       </section>
-      <SpeechCard on={speech} />
+      <SpeechCard on={speech} sounds={sounds} />
       <UpdatesCard />
     </div>
   )
@@ -230,7 +233,7 @@ const megabytes = (bytes: number): string => `${Math.round(bytes / 1_000_000)} M
  * Whether agents may speak out loud (the speak tool), and the voice they speak
  * with, which runs on this Mac and is downloaded once.
  */
-function SpeechCard({ on }: { on: boolean }): React.JSX.Element {
+function SpeechCard({ on, sounds }: { on: boolean; sounds: boolean }): React.JSX.Element {
   const [status, setStatus] = useState<SpeechStatus>()
   const [error, setError] = useState<string>()
 
@@ -272,6 +275,30 @@ function SpeechCard({ on }: { on: boolean }): React.JSX.Element {
           On
         </button>
       </div>
+      {on && (
+        <>
+          <p>
+            Sounds for fun: agents can start what they say with a whistle, a tada, an uh-oh or a
+            ding, and a chat waiting for your OK whistles first.
+          </p>
+          <div className="segmented settings-switch" role="group" aria-label="Sounds">
+            <button
+              type="button"
+              className={sounds ? '' : 'on'}
+              onClick={() => run(() => window.api.speech.setSounds(false))}
+            >
+              Off
+            </button>
+            <button
+              type="button"
+              className={sounds ? 'on' : ''}
+              onClick={() => run(() => window.api.speech.setSounds(true))}
+            >
+              On
+            </button>
+          </div>
+        </>
+      )}
       {status?.state === 'downloading' && (
         <div className="speech-download">
           <div className="speech-progress">

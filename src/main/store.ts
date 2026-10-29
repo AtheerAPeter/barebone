@@ -194,6 +194,16 @@ export function speechOn(): boolean {
   return state.speech !== false
 }
 
+/** Sounds before spoken messages are off unless the user turned them on. */
+export function setSounds(on: boolean): void {
+  state.sounds = on || undefined
+  scheduleFlush()
+}
+
+export function soundsOn(): boolean {
+  return state.sounds === true
+}
+
 export function addProject(project: Project): void {
   state.projects.push(project)
   scheduleFlush()

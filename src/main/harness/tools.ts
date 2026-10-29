@@ -12,7 +12,7 @@ import {
   SERVER_NAME as BROWSER_SERVER,
   type BrowserMcpEndpoint
 } from '../browser-mcp'
-import { chatKey, SERVER_NAME as CHATS_SERVER, speechOffered } from '../chats-mcp'
+import { chatKey, SERVER_NAME as CHATS_SERVER, soundsOffered, speechOffered } from '../chats-mcp'
 import { exaKey } from '../exa-key'
 import { getState } from '../store'
 import { loadShellPath } from '../shell-env'
@@ -648,8 +648,8 @@ export const chatTools = appServerTools({
   chatValue: chatKey,
   server: CHATS_SERVER,
   kind: 'other',
-  // The speak tool comes and goes with Settings and the voice's download.
-  variant: speechOffered,
+  // The speak tool comes and goes with Settings and the voice's download, its sound with Settings.
+  variant: () => `${speechOffered()} ${soundsOffered()}`,
   paths: () => []
 })
 

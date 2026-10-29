@@ -85,7 +85,8 @@ const agents = new AgentManager(
       const { title } = store.getChat(chatId)
       // The prompt is shown whatever happens to the voice.
       try {
-        speech.speak(chatId, `Your chat "${title}" needs your OK.`, 'en', 1, 'whistle')
+        const text = `Your chat "${title}" needs your OK.`
+        speech.speak(chatId, text, 'en', 1, store.soundsOn() ? 'whistle' : undefined)
       } catch (error) {
         console.error('Could not say that a chat is waiting:', (error as Error).message)
       }
@@ -256,6 +257,10 @@ function registerIpc(browser: BuiltinBrowser): void {
     send('state:changed', store.getState())
     if (on) void speech.fetchModel()
     else speech.stop()
+  })
+  ipcMain.handle('sounds:set', (_e, on: boolean) => {
+    store.setSounds(on)
+    send('state:changed', store.getState())
   })
   ipcMain.handle('speech:status', () => speech.status())
   ipcMain.handle('speech:download', () => void speech.fetchModel())
@@ -523,6 +528,7 @@ app.whenReady().then(async () => {
     {
       // Offered once the voice is on this Mac, so an agent never speaks into a missing one.
       on: speechReady,
+      sounds: store.soundsOn,
       speak: (chatId, text, language, pace, sound) =>
         speech.speak(chatId, text, language, pace, sound)
     }

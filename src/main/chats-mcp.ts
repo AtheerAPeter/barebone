@@ -109,6 +109,8 @@ export interface ChatsApi {
 export interface SpeechApi {
   /** Whether speech is on and the voice is on this Mac; the tools offer it only then. */
   on(): boolean
+  /** Whether the user turned on sounds before spoken messages; speak offers them only then. */
+  sounds(): boolean
   /** Say a message out loud, after what plays already; throws why it cannot be said. */
   speak(chatId: string, text: string, language: Language, pace?: number, sound?: Sound): Spoken
 }
@@ -125,6 +127,11 @@ export function speechOffered(): boolean {
   return speech?.on() === true
 }
 
+/** Whether speak offers sounds now: the tool changes with this too. */
+export function soundsOffered(): boolean {
+  return speechOffered() && speech?.sounds() === true
+}
+
 /** The voice, while it is offered. */
 export function offeredSpeech(): SpeechApi | undefined {
   return speechOffered() ? speech : undefined
@@ -135,6 +142,14 @@ export const languageArg = z
   .enum(LANGUAGES)
   .describe(
     'The language of the text: ar Arabic, en English, de German, fr French, es Spanish, and so on (ISO 639-1); na for a language not listed'
+  )
+
+/** A sound before what is said, as the voice takes it. */
+const soundArg = z
+  .enum(SOUNDS)
+  .optional()
+  .describe(
+    'A sound just before the words, for fun: whistle to get their attention, tada when something is done, uhoh when it failed, ding for an update'
   )
 
 /** How fast to say something, as the voice takes it. */
@@ -420,12 +435,8 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
           text: z.string().describe('What to say: plain spoken sentences'),
           language: languageArg,
           pace: paceArg,
-          sound: z
-            .enum(SOUNDS)
-            .optional()
-            .describe(
-              'A sound just before the words, for fun: whistle to get their attention, tada when something is done, uhoh when it failed, ding for an update'
-            ),
+          // Only while the user wants them (Settings), so they cost no context otherwise.
+          ...(voice.sounds() ? { sound: soundArg } : {}),
           ...chatArg
         }
       },
