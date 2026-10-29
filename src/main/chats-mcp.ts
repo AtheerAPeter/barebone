@@ -3,7 +3,6 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import type { Finished, Running } from './background'
 import type { Spoken } from './speech'
-import { SOUNDS, type Sound } from './speech/sounds'
 import { LANGUAGES, type Language } from './speech/supertonic'
 
 /**
@@ -109,10 +108,8 @@ export interface ChatsApi {
 export interface SpeechApi {
   /** Whether speech is on and the voice is on this Mac; the tools offer it only then. */
   on(): boolean
-  /** Whether the user turned on sounds before spoken messages; speak offers them only then. */
-  sounds(): boolean
   /** Say a message out loud, after what plays already; throws why it cannot be said. */
-  speak(chatId: string, text: string, language: Language, pace?: number, sound?: Sound): Spoken
+  speak(chatId: string, text: string, language: Language, pace?: number): Spoken
 }
 
 /** The voice the chat servers speak with; given once, when they start (browser-mcp.ts). */
@@ -127,11 +124,6 @@ export function speechOffered(): boolean {
   return speech?.on() === true
 }
 
-/** Whether speak offers sounds now: the tool changes with this too. */
-export function soundsOffered(): boolean {
-  return speechOffered() && speech?.sounds() === true
-}
-
 /** The voice, while it is offered. */
 export function offeredSpeech(): SpeechApi | undefined {
   return speechOffered() ? speech : undefined
@@ -142,14 +134,6 @@ export const languageArg = z
   .enum(LANGUAGES)
   .describe(
     'The language of the text: ar Arabic, en English, de German, fr French, es Spanish, and so on (ISO 639-1); na for a language not listed'
-  )
-
-/** A sound before what is said, as the voice takes it. */
-const soundArg = z
-  .enum(SOUNDS)
-  .optional()
-  .describe(
-    'A sound just before the words, for fun: boing or knock to get their attention, tada or levelup when something is done, sparkle for something neat, drumroll before a reveal, womp or uhoh when it failed, ding or pop for an update'
   )
 
 /** How fast to say something, as the voice takes it. */
@@ -189,7 +173,7 @@ export function fromChatPrompt(title: string, id: string, text: string, first: b
 
 ${text}
 
-Work on it on your own. When you are done, report back to that chat with send_message: what you did or found, and anything it must know or decide. Your report is all it sees of your work. If you cannot go on, report that too, with why. That chat talks to the user, so do not speak to them yourself.`
+Work on it on your own. When you are done, report back to that chat with send_message: what you did or found, and anything it must know or decide. Your report is all it sees of your work. If you cannot go on, report that too, with why.`
   }
   return `Message from the chat "${title}" (chat ID ${id}):
 
@@ -430,18 +414,16 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
       'speak',
       {
         description:
-          "Say a short message out loud to the user, as well as writing your reply. Use it on your own when you need them (a question, a decision, something only they can do), when long work finishes or fails, or for a brief update during long work. Stay quiet in a quick back-and-forth. One or two short spoken sentences, with no code, paths or lists. It returns at once, while the voice plays. To narrate a step of a tutorial in the browser, use show_step's say instead.",
+          "Say something to the user out loud, in a natural voice played on their computer, as well as writing your reply. Use it whenever hearing you helps: when you need their answer or permission, when a long task is done or something went wrong, or to keep them in the loop while they watch the browser instead of the chat. Keep it short and spoken: one to three plain sentences, in the language you write to them in. Never read out code, file paths, URLs, lists or tables; they stay in your written reply. It returns at once, while the voice plays. To narrate a step of a tutorial in the browser, use show_step's say instead, which shows the step as the voice begins.",
         inputSchema: {
           text: z.string().describe('What to say: plain spoken sentences'),
           language: languageArg,
           pace: paceArg,
-          // Only while the user wants them (Settings), so they cost no context otherwise.
-          ...(voice.sounds() ? { sound: soundArg } : {}),
           ...chatArg
         }
       },
-      ({ text: said, language, pace, sound, chat }) => {
-        voice.speak(chatForKey(chat), said, language, pace, sound)
+      ({ text: said, language, pace, chat }) => {
+        voice.speak(chatForKey(chat), said, language, pace)
         return text('Speaking it to the user now.')
       }
     )

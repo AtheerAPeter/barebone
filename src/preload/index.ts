@@ -79,8 +79,6 @@ const api = {
   speech: {
     /** Turn speech on or off; on downloads the voice when it is not on this Mac yet. */
     set: (on: boolean): Promise<void> => ipcRenderer.invoke('speech:set', on),
-    /** Let spoken messages start with a sound for fun, or not. */
-    setSounds: (on: boolean): Promise<void> => ipcRenderer.invoke('sounds:set', on),
     status: (): Promise<SpeechStatus> => ipcRenderer.invoke('speech:status'),
     onStatus: (listener: (status: SpeechStatus) => void) => on('speech:status', listener),
     /** Download the voice again, after a failed or cancelled download. */

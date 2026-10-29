@@ -35,7 +35,6 @@ import {
 import { installMenu } from './menu'
 import { AgentOrb } from './orb'
 import { Speech } from './speech'
-import type { Sound } from './speech/sounds'
 import type { Language } from './speech/supertonic'
 import { loadShellPath } from './shell-env'
 import * as skills from './skills'
@@ -46,8 +45,6 @@ import { availableUpdate, checkForUpdates, installUpdate, watchForUpdates } from
 
 let mainWindow: BrowserWindow
 let browser: BuiltinBrowser | undefined
-/** The folded chat's orb; made with the window. */
-let agentOrb: AgentOrb | undefined
 /** The voice agents speak with; made once the app has its name, which its data folder is under. */
 let speech: Speech
 /** Set once the app is quitting: closing the window then really closes it. */
@@ -74,49 +71,10 @@ const agents = new AgentManager(
       // no longer controls a tab.
       browser?.prune()
       browser?.endControl()
-    },
-    // An agent waiting on the user cannot speak itself, so the app says it.
-    needsUser: (chatId: string) => tellAway(chatId, 'needs your OK.', 'boing'),
-    // Unless the agent said something itself while it worked.
-    finished: (chatId: string, failed: boolean, since: number) => {
-      if ((spokeAt.get(chatId) ?? 0) >= since) return
-      tellAway(chatId, failed ? 'ran into a problem.' : 'is done.', failed ? 'uhoh' : 'tada')
     }
   },
   (chatId) => browser?.state(chatId)
 )
-
-/** When each chat's agent last spoke, so the app does not say again what it said. */
-const spokeAt = new Map<string, number>()
-
-/**
- * Say something about a chat to a user who cannot see it: the window is not in
- * front, or the chat is folded into the orb while they watch the page. It is
- * named as the sidebar shows it, since the app's own agents have labels such
- * as "Custom providers" that cannot be said as who speaks.
- */
-function tellAway(chatId: string, what: string, sound: Sound): void {
-  const onScreen = mainWindow?.isFocused() && !agentOrb?.folded(chatId)
-  if (!speechReady() || onScreen) return
-  const { title } = store.getChat(chatId)
-  // What the chat shows does not depend on the voice.
-  try {
-    speech.speak(
-      chatId,
-      `Your chat "${title}" ${what}`,
-      'en',
-      1,
-      store.soundsOn() ? sound : undefined
-    )
-  } catch (error) {
-    console.error('Could not say what a chat is doing:', (error as Error).message)
-  }
-}
-
-/** Speech is on and the voice is on this Mac, so nothing speaks into a missing one. */
-function speechReady(): boolean {
-  return store.speechOn() && speech.status().state === 'ready'
-}
 
 function createWindow(): BuiltinBrowser {
   mainWindow = new BrowserWindow({
@@ -208,7 +166,6 @@ function createWindow(): BuiltinBrowser {
 
   // The folded chat's orb, over the browser's page.
   const orb = new AgentOrb(mainWindow, () => send('orb:unfold'))
-  agentOrb = orb
   browser.onPageArea = (area) => orb.setArea(area)
   ipcMain.on('orb:state', (event, state: OrbState | null) => {
     if (event.sender === mainWindow.webContents) orb.setState(state)
@@ -275,10 +232,6 @@ function registerIpc(browser: BuiltinBrowser): void {
     send('state:changed', store.getState())
     if (on) void speech.fetchModel()
     else speech.stop()
-  })
-  ipcMain.handle('sounds:set', (_e, on: boolean) => {
-    store.setSounds(on)
-    send('state:changed', store.getState())
   })
   ipcMain.handle('speech:status', () => speech.status())
   ipcMain.handle('speech:download', () => void speech.fetchModel())
@@ -545,12 +498,8 @@ app.whenReady().then(async () => {
     agents,
     {
       // Offered once the voice is on this Mac, so an agent never speaks into a missing one.
-      on: speechReady,
-      sounds: store.soundsOn,
-      speak: (chatId, text, language, pace, sound) => {
-        spokeAt.set(chatId, Date.now())
-        return speech.speak(chatId, text, language, pace, sound)
-      }
+      on: () => store.speechOn() && speech.status().state === 'ready',
+      speak: (chatId, text, language, pace) => speech.speak(chatId, text, language, pace)
     }
   )
   // Only when cline is installed; failures are logged and the app works without it.

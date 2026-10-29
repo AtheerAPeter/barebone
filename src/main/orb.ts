@@ -91,11 +91,6 @@ export class AgentOrb {
     this.place()
   }
 
-  /** Whether the chat is folded into the orb: what it asks is not on screen. */
-  folded(chatId: string): boolean {
-    return this.state?.chatId === chatId
-  }
-
   /** How loud the microphone is, 0 to 1, while the user dictates. */
   setLevel(level: number): void {
     if (!this.view.webContents.isLoading()) this.view.webContents.send('orb:level', level)

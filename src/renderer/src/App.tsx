@@ -254,7 +254,6 @@ export default function App(): React.JSX.Element {
             instructions={state.instructions}
             annotations={state.annotations === true}
             speech={state.speech !== false}
-            sounds={state.sounds === true}
             onProvidersChange={() => readStatus('custom-api')}
           />
         ) : chat && project ? (

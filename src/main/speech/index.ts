@@ -5,7 +5,6 @@ import { mkdir, rename, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import type { SpeechStatus, SpeechStop, SpokenAudio } from '../../shared/types'
-import type { Sound } from './sounds'
 import type { Language } from './supertonic'
 import type { FromWorker, ToWorker } from './worker'
 
@@ -214,9 +213,9 @@ export class Speech {
 
   /**
    * Say a message out loud, after what is playing already, `pace` times as
-   * fast as normal, with `sound` just before it. Throws why it cannot be said.
+   * fast as normal. Throws why it cannot be said.
    */
-  speak(chatId: string | undefined, text: string, lang: Language, pace = 1, sound?: Sound): Spoken {
+  speak(chatId: string | undefined, text: string, lang: Language, pace = 1): Spoken {
     if (!text.trim()) throw new Error('There is nothing to say: the text is empty.')
     if (!this.ready()) {
       throw new Error('The voice is not downloaded. The user can download it in Settings.')
@@ -228,7 +227,7 @@ export class Speech {
     const ended = new Promise<void>((resolve) => (end = resolve))
     this.unsaid.set(id, { chatId, begin, end })
     this.messages.set(id, { chatId, text })
-    this.send({ type: 'speak', id, text, lang, pace, ...(sound ? { sound } : {}) })
+    this.send({ type: 'speak', id, text, lang, pace })
     return { started, ended, stop: () => this.stopMessage(id) }
   }
 

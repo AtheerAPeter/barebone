@@ -260,8 +260,6 @@ export interface AppState {
   annotations?: boolean
   /** False when the user turned off speech: the speak tool, which says a message out loud (main/speech). On when missing. */
   speech?: boolean
-  /** Whether spoken messages may start with a sound for fun (a boing, a tada). Off when missing. */
-  sounds?: boolean
 }
 
 /** The voice agents speak with (main/speech): its model on this Mac, and its download. */

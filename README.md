@@ -50,7 +50,7 @@ Apple Silicon only. You also need at least one agent installed and signed in:
 - opencode (1 or 2): `curl -fsSL https://opencode.ai/install | bash`, then `opencode auth login`. OpenCode API follows the opencode you have installed: opencode 2 keeps its keys in its database and reads its config in its own order, opencode 1 keeps them in `auth.json`.
 - Cline: `npm i -g cline`, then `cline auth`
 - Command Code (1.74 or newer): `npm i -g command-code`, then `cmd login`. Command Code API uses the same login; its API access needs a GOAT plan or higher. OpenCode API and Cline API use the opencode and Cline logins above.
-- Codex: `npm i -g @openai/codex @agentclientprotocol/codex-acp`, then `codex login` (ChatGPT plan or API key). The adapter runs the Codex it was built for, which it installs with itself, not the `codex` on your PATH, so update the adapter to get a newer Codex: `npm i -g @agentclientprotocol/codex-acp`.
+- Codex: `npm i -g @openai/codex @agentclientprotocol/codex-acp`, then `codex login` (ChatGPT plan or API key).
 - Claude Code: install [Claude Code](https://code.claude.com/docs/en/setup) and `npm i -g @agentclientprotocol/claude-agent-acp`, then `claude auth login`. The adapter runs your own `claude`, so a Claude plan is used the way Anthropic allows: you sign in through Claude Code itself, and the app never sees the login.
 
 The app finds the CLIs through your login shell's `PATH`, the same way your terminal does.
