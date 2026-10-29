@@ -1,5 +1,8 @@
 import { execFile } from 'node:child_process'
+import { constants } from 'node:fs'
+import { access } from 'node:fs/promises'
 import { userInfo } from 'node:os'
+import { delimiter, join } from 'node:path'
 
 const MARKER = '__BAREBONE_PATH__'
 
@@ -33,6 +36,22 @@ function readShellPath(): Promise<void> {
       }
     )
   })
+}
+
+/** Where a CLI is on the user's PATH, or undefined when it is not installed. */
+export async function commandPath(command: string): Promise<string | undefined> {
+  await loadShellPath()
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (!dir) continue
+    const path = join(dir, command)
+    try {
+      await access(path, constants.X_OK)
+      return path
+    } catch {
+      // Not in this folder.
+    }
+  }
+  return undefined
 }
 
 /** What a CLI on the user's PATH prints for --version (its last line), or undefined when it is not installed. */

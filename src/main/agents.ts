@@ -47,7 +47,7 @@ import { listSkills } from './skills'
 import { resolveProjectFile } from './files'
 import { formatRaw, imagesIn, limitOutput } from './tool-output'
 import { saveImage, saveImageFile, saveImages } from './images'
-import { commandVersion, loadShellPath } from './shell-env'
+import { commandPath, commandVersion, loadShellPath } from './shell-env'
 import { withTimeout } from './page-driver'
 import {
   bypassOption,
@@ -79,7 +79,10 @@ const PROVIDERS: Provider[] = [commandCode, openCode, cline, custom]
 const COMMANDS: Record<AcpAgent, { command: string; args: string[] }> = {
   opencode: { command: 'opencode', args: ['acp'] },
   cline: { command: 'cline', args: ['--acp'] },
-  commandcode: { command: 'cmd', args: ['acp'] }
+  commandcode: { command: 'cmd', args: ['acp'] },
+  // Codex and Claude Code have no ACP mode of their own; these adapters run them.
+  codex: { command: 'codex-acp', args: [] },
+  claude: { command: 'claude-agent-acp', args: [] }
 }
 
 /**
@@ -144,7 +147,9 @@ const STDERR_SHOWN_LINES = 12
 const LOGIN_COMMANDS: Record<AcpAgent, string> = {
   opencode: 'opencode auth login',
   cline: 'cline auth',
-  commandcode: 'cmd login'
+  commandcode: 'cmd login',
+  codex: 'codex login',
+  claude: 'claude auth login'
 }
 
 /**
@@ -179,8 +184,20 @@ async function loadSdk(): Promise<typeof acp> {
  * Opencode 2 also loads the app's plugin, which refuses its tools' background
  * mode: work started that way resumes the session where the app cannot see it
  * (see resources/opencode-plugin), while run_in_background wakes the chat.
+ *
+ * Claude Code's adapter runs the user's own `claude`, the one they signed in
+ * to with `claude auth login`, unless CLAUDE_CODE_EXECUTABLE names another.
+ * Without it the adapter would run the copy bundled with its SDK. The app never
+ * reads or passes the sign-in: Claude Code finds it itself.
  */
 async function agentEnv(agent: AgentId): Promise<{ env: NodeJS.ProcessEnv; mcpInConfig: boolean }> {
+  if (agent === 'claude') {
+    const claude = process.env.CLAUDE_CODE_EXECUTABLE ?? (await commandPath('claude'))
+    return {
+      env: claude ? { ...process.env, CLAUDE_CODE_EXECUTABLE: claude } : process.env,
+      mcpInConfig: false
+    }
+  }
   if (agent !== 'opencode') return { env: process.env, mcpInConfig: false }
   const inline = process.env.OPENCODE_CONFIG_CONTENT
   const config = inline ? (JSON.parse(inline) as Record<string, unknown>) : {}
@@ -278,7 +295,9 @@ const TEXT_ONLY_PROMPTS = new Set<AgentId>(['cline'])
 const UNLISTED_COMMANDS: Record<AcpAgent, AgentCommand[]> = {
   opencode: [{ name: 'compact', description: 'Summarize older messages to free up context' }],
   cline: [],
-  commandcode: []
+  commandcode: [],
+  codex: [],
+  claude: []
 }
 
 /** A prompt asking to compact the conversation. */
@@ -343,11 +362,19 @@ const RETRY_OUTCOMES: Record<TurnOutcome, string> = {
   steered: 'A retry got through.'
 }
 
-/** Chats always run in the agent's build mode; plan mode is not offered. */
-const BUILD_MODE: Record<AcpAgent, string> = {
-  opencode: 'build',
-  cline: 'act',
-  commandcode: 'default'
+/**
+ * Chats always run in the agent's build mode; plan mode is not offered. Values
+ * by option category. Codex keeps plan mode in a category of its own, and its
+ * `mode` is how much it may do unasked; Codex and Claude Code both get the
+ * level that edits the project freely and asks for the rest, so the app's
+ * permission prompts (and bypass) decide.
+ */
+const BUILD_MODE: Record<AcpAgent, Record<string, string>> = {
+  opencode: { mode: 'build' },
+  cline: { mode: 'act' },
+  commandcode: { mode: 'default' },
+  codex: { mode: 'workspace-write', collaboration_mode: 'default' },
+  claude: { mode: 'acceptEdits' }
 }
 
 /** What the manager needs from an agent: a CLI's ACP process, or the built-in harness. */
@@ -671,7 +698,8 @@ class AgentProcess implements AgentBackend {
     // saved or restored with the session.
     const wanted = { ...chat.settings }
     for (const option of normalizeOptions(configOptions ?? [])) {
-      if (option.category === 'mode') wanted[option.id] = BUILD_MODE[this.agent]
+      const pinned = BUILD_MODE[this.agent][option.category]
+      if (pinned) wanted[option.id] = pinned
     }
     let options = normalizeOptions(configOptions ?? [])
     for (let i = 0; i < options.length; i++) {
@@ -1511,8 +1539,9 @@ export class AgentManager implements ChatsApi {
 
   /**
    * Opencode and cline do not expose skills as slash commands, so `/skill-name rest`
-   * becomes an explicit request to use that skill. Agent commands (including
-   * Command Code's skills, which it lists as commands) are passed through as typed.
+   * becomes an explicit request to use that skill. Agent commands (including the
+   * skills Command Code and Claude Code list as commands, and Codex's `$skill-name`
+   * ones, which Codex reads as a mention of the skill) are passed through as typed.
    * Any skill on the machine can be used; ones the agent does not discover itself
    * (e.g. ~/.claude/skills for cline) are passed by file path.
    */

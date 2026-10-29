@@ -18,24 +18,28 @@ import { getState } from './store'
 
 /**
  * Where each CLI discovers skills (https://opencode.ai/docs/skills,
- * https://docs.cline.bot/customization/skills, https://commandcode.ai/docs/skills).
- * New project skills go to `.claude/skills`, which opencode and cline read. There
+ * https://docs.cline.bot/customization/skills, https://commandcode.ai/docs/skills,
+ * https://learn.chatgpt.com/docs/build-skills, https://code.claude.com/docs/en/skills).
+ * New project skills go to `.claude/skills`, which opencode, cline and Claude Code read. There
  * is no global folder they all read, so global skills go to `~/.claude/skills`
  * and get a symlink in `~/.cline/skills` and `~/.commandcode/skills`.
  */
 const home = homedir()
 // The app's own agents read every folder the Command Code CLI reads, plus .claude/skills.
 const GLOBAL_DIRS: { dir: string; agents: AgentId[] }[] = [
-  { dir: join(home, '.claude/skills'), agents: ['opencode'] },
+  { dir: join(home, '.claude/skills'), agents: ['opencode', 'claude'] },
   { dir: join(home, '.config/opencode/skills'), agents: ['opencode'] },
-  { dir: join(home, '.agents/skills'), agents: ['opencode', 'commandcode', ...HARNESS_AGENTS] },
+  {
+    dir: join(home, '.agents/skills'),
+    agents: ['opencode', 'commandcode', 'codex', ...HARNESS_AGENTS]
+  },
   { dir: join(home, '.cline/skills'), agents: ['cline'] },
   { dir: join(home, '.commandcode/skills'), agents: ['commandcode', ...HARNESS_AGENTS] }
 ]
 const PROJECT_DIRS: { dir: string; agents: AgentId[] }[] = [
-  { dir: '.claude/skills', agents: ['opencode', 'cline', ...HARNESS_AGENTS] },
+  { dir: '.claude/skills', agents: ['opencode', 'cline', 'claude', ...HARNESS_AGENTS] },
   { dir: '.opencode/skills', agents: ['opencode'] },
-  { dir: '.agents/skills', agents: ['opencode', 'commandcode', ...HARNESS_AGENTS] },
+  { dir: '.agents/skills', agents: ['opencode', 'commandcode', 'codex', ...HARNESS_AGENTS] },
   { dir: '.cline/skills', agents: ['cline'] },
   { dir: '.clinerules/skills', agents: ['cline'] },
   { dir: '.commandcode/skills', agents: ['commandcode', ...HARNESS_AGENTS] }

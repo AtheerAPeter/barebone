@@ -2,12 +2,16 @@ import type { AgentId } from '../../../../shared/types'
 import opencodeLogo from '../../assets/agents/opencode.svg'
 import clineLogo from '../../assets/agents/cline.png'
 import commandcodeLogo from '../../assets/agents/commandcode.png'
+import codexLogo from '../../assets/agents/codex.svg'
+import claudeLogo from '../../assets/agents/claude.svg'
 import customLogo from '../../assets/agents/custom.svg'
 
 const LOGOS: Record<AgentId, string> = {
   opencode: opencodeLogo,
   cline: clineLogo,
   commandcode: commandcodeLogo,
+  codex: codexLogo,
+  claude: claudeLogo,
   'commandcode-api': commandcodeLogo,
   'opencode-api': opencodeLogo,
   'cline-api': clineLogo,

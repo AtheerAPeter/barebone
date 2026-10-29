@@ -2,6 +2,8 @@ export type AgentId =
   | 'opencode'
   | 'cline'
   | 'commandcode'
+  | 'codex'
+  | 'claude'
   | 'commandcode-api'
   | 'opencode-api'
   | 'cline-api'
@@ -11,6 +13,8 @@ export const AGENTS: { id: AgentId; label: string }[] = [
   { id: 'opencode', label: 'OpenCode' },
   { id: 'cline', label: 'Cline' },
   { id: 'commandcode', label: 'Command Code' },
+  { id: 'codex', label: 'Codex' },
+  { id: 'claude', label: 'Claude Code' },
   { id: 'commandcode-api', label: 'Command Code API' },
   { id: 'opencode-api', label: 'OpenCode API' },
   { id: 'cline-api', label: 'Cline API' },

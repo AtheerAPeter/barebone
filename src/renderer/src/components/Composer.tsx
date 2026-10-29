@@ -141,7 +141,8 @@ export function Composer({
       all = [
         ...commands.map((c) => ({ ...c, kind: 'command' as const })),
         ...skills
-          .filter((s) => !commandNames.has(s.name))
+          // Codex lists each skill it found as a `$name` command.
+          .filter((s) => !commandNames.has(s.name) && !commandNames.has(`$${s.name}`))
           .map((s) => ({ name: s.name, description: s.description, kind: 'skill' as const }))
       ]
     }
