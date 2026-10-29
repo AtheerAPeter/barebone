@@ -46,6 +46,25 @@ export const CHATS_GUIDANCE =
   'read_background and stop_background check on it and stop it. set_timer wakes this chat later, ' +
   'to check on something nothing else tells you about.'
 
+/**
+ * When an agent speaks without being asked: the moments a colleague would look
+ * up and tell you something. It is the speak tool's description, the server's
+ * instructions while the voice is offered, and a section of the harness's
+ * system prompt, so every agent reads it wherever it reads guidance.
+ */
+export const SPEECH_GUIDANCE =
+  'Use it on your own, without being asked, at the moments a colleague would look up and tell ' +
+  'the user something: when you need them (a question you cannot go on without, a decision, or ' +
+  'something only they can do, such as signing in or approving), said just before you stop to ' +
+  'wait for them; when long work ends, done, failed or stuck; and now and then during long work ' +
+  '(many steps, or minutes of commands), at a real milestone, so they know it is moving. Stay ' +
+  'quiet otherwise: in a quick back-and-forth they read your reply as it comes, so speaking adds ' +
+  'nothing. Never speak about every step, twice about the same thing, or to repeat your written ' +
+  'reply. Talk like a person in the room: the gist in one or two short sentences (about 25 words), ' +
+  'in the first person and the language you write to them in, leaving the details to your ' +
+  'written reply, with no code, file paths, URLs, lists or tables. A chat that ' +
+  'another chat started reports to that chat and does not speak.'
+
 /** "45s", "3m 12s", "1h 5m". */
 export function formatDuration(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000))
@@ -173,7 +192,7 @@ export function fromChatPrompt(title: string, id: string, text: string, first: b
 
 ${text}
 
-Work on it on your own. When you are done, report back to that chat with send_message: what you did or found, and anything it must know or decide. Your report is all it sees of your work. If you cannot go on, report that too, with why.`
+Work on it on your own. When you are done, report back to that chat with send_message: what you did or found, and anything it must know or decide. Your report is all it sees of your work. If you cannot go on, report that too, with why. That chat talks to the user, so do not speak to them yourself.`
   }
   return `Message from the chat "${title}" (chat ID ${id}):
 
@@ -198,7 +217,9 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
   const server = new McpServer(
     { name: SERVER_NAME, version: '1.0.0' },
     {
-      instructions: CHATS_GUIDANCE
+      instructions: speechOffered()
+        ? `${CHATS_GUIDANCE} The speak tool says a short message out loud on the user's computer. ${SPEECH_GUIDANCE}`
+        : CHATS_GUIDANCE
     }
   )
 
@@ -413,8 +434,7 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
     server.registerTool(
       'speak',
       {
-        description:
-          "Say something to the user out loud, in a natural voice played on their computer, as well as writing your reply. Use it whenever hearing you helps: when you need their answer or permission, when a long task is done or something went wrong, or to keep them in the loop while they watch the browser instead of the chat. Keep it short and spoken: one to three plain sentences, in the language you write to them in. Never read out code, file paths, URLs, lists or tables; they stay in your written reply. It returns at once, while the voice plays. To narrate a step of a tutorial in the browser, use show_step's say instead, which shows the step as the voice begins.",
+        description: `Say a short message out loud to the user, in a natural voice played on their computer, as well as writing your reply. ${SPEECH_GUIDANCE} It returns at once, while the voice plays. To narrate a step of a tutorial in the browser, use show_step's say instead, which shows the step as the voice begins.`,
         inputSchema: {
           text: z.string().describe('What to say: plain spoken sentences'),
           language: languageArg,
