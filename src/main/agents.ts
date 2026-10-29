@@ -1760,7 +1760,7 @@ export class AgentManager implements ChatsApi {
         })
         this.events.stateChanged()
         this.deliverNext(chatId, outcome)
-        this.turnEnded(chatId, outcome, failure)
+        this.turnEnded(chatId, outcome, failure, sentAt)
       }
     }
   }
@@ -2113,12 +2113,18 @@ export class AgentManager implements ChatsApi {
   private readonly stopping = new Set<string>()
 
   /**
-   * A chat's turn ended. If it was started by another chat and owes it a
+   * A chat's turn ended. A chat of the user's own says so (events.finished,
+   * which tells a user who is away). If it was started by another chat and owes it a
    * report, that chat is told: with its last answer when it finished without
    * reporting, or with the error when its turn failed, so it can get it going
    * again. A stop by the user wakes no one: the user meant to stop it.
    */
-  private turnEnded(chatId: string, outcome: TurnOutcome, failure: string | undefined): void {
+  private turnEnded(
+    chatId: string,
+    outcome: TurnOutcome,
+    failure: string | undefined,
+    since: number
+  ): void {
     const byUser = this.stopping.delete(chatId)
     if (outcome === 'steered') return
     // A message that waited for the turn started the next one.
@@ -2132,7 +2138,12 @@ export class AgentManager implements ChatsApi {
           ? { outcome: 'stopped' }
           : { outcome: 'done' }
     )
-    if (byUser || outcome === 'stopped' || !chat.startedBy) return
+    if (byUser || outcome === 'stopped') return
+    // A chat another chat started reports to that chat, which tells the user.
+    if (!chat.startedBy) {
+      this.events.finished(chatId, outcome === 'failed', since)
+      return
+    }
     if (!this.owesReport.delete(chatId)) return
     const lead = store.getState().chats.find((c) => c.id === chat.startedBy)
     if (!lead) return

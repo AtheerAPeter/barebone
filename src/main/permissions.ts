@@ -12,6 +12,8 @@ export interface AgentEvents {
   stateChanged(): void
   /** The chat began waiting for the user: a permission or a question is shown. */
   needsUser(chatId: string): void
+  /** A turn the user did not stop ended, done or `failed`; `since` is when it began. */
+  finished(chatId: string, failed: boolean, since: number): void
 }
 
 export interface PendingPermission {

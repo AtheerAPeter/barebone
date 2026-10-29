@@ -35,6 +35,7 @@ import {
 import { installMenu } from './menu'
 import { AgentOrb } from './orb'
 import { Speech } from './speech'
+import type { Sound } from './speech/sounds'
 import type { Language } from './speech/supertonic'
 import { loadShellPath } from './shell-env'
 import * as skills from './skills'
@@ -74,26 +75,43 @@ const agents = new AgentManager(
       browser?.prune()
       browser?.endControl()
     },
-    needsUser: (chatId: string) => {
-      // An agent waiting on the user cannot speak itself, so the app says it.
-      // With the window in front and the chat unfolded, the prompt is on screen
-      // already; folded into the orb, the user watches the page instead.
-      const onScreen = mainWindow?.isFocused() && !agentOrb?.folded(chatId)
-      if (!speechReady() || onScreen) return
-      // Named by the chat, as the sidebar shows it: the app's own agents have
-      // labels such as "Custom providers" that cannot be said as who asks.
-      const { title } = store.getChat(chatId)
-      // The prompt is shown whatever happens to the voice.
-      try {
-        const text = `Your chat "${title}" needs your OK.`
-        speech.speak(chatId, text, 'en', 1, store.soundsOn() ? 'boing' : undefined)
-      } catch (error) {
-        console.error('Could not say that a chat is waiting:', (error as Error).message)
-      }
+    // An agent waiting on the user cannot speak itself, so the app says it.
+    needsUser: (chatId: string) => tellAway(chatId, 'needs your OK.', 'boing'),
+    // Unless the agent said something itself while it worked.
+    finished: (chatId: string, failed: boolean, since: number) => {
+      if ((spokeAt.get(chatId) ?? 0) >= since) return
+      tellAway(chatId, failed ? 'ran into a problem.' : 'is done.', failed ? 'uhoh' : 'tada')
     }
   },
   (chatId) => browser?.state(chatId)
 )
+
+/** When each chat's agent last spoke, so the app does not say again what it said. */
+const spokeAt = new Map<string, number>()
+
+/**
+ * Say something about a chat to a user who cannot see it: the window is not in
+ * front, or the chat is folded into the orb while they watch the page. It is
+ * named as the sidebar shows it, since the app's own agents have labels such
+ * as "Custom providers" that cannot be said as who speaks.
+ */
+function tellAway(chatId: string, what: string, sound: Sound): void {
+  const onScreen = mainWindow?.isFocused() && !agentOrb?.folded(chatId)
+  if (!speechReady() || onScreen) return
+  const { title } = store.getChat(chatId)
+  // What the chat shows does not depend on the voice.
+  try {
+    speech.speak(
+      chatId,
+      `Your chat "${title}" ${what}`,
+      'en',
+      1,
+      store.soundsOn() ? sound : undefined
+    )
+  } catch (error) {
+    console.error('Could not say what a chat is doing:', (error as Error).message)
+  }
+}
 
 /** Speech is on and the voice is on this Mac, so nothing speaks into a missing one. */
 function speechReady(): boolean {
@@ -529,8 +547,10 @@ app.whenReady().then(async () => {
       // Offered once the voice is on this Mac, so an agent never speaks into a missing one.
       on: speechReady,
       sounds: store.soundsOn,
-      speak: (chatId, text, language, pace, sound) =>
-        speech.speak(chatId, text, language, pace, sound)
+      speak: (chatId, text, language, pace, sound) => {
+        spokeAt.set(chatId, Date.now())
+        return speech.speak(chatId, text, language, pace, sound)
+      }
     }
   )
   // Only when cline is installed; failures are logged and the app works without it.
