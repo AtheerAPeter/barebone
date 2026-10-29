@@ -1,4 +1,5 @@
 import type * as Ort from 'onnxruntime-node'
+import { sound, type Sound } from './sounds'
 import { chunks, Supertonic, type Language } from './supertonic'
 
 /**
@@ -10,7 +11,7 @@ import { chunks, Supertonic, type Language } from './supertonic'
 
 export type ToWorker =
   | { type: 'load'; dir: string; voice: string }
-  | { type: 'speak'; id: string; text: string; lang: Language; pace: number }
+  | { type: 'speak'; id: string; text: string; lang: Language; pace: number; sound?: Sound }
   | { type: 'cancel'; id: string }
 
 export type FromWorker =
@@ -52,6 +53,11 @@ async function next(): Promise<void> {
   speaking = true
   try {
     const tts = await engine
+    // The sound goes first, as a piece of the message, so it plays just before the words.
+    if (request.sound && !cancelled.has(request.id)) {
+      const samples = sound(request.sound, tts.sampleRate)
+      post({ type: 'audio', id: request.id, samples, sampleRate: tts.sampleRate, last: false })
+    }
     const parts = chunks(request.text, request.lang)
     for (const [index, part] of parts.entries()) {
       if (cancelled.has(request.id)) break

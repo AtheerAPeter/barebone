@@ -8,7 +8,7 @@ import type * as acp from '@agentclientprotocol/sdk'
 import type { AgentCommand, AgentOption, ChatItem, ModelSource } from '../../shared/types'
 import * as store from '../store'
 import { BROWSER_GUIDANCE } from '../browser-mcp'
-import { CHATS_GUIDANCE, SPEECH_GUIDANCE, speechOffered } from '../chats-mcp'
+import { CHATS_GUIDANCE } from '../chats-mcp'
 import { listSkills } from '../skills'
 import { formatRaw, limitOutput } from '../tool-output'
 import { saveImages } from '../images'
@@ -253,12 +253,6 @@ How to communicate:
       `<chats>\nstart_chat, send_message and list_chats work with the other chats of this project. ${CHATS_GUIDANCE}\n</chats>`,
       `<saved_chats>\n${store.savedChatsNote(chatId)}\n</saved_chats>`
     ]
-    // While the voice is on this Mac; the speak tool comes and goes with it (tools.ts).
-    if (speechOffered()) {
-      sections.push(
-        `<voice>\nspeak says a short message out loud on the user's computer. ${SPEECH_GUIDANCE}\n</voice>`
-      )
-    }
     // Set in Settings for every chat; the project's own instructions after them are more specific.
     const own = store.getState().instructions
     if (own) sections.push(`<user_instructions>\n${own}\n</user_instructions>`)

@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import type { Finished, Running } from './background'
 import type { Spoken } from './speech'
+import { SOUNDS, type Sound } from './speech/sounds'
 import { LANGUAGES, type Language } from './speech/supertonic'
 
 /**
@@ -45,25 +46,6 @@ export const CHATS_GUIDANCE =
   'within a couple of minutes with your own shell tool instead. list_background, ' +
   'read_background and stop_background check on it and stop it. set_timer wakes this chat later, ' +
   'to check on something nothing else tells you about.'
-
-/**
- * When an agent speaks without being asked: the moments a colleague would look
- * up and tell you something. It is the speak tool's description, the server's
- * instructions while the voice is offered, and a section of the harness's
- * system prompt, so every agent reads it wherever it reads guidance.
- */
-export const SPEECH_GUIDANCE =
-  'Use it on your own, without being asked, at the moments a colleague would look up and tell ' +
-  'the user something: when you need them (a question you cannot go on without, a decision, or ' +
-  'something only they can do, such as signing in or approving), said just before you stop to ' +
-  'wait for them; when long work ends, done, failed or stuck; and now and then during long work ' +
-  '(many steps, or minutes of commands), at a real milestone, so they know it is moving. Stay ' +
-  'quiet otherwise: in a quick back-and-forth they read your reply as it comes, so speaking adds ' +
-  'nothing. Never speak about every step, twice about the same thing, or to repeat your written ' +
-  'reply. Talk like a person in the room: the gist in one or two short sentences (about 25 words), ' +
-  'in the first person and the language you write to them in, leaving the details to your ' +
-  'written reply, with no code, file paths, URLs, lists or tables. A chat that ' +
-  'another chat started reports to that chat and does not speak.'
 
 /** "45s", "3m 12s", "1h 5m". */
 export function formatDuration(ms: number): string {
@@ -128,7 +110,7 @@ export interface SpeechApi {
   /** Whether speech is on and the voice is on this Mac; the tools offer it only then. */
   on(): boolean
   /** Say a message out loud, after what plays already; throws why it cannot be said. */
-  speak(chatId: string, text: string, language: Language, pace?: number): Spoken
+  speak(chatId: string, text: string, language: Language, pace?: number, sound?: Sound): Spoken
 }
 
 /** The voice the chat servers speak with; given once, when they start (browser-mcp.ts). */
@@ -217,9 +199,7 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
   const server = new McpServer(
     { name: SERVER_NAME, version: '1.0.0' },
     {
-      instructions: speechOffered()
-        ? `${CHATS_GUIDANCE} The speak tool says a short message out loud on the user's computer. ${SPEECH_GUIDANCE}`
-        : CHATS_GUIDANCE
+      instructions: CHATS_GUIDANCE
     }
   )
 
@@ -434,16 +414,23 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
     server.registerTool(
       'speak',
       {
-        description: `Say a short message out loud to the user, in a natural voice played on their computer, as well as writing your reply. ${SPEECH_GUIDANCE} It returns at once, while the voice plays. To narrate a step of a tutorial in the browser, use show_step's say instead, which shows the step as the voice begins.`,
+        description:
+          "Say a short message out loud to the user, as well as writing your reply. Use it on your own when you need them (a question, a decision, something only they can do), when long work finishes or fails, or for a brief update during long work. Stay quiet in a quick back-and-forth. One or two short spoken sentences, with no code, paths or lists. It returns at once, while the voice plays. To narrate a step of a tutorial in the browser, use show_step's say instead.",
         inputSchema: {
           text: z.string().describe('What to say: plain spoken sentences'),
           language: languageArg,
           pace: paceArg,
+          sound: z
+            .enum(SOUNDS)
+            .optional()
+            .describe(
+              'A sound just before the words, for fun: whistle to get their attention, tada when something is done, uhoh when it failed, ding for an update'
+            ),
           ...chatArg
         }
       },
-      ({ text: said, language, pace, chat }) => {
-        voice.speak(chatForKey(chat), said, language, pace)
+      ({ text: said, language, pace, sound, chat }) => {
+        voice.speak(chatForKey(chat), said, language, pace, sound)
         return text('Speaking it to the user now.')
       }
     )

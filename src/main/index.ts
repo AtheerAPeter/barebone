@@ -18,7 +18,6 @@ import type {
   SkillScope,
   Theme
 } from '../shared/types'
-import { AGENTS } from '../shared/types'
 import * as store from './store'
 import { AgentManager } from './agents'
 import { BuiltinBrowser } from './browser'
@@ -46,6 +45,8 @@ import { availableUpdate, checkForUpdates, installUpdate, watchForUpdates } from
 
 let mainWindow: BrowserWindow
 let browser: BuiltinBrowser | undefined
+/** The folded chat's orb; made with the window. */
+let agentOrb: AgentOrb | undefined
 /** The voice agents speak with; made once the app has its name, which its data folder is under. */
 let speech: Speech
 /** Set once the app is quitting: closing the window then really closes it. */
@@ -74,14 +75,17 @@ const agents = new AgentManager(
       browser?.endControl()
     },
     needsUser: (chatId: string) => {
-      // An agent waiting on the user cannot speak itself, so the app says it. In
-      // front, the prompt is on screen already.
-      if (!speechReady() || mainWindow?.isFocused()) return
-      const chat = store.getChat(chatId)
-      const agent = AGENTS.find((a) => a.id === chat.agent)?.label ?? chat.agent
+      // An agent waiting on the user cannot speak itself, so the app says it.
+      // With the window in front and the chat unfolded, the prompt is on screen
+      // already; folded into the orb, the user watches the page instead.
+      const onScreen = mainWindow?.isFocused() && !agentOrb?.folded(chatId)
+      if (!speechReady() || onScreen) return
+      // Named by the chat, as the sidebar shows it: the app's own agents have
+      // labels such as "Custom providers" that cannot be said as who asks.
+      const { title } = store.getChat(chatId)
       // The prompt is shown whatever happens to the voice.
       try {
-        speech.speak(chatId, `${agent} needs your OK in "${chat.title}".`, 'en')
+        speech.speak(chatId, `Your chat "${title}" needs your OK.`, 'en', 1, 'whistle')
       } catch (error) {
         console.error('Could not say that a chat is waiting:', (error as Error).message)
       }
@@ -185,6 +189,7 @@ function createWindow(): BuiltinBrowser {
 
   // The folded chat's orb, over the browser's page.
   const orb = new AgentOrb(mainWindow, () => send('orb:unfold'))
+  agentOrb = orb
   browser.onPageArea = (area) => orb.setArea(area)
   ipcMain.on('orb:state', (event, state: OrbState | null) => {
     if (event.sender === mainWindow.webContents) orb.setState(state)
@@ -518,7 +523,8 @@ app.whenReady().then(async () => {
     {
       // Offered once the voice is on this Mac, so an agent never speaks into a missing one.
       on: speechReady,
-      speak: (chatId, text, language, pace) => speech.speak(chatId, text, language, pace)
+      speak: (chatId, text, language, pace, sound) =>
+        speech.speak(chatId, text, language, pace, sound)
     }
   )
   // Only when cline is installed; failures are logged and the app works without it.
