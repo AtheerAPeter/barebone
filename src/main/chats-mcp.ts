@@ -149,7 +149,7 @@ const soundArg = z
   .enum(SOUNDS)
   .optional()
   .describe(
-    'A sound just before the words, for fun: whistle to get their attention, tada when something is done, uhoh when it failed, ding for an update'
+    'A sound just before the words, for fun: boing or knock to get their attention, tada or levelup when something is done, sparkle for something neat, drumroll before a reveal, womp or uhoh when it failed, ding or pop for an update'
   )
 
 /** How fast to say something, as the voice takes it. */

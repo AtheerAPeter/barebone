@@ -86,7 +86,7 @@ const agents = new AgentManager(
       // The prompt is shown whatever happens to the voice.
       try {
         const text = `Your chat "${title}" needs your OK.`
-        speech.speak(chatId, text, 'en', 1, store.soundsOn() ? 'whistle' : undefined)
+        speech.speak(chatId, text, 'en', 1, store.soundsOn() ? 'boing' : undefined)
       } catch (error) {
         console.error('Could not say that a chat is waiting:', (error as Error).message)
       }

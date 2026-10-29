@@ -278,8 +278,9 @@ function SpeechCard({ on, sounds }: { on: boolean; sounds: boolean }): React.JSX
       {on && (
         <>
           <p>
-            Sounds for fun: agents can start what they say with a whistle, a tada, an uh-oh or a
-            ding, and a chat waiting for your OK whistles first.
+            Sounds for fun: agents can start what they say with a boing, a knock, a tada, a level-up
+            jingle, a sparkle, a drumroll, a sad trombone and more, and a chat waiting for your OK
+            starts with the boing.
           </p>
           <div className="segmented settings-switch" role="group" aria-label="Sounds">
             <button
