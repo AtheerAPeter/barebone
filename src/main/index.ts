@@ -18,6 +18,7 @@ import type {
   SkillScope,
   Theme
 } from '../shared/types'
+import { AGENTS } from '../shared/types'
 import * as store from './store'
 import { AgentManager } from './agents'
 import { BuiltinBrowser } from './browser'
@@ -71,10 +72,28 @@ const agents = new AgentManager(
       // no longer controls a tab.
       browser?.prune()
       browser?.endControl()
+    },
+    needsUser: (chatId: string) => {
+      // An agent waiting on the user cannot speak itself, so the app says it. In
+      // front, the prompt is on screen already.
+      if (!speechReady() || mainWindow?.isFocused()) return
+      const chat = store.getChat(chatId)
+      const agent = AGENTS.find((a) => a.id === chat.agent)?.label ?? chat.agent
+      // The prompt is shown whatever happens to the voice.
+      try {
+        speech.speak(chatId, `${agent} needs your OK in "${chat.title}".`, 'en')
+      } catch (error) {
+        console.error('Could not say that a chat is waiting:', (error as Error).message)
+      }
     }
   },
   (chatId) => browser?.state(chatId)
 )
+
+/** Speech is on and the voice is on this Mac, so nothing speaks into a missing one. */
+function speechReady(): boolean {
+  return store.speechOn() && speech.status().state === 'ready'
+}
 
 function createWindow(): BuiltinBrowser {
   mainWindow = new BrowserWindow({
@@ -498,7 +517,7 @@ app.whenReady().then(async () => {
     agents,
     {
       // Offered once the voice is on this Mac, so an agent never speaks into a missing one.
-      on: () => store.speechOn() && speech.status().state === 'ready',
+      on: speechReady,
       speak: (chatId, text, language, pace) => speech.speak(chatId, text, language, pace)
     }
   )

@@ -10,6 +10,8 @@ export interface AgentEvents {
   options(chatId: string, options: AgentOption[]): void
   commands(chatId: string, commands: AgentCommand[]): void
   stateChanged(): void
+  /** The chat began waiting for the user: a permission or a question is shown. */
+  needsUser(chatId: string): void
 }
 
 export interface PendingPermission {
@@ -40,6 +42,7 @@ export function emitItem(
   if (Boolean(store.getChat(chatId).waiting) === waiting) return
   store.updateChat(chatId, { waiting })
   events.stateChanged()
+  if (waiting) events.needsUser(chatId)
 }
 
 /**
