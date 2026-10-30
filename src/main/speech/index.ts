@@ -64,7 +64,7 @@ export class Speech {
   /** Messages not heard to their end yet, with what to tell when they begin and end. */
   private readonly unsaid = new Map<
     string,
-    { chatId?: string; begin: (begun: boolean) => void; end: () => void }
+    { chatId?: string; begin: (begun: boolean) => void; end: () => void; ended: Promise<void> }
   >()
 
   constructor(
@@ -225,10 +225,16 @@ export class Speech {
     let end: () => void = () => undefined
     const started = new Promise<boolean>((resolve) => (begin = resolve))
     const ended = new Promise<void>((resolve) => (end = resolve))
-    this.unsaid.set(id, { chatId, begin, end })
+    this.unsaid.set(id, { chatId, begin, end, ended })
     this.messages.set(id, { chatId, text })
     this.send({ type: 'speak', id, text, lang, pace })
     return { started, ended, stop: () => this.stopMessage(id) }
+  }
+
+  /** Once everything a chat has said so far has been heard, or will not be. */
+  async said(chatId: string): Promise<void> {
+    const waiting = [...this.unsaid.values()].filter((message) => message.chatId === chatId)
+    await Promise.all(waiting.map((message) => message.ended))
   }
 
   /** The player is about to play a message (lib/speech.ts). */

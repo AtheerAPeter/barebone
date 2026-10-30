@@ -264,6 +264,8 @@ export interface AppState {
   instructions?: string
   /** Whether agents get the browser tools that draw on pages, and the browser-tutorial skill. Off when missing. */
   annotations?: boolean
+  /** Whether agents get the browser tools that record a tab as a video. Off when missing. */
+  recording?: boolean
   /** False when the user turned off speech: the speak tool, which says a message out loud (main/speech). On when missing. */
   speech?: boolean
 }
@@ -292,6 +294,18 @@ export interface SpokenAudio {
 export interface SpeechStop {
   id?: string
   chatId?: string
+}
+
+/** A video of a browser tab the window is asked to record (main/recording.ts). */
+export interface RecordingRequest {
+  id: string
+  /** The chat recording it: its voice is the video's sound. */
+  chatId: string
+  /** The tab's media source id, for getUserMedia; valid for 10 seconds. */
+  sourceId: string
+  /** The tab's size in points; the video keeps it to the end. */
+  width: number
+  height: number
 }
 
 /** A session option exposed by the agent (model, mode, reasoning effort, ...). */

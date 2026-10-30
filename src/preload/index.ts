@@ -17,6 +17,7 @@ import type {
   FormAnswers,
   OrbState,
   Project,
+  RecordingRequest,
   SpeechStatus,
   SpeechStop,
   SpokenAudio,
@@ -56,6 +57,23 @@ const api = {
   setInstructions: (text: string): Promise<void> => ipcRenderer.invoke('instructions:set', text),
   /** Give agents the browser tools that draw on pages, and their skill, or take them away. */
   setAnnotations: (on: boolean): Promise<void> => ipcRenderer.invoke('annotations:set', on),
+  /** Give agents the browser tools that record a tab as a video, or take them away. */
+  setRecording: (on: boolean): Promise<void> => ipcRenderer.invoke('recording:set', on),
+
+  /** Videos of browser tabs agents record, made here (main/recording.ts). */
+  recording: {
+    /** Main asks for a tab to be recorded. */
+    onStart: (listener: (request: RecordingRequest) => void) => on('recording:start', listener),
+    /** Main asks for a recording to stop. */
+    onStop: (listener: (id: string) => void) => on('recording:stop', listener),
+    started: (id: string): void => ipcRenderer.send('recording:started', id),
+    failed: (id: string, message: string): void =>
+      ipcRenderer.send('recording:failed', id, message),
+    /** The next piece of the MP4 file. */
+    data: (id: string, chunk: Uint8Array): void => ipcRenderer.send('recording:data', id, chunk),
+    /** All of it was sent; with why, when it stopped by itself. */
+    ended: (id: string, error?: string): void => ipcRenderer.send('recording:ended', id, error)
+  },
 
   exa: {
     /** The saved Exa API key's last four characters; null when none is saved. */

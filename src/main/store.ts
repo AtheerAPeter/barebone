@@ -184,6 +184,12 @@ export function setAnnotations(on: boolean): void {
   scheduleFlush()
 }
 
+/** Turn the browser tools that record a tab as a video on or off. */
+export function setRecording(on: boolean): void {
+  state.recording = on || undefined
+  scheduleFlush()
+}
+
 /** Speech is on unless the user turned it off. */
 export function setSpeech(on: boolean): void {
   state.speech = on ? undefined : false

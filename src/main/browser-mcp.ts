@@ -13,6 +13,7 @@ import { z } from 'zod'
 import { normalizeUrl, type BuiltinBrowser, type ChatPage, type PageDialog } from './browser'
 import {
   buildChatsServer,
+  formatDuration,
   SERVER_NAME as CHATS_SERVER,
   languageArg,
   offeredSpeech,
@@ -24,6 +25,7 @@ import {
 } from './chats-mcp'
 import { withTimeout, type Modifier } from './page-driver'
 import { COLORS, type Color, type Shape, type Target } from './page-overlay'
+import type { PageRecorder } from './recording'
 import { BROWSER_TUTORIAL_SKILL } from './skills'
 import { getState } from './store'
 
@@ -471,6 +473,7 @@ export interface BrowserRouting {
 async function buildServer(
   browser: BuiltinBrowser,
   routing: BrowserRouting,
+  recorder: PageRecorder,
   pathChat: string | undefined
 ): Promise<McpServer> {
   // The MCP SDK takes ~150 ms to load; it loads with the first request, not at launch.
@@ -1342,6 +1345,48 @@ async function buildServer(
     )
   }
 
+  // Videos of a tab; only listed when Settings turns them on.
+  if (getState().recording) {
+    const drawing = getState().annotations === true
+    const voice = speechOffered()
+    server.registerTool(
+      'start_recording',
+      {
+        description: `Record the tab as a video, an MP4 file with sound, when the user asks for a video: a demo, a walkthrough, a bug report. The page is in it as the user sees it${drawing ? ', with the drawings, the pointer and the caption' : ''}${voice ? `, and what you say with speak${drawing ? " or show_step's say" : ''} is its sound` : ''}. It records this tab, at the size it has now, until stop_recording; tabs opened meanwhile are not in it. A chat records one tab at a time.${drawing && voice ? ' For a narrated walkthrough, show each step with show_step and its say, and do the clicks yourself.' : ''} The browser is signed in to the user's accounts, so what the page shows is in the video.`,
+        inputSchema: {
+          path: z.string().describe('Absolute path of the .mp4 file to write'),
+          ...pageArgs
+        }
+      },
+      ({ path, browser: id, tab }) =>
+        act(id, tab, async (page) => {
+          if (!isAbsolute(path)) throw new Error(`"path" must be absolute: ${path}`)
+          await recorder.start(chatFor(id), page, path)
+          return text(`Recording tab ${page.id} to ${path}. Call stop_recording to save it.`)
+        })
+    )
+
+    server.registerTool(
+      'stop_recording',
+      {
+        description:
+          'Stop recording and save the video. It waits until the voice has said what this chat gave it, so the video ends after the last words. Returns where it was saved, how long it is and its size.',
+        inputSchema: { ...browserArg }
+      },
+      async ({ browser: id }) => {
+        const chatId = chatFor(id)
+        await offeredSpeech()?.said(chatId)
+        // The video ends a moment after the last word, not on it.
+        await sleep(AFTER_TELLING_MS)
+        const video = await recorder.stop(chatId)
+        const early = video.endedBy ? ` It ended before you stopped it: ${video.endedBy}.` : ''
+        return text(
+          `Saved a ${formatDuration(video.duration)} video of tab ${video.tab} to ${video.path} (${(video.bytes / 1e6).toFixed(1)} MB).${early}`
+        )
+      }
+    )
+  }
+
   return server
 }
 
@@ -1355,7 +1400,8 @@ export async function startBrowserMcp(
   browser: BuiltinBrowser,
   routing: BrowserRouting,
   chats: ChatsApi,
-  speech: SpeechApi
+  speech: SpeechApi,
+  recorder: PageRecorder
 ): Promise<BrowserMcpEndpoint> {
   provideSpeech(speech)
   const saved = readSaved()
@@ -1375,7 +1421,7 @@ export async function startBrowserMcp(
     // Stateless mode: a fresh server and transport per request.
     const server = forChats
       ? await buildChatsServer(chats)
-      : await buildServer(browser, routing, match![1])
+      : await buildServer(browser, routing, recorder, match![1])
     const { StreamableHTTPServerTransport } =
       await import('@modelcontextprotocol/sdk/server/streamableHttp.js')
     const transport = new StreamableHTTPServerTransport({

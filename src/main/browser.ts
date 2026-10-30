@@ -114,6 +114,8 @@ export class ChatPage extends EventEmitter {
   box?: AbortController
   /** In the panel, as opposed to parked out of sight. */
   shown = false
+  /** The window is starting to capture it, to record it as a video (recording.ts). */
+  capturing = false
   /** The page it shows, kept for reopening the tab after the browser closes. */
   url = ''
   /** The page's icon, once the page has declared one. */
@@ -264,9 +266,13 @@ export class BuiltinBrowser {
     // Pages get no microphone or camera. Electron grants every permission a
     // page asks for unless told otherwise, and the app may use the microphone
     // (for voice input), so any page an agent opens could listen without asking.
-    browserSession.setPermissionRequestHandler((_contents, permission, callback) =>
-      callback(permission !== 'media')
-    )
+    // The window capturing a tab to record it (recording.ts) is asked here too,
+    // for that tab and no device, and is let through.
+    browserSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+      if (permission !== 'media') return callback(true)
+      const noDevice = 'mediaTypes' in details && !details.mediaTypes?.length
+      callback(noDevice && this.pageOf(contents)?.[1].capturing === true)
+    })
     // Routes alert() and confirm() to the app (see onPageDialog). Registered on
     // the session, so it also runs in windows that pages open as tabs.
     browserSession.registerPreloadScript({

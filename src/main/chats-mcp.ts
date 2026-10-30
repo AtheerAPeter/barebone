@@ -110,6 +110,8 @@ export interface SpeechApi {
   on(): boolean
   /** Say a message out loud, after what plays already; throws why it cannot be said. */
   speak(chatId: string, text: string, language: Language, pace?: number): Spoken
+  /** Once everything the chat has said so far has been heard, or will not be. */
+  said(chatId: string): Promise<void>
 }
 
 /** The voice the chat servers speak with; given once, when they start (browser-mcp.ts). */

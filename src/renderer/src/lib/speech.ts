@@ -1,10 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SpeechStop, SpokenAudio } from '../../../shared/types'
 
 /** What is being said now: by which chat (none for a sample from Settings), and the words. */
 export interface Speaking {
   chatId?: string
   text: string
+}
+
+/** What one chat says, as a stream to record (lib/recording.ts); silent between messages. */
+export interface VoiceTap {
+  stream: MediaStream
+  close(): void
 }
 
 /** A piece of a message: a sentence or a few. */
@@ -44,15 +50,32 @@ const LOUD_DB = -10
  * one before, so a message plays as one, with a pause between messages. Tells
  * main when a message is about to begin and when it ended, for what is shown
  * with it. `speaking` is what plays now or next; `level` holds how loud it is,
- * 0 to 1, for visuals that redraw every frame.
+ * 0 to 1, for visuals that redraw every frame. `tap` gives what a chat says as
+ * a stream, for a video it records.
  */
-export function useSpeechPlayer(): { speaking?: Speaking; level: React.RefObject<number> } {
+export function useSpeechPlayer(): {
+  speaking?: Speaking
+  level: React.RefObject<number>
+  tap: (chatId: string) => VoiceTap
+} {
   const [speaking, setSpeaking] = useState<Speaking>()
   const level = useRef(0)
+  const tapper = useRef<(chatId: string) => VoiceTap>(undefined)
 
   useEffect(() => {
-    /** Made with the first piece: the analyser measures what plays on its way out. */
+    /** Made with the first piece, or tap: the analyser measures what plays on its way out. */
     let output: { context: AudioContext; analyser: AnalyserNode } | undefined
+    const ensureOutput = (): NonNullable<typeof output> => {
+      if (!output) {
+        const context = new AudioContext()
+        const analyser = context.createAnalyser()
+        analyser.connect(context.destination)
+        output = { context, analyser }
+      }
+      return output
+    }
+    /** Where each chat's voice is recorded too, by chat id. */
+    const taps = new Map<string, Set<MediaStreamAudioDestinationNode>>()
     /** Pieces scheduled and not yet ended, in order; the first plays now or is about to. */
     let queue: Piece[] = []
     /** Messages with a piece here already, until their last piece. */
@@ -96,6 +119,8 @@ export function useSpeechPlayer(): { speaking?: Speaking; level: React.RefObject
       const source = context.createBufferSource()
       source.buffer = sound.buffer
       source.connect(analyser)
+      const chatId = sound.speaking.chatId
+      if (chatId) for (const tap of taps.get(chatId) ?? []) source.connect(tap)
       const piece: Piece = { ...sound, source, startAt: at }
       if (sound.first) {
         const notice = Math.max(0, (at - CUE_S - context.currentTime) * 1000)
@@ -121,14 +146,28 @@ export function useSpeechPlayer(): { speaking?: Speaking; level: React.RefObject
       piece.source.stop()
     }
 
-    const offAudio = window.api.speech.onAudio((audio: SpokenAudio) => {
-      if (!output) {
-        const context = new AudioContext()
-        const analyser = context.createAnalyser()
-        analyser.connect(context.destination)
-        output = { context, analyser }
+    tapper.current = (chatId) => {
+      const { context } = ensureOutput()
+      const tap = context.createMediaStreamDestination()
+      const chatTaps = taps.get(chatId) ?? new Set()
+      taps.set(chatId, chatTaps.add(tap))
+      // What the chat is saying already is in it from here on.
+      for (const piece of queue) if (piece.speaking.chatId === chatId) piece.source.connect(tap)
+      return {
+        stream: tap.stream,
+        close: () => {
+          chatTaps.delete(tap)
+          if (!chatTaps.size) taps.delete(chatId)
+          for (const piece of queue) {
+            if (piece.speaking.chatId === chatId) piece.source.disconnect(tap)
+          }
+        }
       }
-      const { context } = output
+    }
+
+    const offAudio = window.api.speech.onAudio((audio: SpokenAudio) => {
+      const playing = ensureOutput()
+      const { context } = playing
       const buffer = context.createBuffer(1, audio.samples.length, audio.sampleRate)
       buffer.copyToChannel(new Float32Array(audio.samples), 0)
       const sound = {
@@ -140,7 +179,7 @@ export function useSpeechPlayer(): { speaking?: Speaking; level: React.RefObject
       }
       if (audio.last) arrived.delete(audio.id)
       else arrived.add(audio.id)
-      const piece = schedule(output, sound, startFor(context, sound.first))
+      const piece = schedule(playing, sound, startFor(context, sound.first))
       queue.push(piece)
       if (queue.length === 1) {
         begin(piece)
@@ -180,6 +219,7 @@ export function useSpeechPlayer(): { speaking?: Speaking; level: React.RefObject
     })
 
     return () => {
+      tapper.current = undefined
       offAudio()
       offStop()
       for (const piece of queue) clearTimeout(piece.cue)
@@ -188,5 +228,10 @@ export function useSpeechPlayer(): { speaking?: Speaking; level: React.RefObject
     }
   }, [])
 
-  return { speaking, level }
+  const tap = useCallback((chatId: string) => {
+    if (!tapper.current) throw new Error('The voice player is not running.')
+    return tapper.current(chatId)
+  }, [])
+
+  return { speaking, level, tap }
 }

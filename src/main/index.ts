@@ -35,6 +35,7 @@ import {
 } from './harness/custom'
 import { installMenu } from './menu'
 import { AgentOrb } from './orb'
+import { PageRecorder } from './recording'
 import { Speech } from './speech'
 import type { Language } from './speech/supertonic'
 import { loadShellPath } from './shell-env'
@@ -48,6 +49,8 @@ let mainWindow: BrowserWindow
 let browser: BuiltinBrowser | undefined
 /** The voice agents speak with; made once the app has its name, which its data folder is under. */
 let speech: Speech
+/** Records browser tabs as videos, in the window; made with the window. */
+let recorder: PageRecorder | undefined
 /** Set once the app is quitting: closing the window then really closes it. */
 let quitting = false
 /** How long quitting waits for the agents and the browser to stop. */
@@ -119,12 +122,17 @@ function createWindow(): BuiltinBrowser {
   // loading the window again loses nothing; one that keeps crashing is left to the user.
   let lastReload = 0
   // The voice plays in the window (lib/speech.ts): what it was playing is gone with it.
+  // So are the videos it was recording (lib/recording.ts).
   mainWindow.webContents.on('did-start-navigation', (details) => {
-    if (details.isMainFrame && !details.isSameDocument) speech.stop()
+    if (details.isMainFrame && !details.isSameDocument) {
+      speech.stop()
+      recorder?.abandon("Barebone's window reloaded")
+    }
   })
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     console.error(`The window's renderer is gone: ${details.reason} (${details.exitCode})`)
     speech.stop()
+    recorder?.abandon("Barebone's window crashed")
     if (details.reason === 'clean-exit' || mainWindow.isDestroyed()) return
     if (Date.now() - lastReload < 30_000) {
       dialog.showErrorBox(
@@ -225,6 +233,10 @@ function registerIpc(browser: BuiltinBrowser): void {
   })
   ipcMain.handle('annotations:set', (_e, on: boolean) => {
     store.setAnnotations(on)
+    send('state:changed', store.getState())
+  })
+  ipcMain.handle('recording:set', (_e, on: boolean) => {
+    store.setRecording(on)
     send('state:changed', store.getState())
   })
   // Speech: turning it on downloads the voice when it is not on this Mac yet.
@@ -491,6 +503,7 @@ app.whenReady().then(async () => {
     stop: (which) => send('speech:stop', which)
   })
   browser = createWindow()
+  recorder = new PageRecorder(mainWindow.webContents)
   registerIpc(browser)
   // On by default: the voice downloads in the background the first time.
   if (store.speechOn()) void speech.fetchModel()
@@ -505,8 +518,10 @@ app.whenReady().then(async () => {
     {
       // Offered once the voice is on this Mac, so an agent never speaks into a missing one.
       on: () => store.speechOn() && speech.status().state === 'ready',
-      speak: (chatId, text, language, pace) => speech.speak(chatId, text, language, pace)
-    }
+      speak: (chatId, text, language, pace) => speech.speak(chatId, text, language, pace),
+      said: (chatId) => speech.said(chatId)
+    },
+    recorder
   )
   // Only when cline is installed; failures are logged and the app works without it.
   // One at a time: each rewrites cline's settings file.
@@ -534,11 +549,13 @@ app.on('before-quit', (event) => {
   } catch (error) {
     console.error('Could not save before quitting:', error)
   }
+  // Before the tabs close, so videos end as stopped, not as cut off.
+  const recorded = recorder?.stopAll()
   browser?.closeAll()
   speech.dispose()
   // Waited for up to a limit: one that never settles (an MCP server that never
   // answers) would otherwise keep the app open, and the updater replaces it.
-  const waits = { agents: stopped, browser: browser?.flush() }
+  const waits = { agents: stopped, browser: browser?.flush(), recordings: recorded }
   const unfinished = new Set(Object.keys(waits))
   const settled = Object.entries(waits).map(([name, wait]) =>
     Promise.resolve(wait)

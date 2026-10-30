@@ -7,17 +7,20 @@ import { ProvidersCard } from './ProvidersCard'
 /**
  * `instructions`: the saved custom instructions.
  * `annotations`: whether agents get the browser tools that draw on pages.
+ * `recording`: whether agents get the browser tools that record a tab as a video.
  * `speech`: whether agents may speak out loud (the speak tool).
  * `onProvidersChange`: a provider was added, changed or removed.
  */
 export function SettingsView({
   instructions,
   annotations,
+  recording,
   speech,
   onProvidersChange
 }: {
   instructions: string | undefined
   annotations: boolean
+  recording: boolean
   speech: boolean
   onProvidersChange: () => void
 }): React.JSX.Element {
@@ -27,6 +30,7 @@ export function SettingsView({
       <ProvidersCard onChange={onProvidersChange} />
       <InstructionsCard saved={instructions ?? ''} />
       <AnnotationsCard on={annotations} />
+      <RecordingCard on={recording} />
       <section className="settings-card">
         <h3>Web search</h3>
         <p>
@@ -169,19 +173,44 @@ function InstructionsCard({ saved }: { saved: string }): React.JSX.Element {
   )
 }
 
-/** Whether agents get the browser tools that draw on pages, and the skill that teaches with them. */
-function AnnotationsCard({ on }: { on: boolean }): React.JSX.Element {
+/** An Off/On switch for a setting main keeps, with what went wrong saving it. */
+function OnOffSwitch({
+  label,
+  on,
+  save
+}: {
+  label: string
+  on: boolean
+  save: (on: boolean) => Promise<void>
+}): React.JSX.Element {
   const [error, setError] = useState<string>()
 
   async function set(value: boolean): Promise<void> {
     setError(undefined)
     try {
-      await window.api.setAnnotations(value)
+      await save(value)
     } catch (e) {
       setError(errorMessage(e))
     }
   }
 
+  return (
+    <>
+      <div className="segmented settings-switch" role="group" aria-label={label}>
+        <button type="button" className={on ? '' : 'on'} onClick={() => set(false)}>
+          Off
+        </button>
+        <button type="button" className={on ? 'on' : ''} onClick={() => set(true)}>
+          On
+        </button>
+      </div>
+      {error && <div className="msg-error">{error}</div>}
+    </>
+  )
+}
+
+/** Whether agents get the browser tools that draw on pages, and the skill that teaches with them. */
+function AnnotationsCard({ on }: { on: boolean }): React.JSX.Element {
   return (
     <section className="settings-card">
       <h3>Drawing on pages</h3>
@@ -192,15 +221,24 @@ function AnnotationsCard({ on }: { on: boolean }): React.JSX.Element {
         Turned off, the tools and the skill stay out of the chats&apos; context. A change applies to
         chats started after it.
       </p>
-      <div className="segmented settings-switch" role="group" aria-label="Drawing on pages">
-        <button type="button" className={on ? '' : 'on'} onClick={() => set(false)}>
-          Off
-        </button>
-        <button type="button" className={on ? 'on' : ''} onClick={() => set(true)}>
-          On
-        </button>
-      </div>
-      {error && <div className="msg-error">{error}</div>}
+      <OnOffSwitch label="Drawing on pages" on={on} save={window.api.setAnnotations} />
+    </section>
+  )
+}
+
+/** Whether agents get the browser tools that record a tab as a video. */
+function RecordingCard({ on }: { on: boolean }): React.JSX.Element {
+  return (
+    <section className="settings-card">
+      <h3>Recording videos</h3>
+      <p>
+        Gives every agent browser tools that record a tab of the browser panel as an MP4 video, for
+        when you ask for a demo or a walkthrough. The video shows the page as you see it, with what
+        agents draw on it, and the agent&apos;s voice is its sound when speech is on. The browser is
+        signed in to your accounts, so what a page shows is in the video. A change applies to chats
+        started after it.
+      </p>
+      <OnOffSwitch label="Recording videos" on={on} save={window.api.setRecording} />
     </section>
   )
 }

@@ -8,6 +8,7 @@ import { BrowserPanel } from './components/BrowserPanel'
 import { ProjectPicker } from './components/ProjectPicker'
 import { ChatIcon, ComposeIcon, GlobeIcon, OrbIcon, SidebarIcon } from './components/icons'
 import { readPref, writePref } from './lib/prefs'
+import { usePageRecorder } from './lib/recording'
 import { useSpeechPlayer } from './lib/speech'
 import { LevelMeter } from './components/LevelMeter'
 import { waitingOn } from './lib/background'
@@ -67,6 +68,8 @@ export default function App(): React.JSX.Element {
   useEffect(() => writePref('chatFolded', chatFolded), [chatFolded])
   // What agents say out loud (the speak tool), played here.
   const speech = useSpeechPlayer()
+  // Videos agents record of browser tabs, made here, with what the chat says as the sound.
+  usePageRecorder(speech.tap)
   // Clicking the orb, or one of its subtitles, brings the chat back.
   useEffect(() => window.api.orb.onUnfold(() => setChatFolded(false)), [])
 
@@ -253,6 +256,7 @@ export default function App(): React.JSX.Element {
           <SettingsView
             instructions={state.instructions}
             annotations={state.annotations === true}
+            recording={state.recording === true}
             speech={state.speech !== false}
             onProvidersChange={() => readStatus('custom-api')}
           />
