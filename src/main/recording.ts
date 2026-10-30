@@ -96,10 +96,16 @@ export class PageRecorder {
       throw new Error(`The video is an MP4 file: "path" must end in .mp4, not ${path}.`)
     }
     await mkdir(dirname(path), { recursive: true })
-    const file = createWriteStream(path)
+    // A new file only: a video already there is never written over, so the
+    // file removed when the start fails (below) is always this one.
+    const file = createWriteStream(path, { flags: 'wx' })
     await new Promise<void>((resolve, reject) =>
       file.once('open', () => resolve()).once('error', reject)
-    )
+    ).catch((error: NodeJS.ErrnoException) => {
+      throw error.code === 'EEXIST'
+        ? new Error(`${path} exists already. Record to a new file.`)
+        : error
+    })
 
     // The view lets go of its contents once the tab closes; kept here to stop listening.
     const contents = tab.contents

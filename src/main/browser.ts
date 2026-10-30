@@ -102,6 +102,16 @@ function siteOf(url: string): string {
   }
 }
 
+/** Whether two addresses have the same scheme and host; every file: address is one origin. */
+function sameOrigin(a: string | undefined, b: string): boolean {
+  try {
+    const [x, y] = [new URL(a ?? ''), new URL(b)]
+    return x.protocol === y.protocol && x.host === y.host
+  } catch {
+    return false
+  }
+}
+
 /**
  * A tab of a chat's browser: its view, the driver agents use, and the dialog it
  * waits on. Emits 'dialog' when a dialog opens, and 'automate' when an agent
@@ -267,11 +277,14 @@ export class BuiltinBrowser {
     // page asks for unless told otherwise, and the app may use the microphone
     // (for voice input), so any page an agent opens could listen without asking.
     // The window capturing a tab to record it (recording.ts) is asked here too,
-    // for that tab and no device, and is let through.
+    // as that tab: with no device, from the window's own origin (a page asking
+    // itself has the page's), while the recording starts. It is let through.
     browserSession.setPermissionRequestHandler((contents, permission, callback, details) => {
       if (permission !== 'media') return callback(true)
-      const noDevice = 'mediaTypes' in details && !details.mediaTypes?.length
-      callback(noDevice && this.pageOf(contents)?.[1].capturing === true)
+      if (!('mediaTypes' in details)) return callback(false)
+      const noDevice = !details.mediaTypes?.length
+      const fromWindow = sameOrigin(details.securityOrigin, this.window.webContents.getURL())
+      callback(noDevice && fromWindow && this.pageOf(contents)?.[1].capturing === true)
     })
     // Routes alert() and confirm() to the app (see onPageDialog). Registered on
     // the session, so it also runs in windows that pages open as tabs.
