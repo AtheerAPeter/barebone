@@ -64,12 +64,16 @@ fi
 # The app is quit first: replacing it while it runs leaves the old version
 # open, and `open` below would only bring that one forward. Just Harness is
 # quit too, since the new app moves its data folder only once it has quit.
+#
+# pgrep -a: pgrep leaves its own ancestors out of the match otherwise, and when
+# the app runs this script to update itself, the app is one of them; it would
+# not be found, so not quit, and the old version would stay open.
 quit() {
-  pgrep -f "$1.app/Contents/MacOS" >/dev/null 2>&1 || return 0
+  pgrep -af "$1.app/Contents/MacOS" >/dev/null 2>&1 || return 0
   step "Quitting $1"
   osascript -e "quit app \"$1\"" >/dev/null 2>&1 || true
   for _ in $(seq 30); do
-    pgrep -f "$1.app/Contents/MacOS" >/dev/null 2>&1 || return 0
+    pgrep -af "$1.app/Contents/MacOS" >/dev/null 2>&1 || return 0
     sleep 1
   done
   fail "$1 did not quit, so $NAME was not updated. Quit it and try again."
