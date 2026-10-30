@@ -14,6 +14,7 @@ import type {
   CustomProvider,
   CustomProviderCheck,
   CustomProviderInput,
+  FormAnswers,
   OrbState,
   Project,
   SpeechStatus,
@@ -193,6 +194,9 @@ const api = {
     ipcRenderer.invoke('chat:setOption', chatId, optionId, value),
   resolvePermission: (chatId: string, permissionId: string, optionId: string): Promise<void> =>
     ipcRenderer.invoke('chat:permission', chatId, permissionId, optionId),
+  /** Answer a form the agent asked for; null declines it. */
+  answerForm: (chatId: string, formId: string, answers: FormAnswers | null): Promise<void> =>
+    ipcRenderer.invoke('chat:answerForm', chatId, formId, answers),
   onItem: (listener: (chatId: string, item: ChatItem) => void) => on('chat:item', listener),
 
   openChat: (chatId: string): Promise<OpenChatResult> => ipcRenderer.invoke('chat:open', chatId),

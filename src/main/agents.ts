@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { basename, dirname, extname, join } from 'node:path'
 import { statSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { app } from 'electron'
+import { app, shell } from 'electron'
 import { pathToFileURL } from 'node:url'
 import { Readable, Writable } from 'node:stream'
 import type * as acp from '@agentclientprotocol/sdk'
@@ -19,6 +19,7 @@ import type {
   Chat,
   ChatItem,
   ChatSender,
+  FormAnswers,
   ToolStatus
 } from '../shared/types'
 import { AGENTS, modelOptions, senderChat, type ModelSource } from '../shared/types'
@@ -51,11 +52,13 @@ import { commandPath, commandVersion, loadShellPath } from './shell-env'
 import { withTimeout } from './page-driver'
 import {
   bypassOption,
+  cancelPending,
   emitItem,
   requestPermission,
   type AgentEvents,
   type Permissions
 } from './permissions'
+import { askForm, formContent, formFor, formSummary } from './forms'
 import { chatPreview } from './preview'
 import * as background from './background'
 import type { Finished, Running } from './background'
@@ -90,6 +93,67 @@ const COMMANDS: Record<AcpAgent, { command: string; args: string[] }> = {
  * sessions for any folder other than its first. They get one process per project.
  */
 const PROCESS_PER_PROJECT = new Set<AgentId>(['commandcode'])
+
+/**
+ * Agents that work between turns. Claude Code starts a turn of its own when
+ * work it left running in the background ends (a command, a Monitor event),
+ * and that work runs inside its process. The chat shows such a turn as
+ * working, and the process is not stopped while the work may still run (see
+ * AgentProcess.backgroundWork).
+ */
+const WORKS_BETWEEN_TURNS = new Set<AgentId>(['claude'])
+
+/** The updates that are an agent's work, as opposed to reports about the session. */
+const WORK_UPDATES = new Set<acp.SessionUpdate['sessionUpdate']>([
+  'agent_message_chunk',
+  'agent_thought_chunk',
+  'tool_call',
+  'plan'
+])
+
+/** The method that adds a message to a running turn, where the agent advertises it. */
+const STEER_METHOD = '_session/steering'
+
+/** Claude Code's tools that start a subagent, and the one its subagent hands its report back with. */
+const SUBAGENT_TOOLS = new Set(['Agent', 'Task'])
+const SUBAGENT_HANDBACK = 'SubagentHandback'
+
+/** The tools a subagent used, which Claude Code puts before its report for the model. */
+const TOOLS_USED = /^\s*<tools-used-before-summary>[\s\S]*?<\/tools-used-before-summary>\s*/
+
+/**
+ * What Claude Code's adapter adds to a session update under `_meta.claudeCode`
+ * (the keys it sends every client, see its docs/air-extensions.md).
+ */
+interface ClaudeMeta {
+  toolName?: string
+  /** The Agent call of the subagent that made this call or wrote this text. */
+  parentToolUseId?: string
+  /** The tool's result as Claude Code returned it. */
+  toolResponse?: {
+    /** A Bash command moved to the background. */
+    backgroundTaskId?: string
+    /** A Monitor's task. */
+    taskId?: string
+    /** A subagent's report, when it handed it back with SubagentHandback. */
+    handbackReport?: { text?: string }
+  }
+}
+
+function claudeMeta(meta: Record<string, unknown> | null | undefined): ClaudeMeta | undefined {
+  const claude = meta?.claudeCode
+  return claude && typeof claude === 'object' ? (claude as ClaudeMeta) : undefined
+}
+
+/** A Claude Code subagent's line: "type: what it does", as the chat shows subagents. */
+function subagentTitle(rawInput: unknown, fallback: string): string {
+  const input = (rawInput ?? {}) as { description?: unknown; subagent_type?: unknown }
+  const what =
+    typeof input.description === 'string' && input.description ? input.description : fallback
+  return typeof input.subagent_type === 'string' && input.subagent_type
+    ? `${input.subagent_type}: ${what}`
+    : what
+}
 
 /**
  * An agent process with no prompt running is stopped after this long. Agents
@@ -396,6 +460,10 @@ interface AgentBackend {
   explain(error: unknown): Promise<unknown>
   /** The turn is alive (a permission was answered); agents without a turn watchdog leave it out. */
   touchActivity?(chatId: string): void
+  /** Whether messages can join a running turn without ending it (see steerTurn). */
+  steersTurns?(): boolean
+  /** Add a message to the chat's running turn; false when the turn ended first. */
+  steerTurn?(chatId: string, prompt: acp.ContentBlock[]): Promise<boolean>
   resolvePermissionItem(chatId: string, id: string, resolved: string, auto?: boolean): void
   stop(): void
 }
@@ -452,6 +520,18 @@ class AgentProcess implements AgentBackend {
   private stalled = new Map<string, { turn: symbol; why: string }>()
   private activePrompts = 0
   private idleTimer?: NodeJS.Timeout
+  /** Chats in a turn the agent started itself (see WORKS_BETWEEN_TURNS). */
+  private ownTurns = new Set<string>()
+  /** Chats whose own turn the user stopped: what it still reports until its result starts no new one. */
+  private stoppingOwn = new Set<string>()
+  /**
+   * Chats that left work running in the agent's process (a background command,
+   * a Monitor). ACP does not say when it ends, so the process is kept until
+   * the chat lets go of its session (see scheduleIdleStop).
+   */
+  private backgroundWork = new Set<string>()
+  /** Reports Claude Code's subagents handed back, by their Agent call, until that call ends. */
+  private reports = new Map<string, string>()
 
   constructor(
     readonly agent: AcpAgent,
@@ -459,6 +539,11 @@ class AgentProcess implements AgentBackend {
     private readonly permissions: Permissions,
     /** A step of the chat's turn ended (a tool call finished) and no other is running. */
     private readonly onStepDone: (chatId: string) => void,
+    /** A turn the agent started itself (see WORKS_BETWEEN_TURNS) started or ended. */
+    private readonly ownTurn: {
+      started(chatId: string): void
+      ended(chatId: string, outcome: TurnOutcome, failure?: string): void
+    },
     /** Set when this process serves only one project (see PROCESS_PER_PROJECT). */
     readonly projectId?: string
   ) {}
@@ -503,6 +588,11 @@ class AgentProcess implements AgentBackend {
     const connection = client({ name: 'barebone' })
       .onNotification(methods.client.session.update, (ctx) => this.onUpdate(ctx.params))
       .onRequest(methods.client.session.requestPermission, (ctx) => this.onPermission(ctx.params))
+      .onRequest(methods.client.elicitation.create, (ctx) =>
+        this.onElicitation(ctx.params, ctx.signal)
+      )
+      // A page the user opened for a form (a sign-in) is done; the agent goes on by itself.
+      .onNotification(methods.client.elicitation.complete, () => undefined)
       .connect(stream)
 
     let ended: (message: string) => void = () => undefined
@@ -521,7 +611,7 @@ class AgentProcess implements AgentBackend {
       const message = this.exitMessage(run, code, signal)
       connection.close(new Error(message))
       // A replaced process (stuck while starting) owns none of the current state.
-      if (this.run === run) this.onExit()
+      if (this.run === run) this.onExit(message)
       ended(message)
     })
     this.run = run
@@ -529,8 +619,11 @@ class AgentProcess implements AgentBackend {
 
     const initResult = await connection.agent.request(methods.agent.initialize, {
       protocolVersion: PROTOCOL_VERSION,
-      clientCapabilities: {},
-      clientInfo: { name: 'barebone', version: '1.0.0' }
+      // Forms the agent asks the user to fill in (Claude Code's AskUserQuestion,
+      // which it leaves out for a client without them, and MCP servers'
+      // questions), and pages to open (an MCP server's sign-in). See forms.ts.
+      clientCapabilities: { elicitation: { form: {}, url: {} } },
+      clientInfo: { name: 'barebone', version: app.getVersion() }
     })
     if (this.run !== run) throw new Error(`${this.agent} was restarted.`)
     this.initResult = initResult
@@ -539,22 +632,37 @@ class AgentProcess implements AgentBackend {
     return connection
   }
 
-  /** Restart the idle countdown; the process is stopped once nothing has used it for a while. */
+  /**
+   * Restart the idle countdown; the process is stopped once nothing has used
+   * it for a while. Work the agent does between turns counts as use, and so
+   * does work it left running in the background, which stopping would end.
+   */
   private scheduleIdleStop(): void {
     clearTimeout(this.idleTimer)
-    if (this.activePrompts > 0 || this.opening.size > 0) return
+    const busy = (): boolean =>
+      this.activePrompts > 0 ||
+      this.opening.size > 0 ||
+      this.ownTurns.size > 0 ||
+      this.backgroundWork.size > 0
+    if (busy()) return
     this.idleTimer = setTimeout(() => {
-      if (this.activePrompts === 0 && this.opening.size === 0) this.stop()
+      if (!busy()) this.stop()
     }, IDLE_STOP_MS)
   }
 
-  private onExit(): void {
+  private onExit(message: string): void {
     clearTimeout(this.idleTimer)
     this.run = undefined
     this.connection = undefined
     this.liveSessions.clear()
     this.loadingSessions.clear()
     this.commands.clear()
+    // The work they were doing, and what they left in the background, ended with the process.
+    for (const chatId of this.ownTurns) this.ownTurn.ended(chatId, 'failed', message)
+    this.ownTurns.clear()
+    this.stoppingOwn.clear()
+    this.backgroundWork.clear()
+    this.reports.clear()
     for (const [id, pending] of this.permissions) {
       if (this.owns(pending.chatId)) {
         this.permissions.delete(id)
@@ -680,7 +788,9 @@ class AgentProcess implements AgentBackend {
       signal.throwIfAborted()
       sessionId = created.sessionId
       configOptions = created.configOptions
-      store.updateChat(chatId, { sessionId })
+      // A new session starts with an empty context.
+      store.updateChat(chatId, { sessionId, context: undefined })
+      this.events.stateChanged()
       if (previousSessionId && store.getMessages(chatId).some((i) => i.kind === 'user')) {
         this.emit(chatId, {
           kind: 'error',
@@ -868,6 +978,9 @@ class AgentProcess implements AgentBackend {
     this.liveSessions.delete(sessionId)
     this.sessionChats.delete(sessionId)
     this.commands.delete(sessionId)
+    // Closing the session ends the work it left in the background.
+    this.backgroundWork.delete(chatId)
+    this.scheduleIdleStop()
     if (empty && caps?.delete) {
       await connection.agent.request(methods.agent.session.delete, { sessionId })
     } else if (wasLive && caps?.close) {
@@ -887,6 +1000,7 @@ class AgentProcess implements AgentBackend {
     this.activePrompts++
     clearTimeout(this.idleTimer)
     this.retryNotices.delete(chatId)
+    this.stoppingOwn.delete(chatId)
     const turn = Symbol(chatId)
     let stopped = false
     const stop = new Promise<undefined>((resolve) =>
@@ -943,10 +1057,12 @@ class AgentProcess implements AgentBackend {
     if ([...this.permissions.values()].some((p) => p.chatId === chatId)) return
     const last = this.activity.get(chatId)
     if (last === undefined) return
-    // A running tool call is given longer (see TOOL_STALL_TIMEOUT_MS).
+    // A running tool call is given longer (see TOOL_STALL_TIMEOUT_MS). Claude
+    // Code's adapter reports a call pending until it ends; with no permission
+    // request open (see above), a pending call is running too.
     const tool = store
       .getMessages(chatId)
-      .some((i) => i.kind === 'tool' && i.status === 'in_progress')
+      .some((i) => i.kind === 'tool' && (i.status === 'in_progress' || i.status === 'pending'))
     const limit = tool ? TOOL_STALL_TIMEOUT_MS : STALL_TIMEOUT_MS
     if (Date.now() - last <= limit) return
     const why = tool
@@ -1009,12 +1125,19 @@ class AgentProcess implements AgentBackend {
     const { methods } = await loadSdk()
     for (const [id, pending] of this.permissions) {
       if (pending.chatId === chatId) {
-        pending.resolve({ outcome: { outcome: 'cancelled' } })
+        cancelPending(pending)
         this.permissions.delete(id)
         this.resolvePermissionItem(chatId, id, 'cancelled')
       }
     }
     await connection.agent.notify(methods.agent.session.cancel, { sessionId })
+    // A turn the agent started itself has no prompt to end: it ends here, and
+    // what the stopped work still reports until its result starts no new one.
+    if (this.ownTurns.has(chatId)) {
+      this.stoppingOwn.add(chatId)
+      this.endOwnTurn(chatId, 'stopped')
+      return
+    }
     // The agent must end the turn now. One that does not is stuck: restarting
     // it ends the turn, and the next message reloads the session.
     const turn = this.turns.get(chatId)
@@ -1034,6 +1157,70 @@ class AgentProcess implements AgentBackend {
   resolvePermissionItem(chatId: string, id: string, resolved: string, auto = false): void {
     const item = store.findItem(chatId, id)
     if (item?.kind === 'permission') this.emit(chatId, { ...item, resolved, auto })
+    // A form ends here only when it is cancelled; answers go through answerForm.
+    else if (item?.kind === 'form') this.emit(chatId, { ...item, resolved: 'cancelled' })
+  }
+
+  /** The agent asks the user to fill in a form or open a page (see forms.ts). */
+  private onElicitation(
+    params: acp.CreateElicitationRequest,
+    signal: AbortSignal
+  ): Promise<acp.CreateElicitationResponse> {
+    const chatId =
+      'sessionId' in params && typeof params.sessionId === 'string'
+        ? this.sessionChats.get(params.sessionId)
+        : undefined
+    const form = formFor(params)
+    // Asked outside a chat (while starting), or in a form the app cannot show.
+    if (!chatId || !form) return Promise.resolve({ action: 'decline' })
+    // The agent spoke, and its turn is paused on the answer.
+    this.touchActivity(chatId)
+    return askForm(this.events, this.permissions, chatId, form, signal)
+  }
+
+  steersTurns(): boolean {
+    const steering = this.initResult?._meta?.steering as { supported?: unknown } | undefined
+    return steering?.supported === true
+  }
+
+  /**
+   * Add a message to the chat's running turn with `_session/steering`: the
+   * agent takes it in where it is, and the turn goes on. False when the turn
+   * ended first: the message then waits for the next one.
+   */
+  async steerTurn(chatId: string, prompt: acp.ContentBlock[]): Promise<boolean> {
+    const sessionId = store.getChat(chatId).sessionId
+    const connection = this.connection
+    if (!connection || !this.turns.has(chatId) || !this.isLive(sessionId)) return false
+    const response = await connection.agent.request<{ outcome?: string }>(STEER_METHOD, {
+      sessionId,
+      prompt,
+      // Without this, an agent whose turn just ended starts a new one of its
+      // own; the app sends the message as the next turn instead.
+      _meta: { steering: { idleBehavior: 'promptRequired' } }
+    })
+    this.touchActivity(chatId)
+    return response.outcome === 'injected'
+  }
+
+  /**
+   * Work while no prompt of the chat is open is a turn the agent started
+   * itself (see WORKS_BETWEEN_TURNS): the chat shows it working until the
+   * turn's result.
+   */
+  private noteOwnTurn(chatId: string, update: acp.SessionUpdate): void {
+    if (!WORKS_BETWEEN_TURNS.has(this.agent) || !WORK_UPDATES.has(update.sessionUpdate)) return
+    if (this.ownTurns.has(chatId) || this.stoppingOwn.has(chatId)) return
+    if (store.getChat(chatId).running) return
+    this.ownTurns.add(chatId)
+    clearTimeout(this.idleTimer)
+    this.ownTurn.started(chatId)
+  }
+
+  private endOwnTurn(chatId: string, outcome: TurnOutcome): void {
+    if (!this.ownTurns.delete(chatId)) return
+    this.ownTurn.ended(chatId, outcome)
+    this.scheduleIdleStop()
   }
 
   private onPermission(
@@ -1066,6 +1253,17 @@ class AgentProcess implements AgentBackend {
     if (this.loadingSessions.has(params.sessionId)) return
     if (!chatId) return
     const update = params.update
+    const claude = claudeMeta(update._meta)
+    // Claude Code streams its subagents' text into the session as if the agent
+    // itself wrote it. The chat shows a subagent's calls and report under its
+    // line instead (see the subagent's Agent call below), and the call it
+    // hands its report back with is that report.
+    const subagentText =
+      update.sessionUpdate === 'agent_message_chunk' ||
+      update.sessionUpdate === 'agent_thought_chunk'
+    if (claude?.parentToolUseId && subagentText) return
+    if (claude?.toolName === SUBAGENT_HANDBACK) return
+    this.noteOwnTurn(chatId, update)
 
     switch (update.sessionUpdate) {
       case 'agent_message_chunk':
@@ -1099,22 +1297,44 @@ class AgentProcess implements AgentBackend {
           existing?.kind === 'tool'
             ? existing
             : { kind: 'tool', id: update.toolCallId, title: 'Tool call', status: 'pending' }
-        const text = formatToolContent(update.content) ?? formatRaw(update.rawOutput)
+        // A Claude Code subagent: its line, with its calls under it (parentId)
+        // and the report it handed back as its output.
+        const subagent = claude?.toolName !== undefined && SUBAGENT_TOOLS.has(claude.toolName)
+        const report = claude?.toolResponse?.handbackReport?.text
+        if (subagent && report) this.reports.set(update.toolCallId, report)
+        const content = formatToolContent(update.content) ?? formatRaw(update.rawOutput)
+        const text =
+          this.reports.get(update.toolCallId) ??
+          (subagent ? content?.replace(TOOLS_USED, '') : content)
         const output = text === undefined ? undefined : limitOutput(text)
         // opencode sends images as content, Cline inside the MCP result it passes as rawOutput.
         const images = saveImages(chatId, [
           ...contentImages(update.content),
           ...imagesIn(update.rawOutput)
         ])
+        // Work Claude Code moved to the background runs in its process (see backgroundWork).
+        const task =
+          claude?.toolResponse?.backgroundTaskId ??
+          (claude?.toolName === 'Monitor' ? claude.toolResponse?.taskId : undefined)
+        if (task) this.backgroundWork.add(chatId)
         this.emit(chatId, {
           ...base,
-          title: update.title ?? base.title,
-          toolKind: update.kind ?? base.toolKind,
+          // The adapter leaves out a subagent's unchanged input, and with it its type.
+          title: subagent
+            ? update.rawInput !== undefined
+              ? subagentTitle(update.rawInput, update.title ?? base.title)
+              : base.title
+            : (update.title ?? base.title),
+          toolKind: subagent ? 'agent' : (update.kind ?? base.toolKind),
           status: (update.status as ToolStatus | undefined) ?? base.status,
           input: formatRaw(update.rawInput) ?? base.input,
           output: output ?? base.output,
-          ...(images.length ? { images } : {})
+          ...(images.length ? { images } : {}),
+          ...(claude?.parentToolUseId ? { parentId: claude.parentToolUseId } : {})
         })
+        if (update.status === 'completed' || update.status === 'failed') {
+          this.reports.delete(update.toolCallId)
+        }
         // A finished call is a point the turn can be cut at without losing work,
         // once no other call of it (agents run some side by side) is still going.
         if (
@@ -1140,6 +1360,19 @@ class AgentProcess implements AgentBackend {
       }
       case 'config_option_update': {
         this.setOptions(chatId, update.configOptions)
+        return
+      }
+      case 'usage_update': {
+        const { context } = store.getChat(chatId)
+        if (context?.used !== update.used || context?.size !== update.size) {
+          store.updateChat(chatId, { context: { used: update.used, size: update.size } })
+          this.events.stateChanged()
+        }
+        // Claude Code reports the cost at each result, the end of the work.
+        if (update.cost) {
+          this.stoppingOwn.delete(chatId)
+          this.endOwnTurn(chatId, 'done')
+        }
         return
       }
       case 'session_info_update': {
@@ -1351,7 +1584,11 @@ function lastAnswer(chatId: string): string | undefined {
   return undefined
 }
 
-/** Messages from other chats, commands and timers a chat got since the user last wrote in it. */
+/**
+ * Messages from other chats, commands and timers a chat got since the user
+ * last wrote in it. Turns the agent started itself do not count: the app did
+ * not send them.
+ */
 function fromChatsSinceUser(chatId: string): number {
   const items = store.getMessages(chatId)
   let count = 0
@@ -1359,7 +1596,7 @@ function fromChatsSinceUser(chatId: string): number {
     const item = items[i]
     if (item.kind !== 'user') continue
     if (!item.from) break
-    count++
+    if (item.from.kind !== 'self') count++
   }
   return count
 }
@@ -1419,6 +1656,10 @@ export class AgentManager implements ChatsApi {
         this.events,
         this.permissions,
         (chatId) => this.steerAfterStep(chatId),
+        {
+          started: (chatId) => this.ownTurnStarted(chatId),
+          ended: (chatId, outcome, failure) => this.ownTurnEnded(chatId, outcome, failure)
+        },
         perProject ? projectId : undefined
       )
       this.processes.set(key, agentProcess)
@@ -1507,6 +1748,7 @@ export class AgentManager implements ChatsApi {
       agent,
       settings,
       sessionId: undefined,
+      context: undefined,
       ...(started ? { handoff: chat.handoff ?? from } : {})
     })
     if (started) {
@@ -1738,31 +1980,86 @@ export class AgentManager implements ChatsApi {
     } finally {
       this.steering.delete(chatId)
       if (store.getState().chats.some((c) => c.id === chatId)) {
-        this.processFor(chatId).endTurn(chatId, outcome)
-        // How long the turn took, shown as "Worked for …" above its answer; and
-        // for messages that joined it, from when they did.
-        this.events.item(
-          chatId,
-          store.upsertItem(chatId, { ...userItem, workedMs: Date.now() - sentAt })
-        )
-        for (const item of store.getMessages(chatId)) {
-          if (item.kind !== 'user' || item.workedMs !== undefined) continue
-          if ((item.sentAt ?? 0) <= sentAt) continue
-          this.events.item(
-            chatId,
-            store.upsertItem(chatId, { ...item, workedMs: Date.now() - item.sentAt! })
-          )
-        }
-        store.updateChat(chatId, {
-          running: false,
-          updatedAt: Date.now(),
-          preview: chatPreview(store.getMessages(chatId))
-        })
-        this.events.stateChanged()
-        this.deliverNext(chatId, outcome)
-        this.turnEnded(chatId, outcome, failure)
+        this.finishTurn(chatId, userItem, outcome, failure)
       }
     }
+  }
+
+  /**
+   * Close out a turn that ended, the one `userItem` started: show how long it
+   * took, and go on with what waited for it.
+   */
+  private finishTurn(
+    chatId: string,
+    userItem: UserItem,
+    outcome: TurnOutcome,
+    failure: string | undefined
+  ): void {
+    const sentAt = userItem.sentAt ?? Date.now()
+    this.processFor(chatId).endTurn(chatId, outcome)
+    // How long the turn took, shown as "Worked for …" above its answer; and
+    // for messages that joined it, from when they did.
+    this.events.item(
+      chatId,
+      store.upsertItem(chatId, { ...userItem, workedMs: Date.now() - sentAt })
+    )
+    for (const item of store.getMessages(chatId)) {
+      if (item.kind !== 'user' || item.workedMs !== undefined) continue
+      if ((item.sentAt ?? 0) <= sentAt) continue
+      this.events.item(
+        chatId,
+        store.upsertItem(chatId, { ...item, workedMs: Date.now() - item.sentAt! })
+      )
+    }
+    store.updateChat(chatId, {
+      running: false,
+      updatedAt: Date.now(),
+      preview: chatPreview(store.getMessages(chatId))
+    })
+    this.events.stateChanged()
+    this.deliverNext(chatId, outcome)
+    this.turnEnded(chatId, outcome, failure)
+  }
+
+  /** Turns agents started themselves (see WORKS_BETWEEN_TURNS), by chat, with the item that starts each. */
+  private readonly ownTurns = new Map<string, UserItem>()
+
+  /**
+   * The agent started a turn itself: the chat works, as for a message, under a
+   * line saying so. Messages the user sends meanwhile wait for it, as for
+   * any turn, and Stop stops it.
+   */
+  private ownTurnStarted(chatId: string): void {
+    const chat = store.getState().chats.find((c) => c.id === chatId)
+    if (!chat || chat.running) return
+    // A started chat that goes on with its task owes the chat that started it
+    // a report again, as when its own command wakes it (see wake).
+    if (chat.startedBy) this.owesReport.add(chatId)
+    const userItem: UserItem = {
+      kind: 'user',
+      id: crypto.randomUUID(),
+      text: '',
+      sentAt: Date.now(),
+      from: { kind: 'self', agent: chat.agent }
+    }
+    this.ownTurns.set(chatId, userItem)
+    store.updateChat(chatId, { running: true, updatedAt: Date.now() })
+    this.events.item(chatId, store.upsertItem(chatId, userItem))
+    this.events.stateChanged()
+  }
+
+  private ownTurnEnded(chatId: string, outcome: TurnOutcome, failure?: string): void {
+    const userItem = this.ownTurns.get(chatId)
+    if (!userItem) return
+    this.ownTurns.delete(chatId)
+    if (!store.getState().chats.some((c) => c.id === chatId)) return
+    if (failure) {
+      this.events.item(
+        chatId,
+        store.upsertItem(chatId, { kind: 'error', id: crypto.randomUUID(), text: failure })
+      )
+    }
+    this.finishTurn(chatId, userItem, outcome, failure)
   }
 
   /** What the agent is sent for a message: the text as it reads it, and the files with it. */
@@ -1800,9 +2097,9 @@ export class AgentManager implements ChatsApi {
   }
 
   /**
-   * Keep the user's message to a working chat for the turn's next step (the
-   * app's own agents, see steer) or its end (ACP agents). It shows above the
-   * composer until then, and joins the chat where the agent reads it.
+   * Keep the user's message to a working chat for the turn's next step (see
+   * steer and steerAfterStep). It shows above the composer until then, and
+   * joins the chat where the agent reads it.
    */
   private wait(chatId: string, text: string, attachments: Attachment[]): void {
     const message = { id: crypto.randomUUID(), text, attachments }
@@ -1935,8 +2232,7 @@ export class AgentManager implements ChatsApi {
       return 'started'
     }
     this.inbox.set(target.id, [...queued, { id: crypto.randomUUID(), text, attachments: [], from }])
-    // The app's own agents take it at their next step (see steer), the others
-    // once their turn is ended after it (see steerAfterStep).
+    // It joins the turn at its next step (see steer and steerAfterStep).
     return 'steering'
   }
 
@@ -2159,8 +2455,8 @@ export class AgentManager implements ChatsApi {
   /**
    * Wake a chat with a message from the app: a background command ended, its
    * timer went off, or a chat it started ended without reporting. It is a new
-   * turn when the chat is idle, or joins it at the next step of its turn (the
-   * app's own agents) or its end (the others). It counts against the messages
+   * turn when the chat is idle, or joins it at the next step of its turn (see
+   * steer and steerAfterStep). It counts against the messages
    * a chat takes between the user's own, so commands, timers and chats that
    * set off more of them cannot keep a chat going.
    */
@@ -2217,24 +2513,45 @@ export class AgentManager implements ChatsApi {
   }
 
   /**
-   * Take the messages waiting for a running chat of the app's own agents, to
-   * join its turn at the next step, as the agent reads them. A compaction
-   * command waits for the turn to end, and so does what came after it.
-   * `steers` is false when they join a new turn: they are follow-ups then.
+   * Take the messages waiting for a running chat, to join its turn, as the
+   * agent reads them: at the next step of the app's own agents, or of an ACP
+   * agent that takes them into its turn (see steerAfterStep), or at the start
+   * of a new turn. A compaction command waits for the turn to end, and so
+   * does what came after it. `steers` is false when they join a new turn:
+   * they are follow-ups then.
+   *
+   * `inject` hands them to an ACP agent's running turn. They are taken only
+   * once it has them: when its turn ended first, they keep waiting for the
+   * next one.
    */
   private async steer(
     chatId: string,
-    steers = true
+    steers = true,
+    inject?: (prompt: acp.ContentBlock[]) => Promise<boolean>
   ): Promise<{ prompt: string; blocks: acp.ContentBlock[] }[]> {
     const queued = this.inbox.get(chatId)
     if (!queued) return []
     const compact = queued.findIndex((m) => !m.from && COMPACT.test(m.text.trim()))
     const now = compact === -1 ? queued : queued.slice(0, compact)
     if (now.length === 0) return []
-    const later = queued.slice(now.length)
-    if (later.length > 0) this.inbox.set(chatId, later)
-    else this.inbox.delete(chatId)
     const messages = this.deliverable(chatId, now)
+    // Those that may no longer be delivered are dropped at once.
+    this.takeWaitingMessages(chatId, inject ? now.filter((m) => !messages.includes(m)) : now)
+    if (messages.length === 0) return []
+    const parts = await Promise.all(
+      messages.map((m) => this.promptFor(chatId, m.text, m.attachments, m.from, false, steers))
+    )
+    if (inject) {
+      const joined = await inject([
+        { type: 'text', text: parts.map((p) => p.prompt).join('\n\n') },
+        ...parts.flatMap((p) => p.blocks)
+      ]).catch((error: unknown) => {
+        console.error(`[${store.getChat(chatId).agent}] steering failed:`, error)
+        return false
+      })
+      if (!joined) return []
+      this.takeWaitingMessages(chatId, messages)
+    }
     for (const { text, attachments, from } of messages) {
       this.events.item(
         chatId,
@@ -2247,9 +2564,15 @@ export class AgentManager implements ChatsApi {
     }
     store.updateChat(chatId, { preview: chatPreview(store.getMessages(chatId)) })
     this.showWaiting(chatId)
-    return Promise.all(
-      messages.map((m) => this.promptFor(chatId, m.text, m.attachments, m.from, false, steers))
-    )
+    return parts
+  }
+
+  /** Take these messages out of those waiting for the chat. */
+  private takeWaitingMessages(chatId: string, taken: Waiting[]): void {
+    if (taken.length === 0) return
+    const rest = (this.inbox.get(chatId) ?? []).filter((m) => !taken.includes(m))
+    if (rest.length > 0) this.inbox.set(chatId, rest)
+    else this.inbox.delete(chatId)
   }
 
   /**
@@ -2292,21 +2615,36 @@ export class AgentManager implements ChatsApi {
   }
 
   /**
-   * Steer an ACP agent's turn. ACP has no way to add to a running turn, so
-   * when a step of it ends (a tool call finished, none other running) while
-   * messages wait, the turn is ended there (session/cancel), and deliverNext
-   * sends them at once as the next one. Ending after a finished call loses no
-   * work, and the agent keeps the conversation. A compaction command first in
-   * line waits for the turn's own end.
+   * Steer an ACP agent's turn when a step of it ends (a tool call finished,
+   * none other running) while messages wait. An agent that advertises
+   * `_session/steering` (Claude Code) takes them into its turn, which goes
+   * on. Others have no way to add to a running turn, so the turn is ended
+   * there (session/cancel), and deliverNext sends them at once as the next
+   * one. Either way, steering after a finished call loses no work: Claude
+   * Code would move a command still running to the background, and its answer
+   * is not cut off midway. A compaction command first in line waits for the
+   * turn's own end.
    */
   private steerAfterStep(chatId: string): void {
     const queued = this.inbox.get(chatId)
-    if (!queued?.length || this.steering.has(chatId)) return
+    if (!queued?.length || this.steering.has(chatId) || this.joining.has(chatId)) return
     if (!queued[0].from && COMPACT.test(queued[0].text.trim())) return
     if (!store.getChat(chatId).running) return
+    const agentProcess = this.processFor(chatId)
+    if (agentProcess.steersTurns?.() && agentProcess.steerTurn) {
+      const steerTurn = agentProcess.steerTurn.bind(agentProcess)
+      this.joining.add(chatId)
+      void this.steer(chatId, true, (prompt) => steerTurn(chatId, prompt)).finally(() =>
+        this.joining.delete(chatId)
+      )
+      return
+    }
     this.steering.add(chatId)
-    void this.processFor(chatId).cancel(chatId)
+    void agentProcess.cancel(chatId)
   }
+
+  /** Chats whose waiting messages are being handed to their running turn (see steerAfterStep). */
+  private readonly joining = new Set<string>()
 
   setOption(chatId: string, optionId: string, value: string): Promise<void> {
     return this.processFor(chatId).applyOption(chatId, optionId, value)
@@ -2314,13 +2652,42 @@ export class AgentManager implements ChatsApi {
 
   resolvePermission(chatId: string, permissionId: string, optionId: string, auto = false): void {
     const pending = this.permissions.get(permissionId)
-    if (!pending) return
+    if (!pending || 'form' in pending) return
     this.permissions.delete(permissionId)
     pending.resolve({ outcome: { outcome: 'selected', optionId } })
     const agentProcess = this.processFor(chatId)
     // The turn resumes past the answer: its silence clock restarts from here.
     agentProcess.touchActivity?.(chatId)
     agentProcess.resolvePermissionItem(chatId, permissionId, optionId, auto)
+  }
+
+  /**
+   * The user answered a form the agent asked them to fill in (see forms.ts):
+   * with their answers, or null to decline it. A page to open is opened on a
+   * yes. Answers missing a required field leave the form open.
+   */
+  answerForm(chatId: string, formId: string, answers: FormAnswers | null): void {
+    const pending = this.permissions.get(formId)
+    const item = store.findItem(chatId, formId)
+    if (!pending || !('form' in pending) || item?.kind !== 'form') return
+    const content = answers && formContent(item.fields, answers)
+    if (answers && !content) return
+    this.permissions.delete(formId)
+    if (content && item.url) void shell.openExternal(item.url)
+    pending.answer(
+      !content
+        ? { action: 'decline' }
+        : item.url
+          ? { action: 'accept' }
+          : { action: 'accept', content }
+    )
+    // The turn goes on past the answer: its silence clock restarts from here.
+    this.processFor(chatId).touchActivity?.(chatId)
+    emitItem(this.events, this.permissions, chatId, {
+      ...item,
+      resolved: content ? 'accepted' : 'declined',
+      ...(content && !item.url ? { answers: formSummary(item.fields, content) } : {})
+    })
   }
 
   /**
@@ -2336,7 +2703,7 @@ export class AgentManager implements ChatsApi {
     this.events.stateChanged()
     if (!bypassPermissions) return
     for (const [permissionId, pending] of this.permissions) {
-      if (pending.chatId !== chatId || pending.question) continue
+      if (pending.chatId !== chatId || 'form' in pending || pending.question) continue
       const item = store.findItem(chatId, permissionId)
       if (item?.kind !== 'permission') continue
       if (projectOnly && pending.outside) {

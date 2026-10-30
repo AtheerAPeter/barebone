@@ -12,6 +12,7 @@ import type {
   Chat,
   ChatItem,
   CustomProviderInput,
+  FormAnswers,
   OrbState,
   Project,
   Rect,
@@ -397,6 +398,11 @@ function registerIpc(browser: BuiltinBrowser): void {
   )
   ipcMain.handle('chat:permission', (_e, chatId: string, permissionId: string, optionId: string) =>
     agents.resolvePermission(chatId, permissionId, optionId)
+  )
+  ipcMain.handle(
+    'chat:answerForm',
+    (_e, chatId: string, formId: string, answers: FormAnswers | null) =>
+      agents.answerForm(chatId, formId, answers)
   )
 
   ipcMain.handle('agents:status', (_e, agent: AgentId) => agents.status(agent))

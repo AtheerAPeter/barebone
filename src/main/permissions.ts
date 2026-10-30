@@ -24,10 +24,23 @@ export interface PendingPermission {
   question?: boolean
 }
 
-/** Permission requests waiting for the user, by permission item id. Shared by every agent. */
-export type Permissions = Map<string, PendingPermission>
+/** A form the agent asks the user to fill in (ACP elicitation). Bypass mode never answers it. */
+export interface PendingForm {
+  chatId: string
+  form: true
+  answer: (response: acp.CreateElicitationResponse) => void
+}
 
-/** Save an item and show it; a permission item also updates whether the chat is waiting. */
+/** Requests waiting for the user, by permission or form item id. Shared by every agent. */
+export type Permissions = Map<string, PendingPermission | PendingForm>
+
+/** End a request the user did not answer, as when the turn is stopped. */
+export function cancelPending(pending: PendingPermission | PendingForm): void {
+  if ('form' in pending) pending.answer({ action: 'cancel' })
+  else pending.resolve({ outcome: { outcome: 'cancelled' } })
+}
+
+/** Save an item and show it; a permission or form item also updates whether the chat is waiting. */
 export function emitItem(
   events: AgentEvents,
   permissions: Permissions,
@@ -35,7 +48,7 @@ export function emitItem(
   item: ChatItem
 ): void {
   events.item(chatId, store.upsertItem(chatId, item))
-  if (item.kind !== 'permission') return
+  if (item.kind !== 'permission' && item.kind !== 'form') return
   const waiting = [...permissions.values()].some((p) => p.chatId === chatId)
   if (Boolean(store.getChat(chatId).waiting) === waiting) return
   store.updateChat(chatId, { waiting })

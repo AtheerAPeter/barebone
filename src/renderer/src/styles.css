@@ -1684,6 +1684,136 @@ img.project-icon {
   gap: 8px;
 }
 
+/* A form the agent asks the user to fill in: its options as rows to pick. */
+.form-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.form-label {
+  padding: 0;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.form-hint {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.form-options {
+  display: grid;
+  gap: 4px;
+}
+
+.form-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  text-align: left;
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--border);
+  border-radius: var(--radius);
+}
+
+.form-option:hover {
+  background: var(--hover);
+}
+
+.form-option.on {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.form-mark {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  display: grid;
+  place-items: center;
+  color: var(--on-accent);
+  box-shadow: inset 0 0 0 1.5px var(--border-strong);
+}
+
+.form-mark.radio {
+  border-radius: 50%;
+}
+
+.form-mark.check {
+  border-radius: 4px;
+}
+
+.form-option.on .form-mark {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.form-option-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.form-option-title {
+  font-weight: 500;
+}
+
+.form-option-description {
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.form-input {
+  height: 32px;
+  padding: 0 10px;
+  background: var(--well);
+  border: 0;
+  box-shadow: inset 0 0 0 1px var(--border);
+  border-radius: var(--radius);
+  outline: none;
+}
+
+.form-input:focus {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.form-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.form-resolved {
+  display: grid;
+  gap: 2px;
+}
+
+.form-resolved-message {
+  color: var(--text-soft);
+}
+
+.form-answer {
+  padding-left: 12px;
+  color: var(--text-soft);
+}
+
+.form-answer-title {
+  color: var(--text-muted);
+}
+
+.form-answer-title::after {
+  content: ':';
+}
+
 /* Markdown */
 
 .markdown {
@@ -2281,6 +2411,38 @@ img.project-icon {
 
 .composer.expanded textarea {
   padding-bottom: 8px;
+}
+
+/* How full the context window is, at the end of the settings row. */
+.context-meter {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.context-meter.full {
+  color: var(--warn);
+}
+
+.context-track,
+.context-fill {
+  fill: none;
+  stroke-width: 2;
+}
+
+.context-track {
+  stroke: var(--fill-strong);
+}
+
+.context-fill {
+  stroke: currentColor;
+  stroke-linecap: round;
 }
 
 .composer-hint {

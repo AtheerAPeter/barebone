@@ -7,10 +7,13 @@ import type {
   Chat,
   ChatBackground,
   ChatItem,
+  FormAnswers,
+  FormField,
   OrbLine,
   OrbState,
   Skill
 } from '../../../shared/types'
+import { AGENTS } from '../../../shared/types'
 import { renderMarkdown } from '../lib/markdown'
 import type { VoiceState } from '../lib/voice'
 import { Composer } from './Composer'
@@ -18,6 +21,7 @@ import { Collapse } from './Collapse'
 import { Thumbnails } from './Thumbnails'
 import {
   BookIcon,
+  ChatIcon,
   CheckIcon,
   ChevronIcon,
   ClockIcon,
@@ -254,6 +258,8 @@ function toBlocks(items: ChatItem[]): Block[] {
     // Requests bypass mode approved are not shown, so they do not split a group. Neither
     // are answered questions (signing in to a server): a notice says how they went.
     if (item.kind === 'permission' && (item.auto || (item.question && item.resolved))) continue
+    // Neither are forms the turn's end cancelled: they were never answered.
+    if (item.kind === 'form' && item.resolved === 'cancelled') continue
     // A subagent's calls are shown under it.
     if (item.kind === 'tool' && item.parentId) continue
     const last = blocks.at(-1)
@@ -283,7 +289,7 @@ interface Turn {
   answer: ChatItem[]
 }
 
-const WORK_KINDS = new Set<ChatItem['kind']>(['tool', 'thought', 'plan', 'permission'])
+const WORK_KINDS = new Set<ChatItem['kind']>(['tool', 'thought', 'plan', 'permission', 'form'])
 
 function toTurns(items: ChatItem[]): Turn[] {
   const groups: { user?: UserItem; items: ChatItem[] }[] = []
@@ -507,7 +513,9 @@ const Item = memo(function Item({
                     ? 'Timer went off'
                     : item.from.kind === 'ended'
                       ? `${item.from.title} ended its turn`
-                      : `From ${item.from.title}`}
+                      : item.from.kind === 'self'
+                        ? `${agentLabel(item.from.agent)} went on by itself`
+                        : `From ${item.from.title}`}
               </div>
             )}
             {item.text}
@@ -601,12 +609,193 @@ const Item = memo(function Item({
         </div>
       )
     }
+    case 'form':
+      return <FormCard item={item} chatId={chatId} />
     case 'error':
       return <div className="chat-error">{item.text}</div>
     case 'notice':
       return <div className="chat-notice">{item.text}</div>
   }
 })
+
+const agentLabel = (agent: AgentId): string => AGENTS.find((a) => a.id === agent)?.label ?? agent
+
+type FormItem = Extract<ChatItem, { kind: 'form' }>
+
+/**
+ * A form the agent asks the user to fill in, such as Claude Code's questions
+ * (AskUserQuestion) or an MCP server's; or a page to open, such as a sign-in.
+ * Once answered, one line says how.
+ */
+function FormCard({ item, chatId }: { item: FormItem; chatId: string }): React.JSX.Element {
+  const [answers, setAnswers] = useState<FormAnswers>(() => formDefaults(item.fields))
+  if (item.resolved) {
+    const how =
+      item.resolved === 'accepted'
+        ? item.url
+          ? 'Opened'
+          : 'Answered'
+        : item.resolved === 'declined'
+          ? 'Skipped'
+          : 'Cancelled'
+    return (
+      <div className="resolved form-resolved">
+        <div>
+          {how} <span className="form-resolved-message">{item.message}</span>
+        </div>
+        {item.answers?.map((a) => (
+          <div className="form-answer" key={a.title}>
+            <span className="form-answer-title">{a.title}</span> {a.answer}
+          </div>
+        ))}
+      </div>
+    )
+  }
+  const missing = item.fields.some((f) => f.required && blank(answers[f.key]))
+  const set = (key: string, value: FormAnswers[string] | undefined): void =>
+    setAnswers((current) => {
+      const next = { ...current }
+      if (value === undefined) delete next[key]
+      else next[key] = value
+      return next
+    })
+  return (
+    <div className="ask-card form-card">
+      <div className="ask-head">
+        <span className="ask-icon">
+          <ChatIcon width={15} height={15} />
+        </span>
+        <div className="ask-question">{item.message}</div>
+      </div>
+      {item.url && <div className="ask-args">{item.url}</div>}
+      {item.fields.map((field) => (
+        <FormFieldView
+          key={field.key}
+          field={field}
+          value={answers[field.key]}
+          onChange={(value) => set(field.key, value)}
+        />
+      ))}
+      <div className="ask-actions">
+        <button className="btn" onClick={() => window.api.answerForm(chatId, item.id, null)}>
+          {item.url ? 'Cancel' : 'Skip'}
+        </button>
+        <button
+          className="btn primary"
+          disabled={missing}
+          onClick={() => window.api.answerForm(chatId, item.id, item.url ? {} : answers)}
+        >
+          {item.url ? 'Open' : 'Send'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/** A field's starting answers: the form's defaults. */
+function formDefaults(fields: FormField[]): FormAnswers {
+  const answers: FormAnswers = {}
+  for (const field of fields) {
+    if (field.type === 'choice' && field.default?.[0]) answers[field.key] = field.default[0]
+    else if (field.type === 'choices' && field.default?.length) answers[field.key] = field.default
+    else if (field.type !== 'choice' && field.type !== 'choices' && field.default !== undefined)
+      answers[field.key] = field.default
+  }
+  return answers
+}
+
+function blank(value: FormAnswers[string] | undefined): boolean {
+  return (
+    value === undefined ||
+    (typeof value === 'string' && !value.trim()) ||
+    (Array.isArray(value) && value.length === 0)
+  )
+}
+
+function FormFieldView({
+  field,
+  value,
+  onChange
+}: {
+  field: FormField
+  value: FormAnswers[string] | undefined
+  onChange: (value: FormAnswers[string] | undefined) => void
+}): React.JSX.Element {
+  if (field.type === 'choice' || field.type === 'choices') {
+    const picked = Array.isArray(value) ? value : typeof value === 'string' ? [value] : []
+    const toggle = (option: string): void => {
+      if (field.type === 'choice') onChange(picked[0] === option ? undefined : option)
+      else {
+        const next = picked.includes(option)
+          ? picked.filter((v) => v !== option)
+          : [...picked, option]
+        onChange(next.length > 0 ? next : undefined)
+      }
+    }
+    return (
+      <fieldset className="form-field">
+        <legend className="form-label">
+          {field.description ?? field.title}
+          {field.type === 'choices' && <span className="form-hint"> · pick any</span>}
+        </legend>
+        <div className="form-options">
+          {field.options.map((option) => {
+            const on = picked.includes(option.value)
+            return (
+              <button
+                key={option.value}
+                type="button"
+                className={`form-option${on ? ' on' : ''}`}
+                role={field.type === 'choice' ? 'radio' : 'checkbox'}
+                aria-checked={on}
+                onClick={() => toggle(option.value)}
+              >
+                <span className={`form-mark ${field.type === 'choice' ? 'radio' : 'check'}`}>
+                  {on && <CheckIcon width={11} height={11} />}
+                </span>
+                <span className="form-option-text">
+                  <span className="form-option-title">{option.title}</span>
+                  {option.description && (
+                    <span className="form-option-description">{option.description}</span>
+                  )}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </fieldset>
+    )
+  }
+  if (field.type === 'boolean') {
+    return (
+      <label className="form-field form-check">
+        <input
+          type="checkbox"
+          checked={value === true}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        <span>{field.title}</span>
+      </label>
+    )
+  }
+  return (
+    <label className="form-field">
+      <span className="form-label">{field.title}</span>
+      <input
+        className="form-input"
+        type={field.type === 'text' ? 'text' : 'number'}
+        step={field.type === 'integer' ? 1 : 'any'}
+        placeholder={field.description}
+        value={value === undefined ? '' : String(value)}
+        onChange={(e) => {
+          const raw = e.target.value
+          if (field.type === 'text') onChange(raw || undefined)
+          else onChange(raw === '' || Number.isNaN(Number(raw)) ? undefined : Number(raw))
+        }}
+      />
+    </label>
+  )
+}
 
 /** Where each kind of permission answer sits in the row of buttons. */
 const OPTION_ORDER: Record<string, number> = {
@@ -936,19 +1125,25 @@ function AgentRow({
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const running = isRunning(item)
-  // The title is "Explore: what it does" or "Implement: what it does".
+  // The title is "Explore: what it does" or "Implement: what it does", or for
+  // Claude Code's subagents their type ("general-purpose", "Plan", the user's own).
   const split = item.title.indexOf(': ')
   const type = split > 0 ? item.title.slice(0, split) : ''
   const what = split > 0 ? item.title.slice(split + 2) : item.title
   const implement = type === 'Implement'
+  const explore = type === 'Explore' || type === ''
   const verb = implement
     ? running
       ? 'Implementing'
       : 'Implemented'
-    : running
-      ? 'Exploring'
-      : 'Explored'
-  const Icon = implement ? PencilIcon : BookIcon
+    : explore
+      ? running
+        ? 'Exploring'
+        : 'Explored'
+      : running
+        ? 'Delegating'
+        : 'Delegated'
+  const Icon = implement ? PencilIcon : explore ? BookIcon : WrenchIcon
   const report = useMemo(
     () => (item.status === 'completed' && item.output ? renderMarkdown(item.output) : undefined),
     [item.status, item.output]
@@ -963,6 +1158,7 @@ function AgentRow({
         <Icon width={15} height={15} className="call-icon" />
         <span className={`act-lead${running ? ' shimmer' : ''}`}>{verb}</span>
         <span className="act-detail agent-task">{what}</span>
+        {!implement && !explore && <span className="call-result">{type}</span>}
         {steps.length > 0 && (
           <span className="call-result">{plural(steps.length, 'step', 'steps')}</span>
         )}
@@ -1341,6 +1537,8 @@ function orbLines(items: ChatItem[]): OrbLine[] {
       })
     } else if (item.kind === 'permission' && item.resolved === undefined) {
       lines.push({ id: item.id, kind: 'ask', text: item.question ?? item.title })
+    } else if (item.kind === 'form' && item.resolved === undefined) {
+      lines.push({ id: item.id, kind: 'ask', text: item.message })
     }
   }
   return lines.slice(-ORB_LINES)

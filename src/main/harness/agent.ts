@@ -14,6 +14,7 @@ import { formatRaw, limitOutput } from '../tool-output'
 import { saveImages } from '../images'
 import {
   askUser,
+  cancelPending,
   emitItem,
   outsidePath,
   requestPermission,
@@ -1089,7 +1090,7 @@ How to communicate:
     for (const [id, pending] of this.permissions) {
       if (pending.chatId !== chatId) continue
       this.permissions.delete(id)
-      pending.resolve({ outcome: { outcome: 'cancelled' } })
+      cancelPending(pending)
       this.resolvePermissionItem(chatId, id, 'cancelled')
     }
     this.turns.get(chatId)?.abort()

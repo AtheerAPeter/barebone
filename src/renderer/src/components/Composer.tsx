@@ -555,6 +555,7 @@ export function Composer({
             }}
           />
         </div>
+        {chat.context && <ContextMeter context={chat.context} />}
         {voice.error && (
           <span className="composer-error" title={voice.error}>
             {voice.error}
@@ -569,6 +570,42 @@ export function Composer({
       </div>
     </>
   )
+}
+
+/** From this share of the context window on, the meter shows it is filling up. */
+const CONTEXT_FULL = 0.8
+
+/** How much of the model's context window the conversation fills, as the agent last reported it. */
+function ContextMeter({ context }: { context: { used: number; size: number } }): React.JSX.Element {
+  const share = context.size > 0 ? Math.min(1, context.used / context.size) : 0
+  const radius = 6
+  const round = 2 * Math.PI * radius
+  return (
+    <span
+      className={`context-meter${share >= CONTEXT_FULL ? ' full' : ''}`}
+      title={`Context: ${tokenCount(context.used)} of ${tokenCount(context.size)} tokens used`}
+    >
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="8" cy="8" r={radius} className="context-track" />
+        <circle
+          cx="8"
+          cy="8"
+          r={radius}
+          className="context-fill"
+          strokeDasharray={`${share * round} ${round}`}
+          transform="rotate(-90 8 8)"
+        />
+      </svg>
+      {Math.round(share * 100)}%
+    </span>
+  )
+}
+
+/** "850", "53k", "1M", "1.5M". */
+function tokenCount(n: number): string {
+  if (n >= 1_000_000) return `${Number((n / 1_000_000).toFixed(1))}M`
+  if (n >= 1000) return `${Math.round(n / 1000)}k`
+  return String(n)
 }
 
 /** How often the orb is told the microphone's level while dictating. */

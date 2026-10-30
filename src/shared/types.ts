@@ -203,6 +203,12 @@ export interface Chat {
    * until the next launch looks it up.
    */
   startedBy?: string | null
+  /**
+   * How much of the model's context window the conversation fills, in tokens,
+   * as the agent last reported it (ACP usage_update). Cleared when the chat
+   * starts a new session, whose context is empty.
+   */
+  context?: { used: number; size: number }
   createdAt: number
   updatedAt: number
 }
@@ -349,14 +355,17 @@ export interface AgentStatus {
  * Who sent a message the user did not write (see chats-mcp.ts): another
  * chat's agent, with the title it had then (saved before senders had a kind,
  * so the kind may be missing); a command the chat ran in the background,
- * reporting that it ended; the timer the chat set; or the app, reporting that
- * a chat this one started ended its turn without reporting back.
+ * reporting that it ended; the timer the chat set; the app, reporting that
+ * a chat this one started ended its turn without reporting back; or the agent
+ * itself, which went on working between turns (Claude Code does when work it
+ * left running in the background ends).
  */
 export type ChatSender =
   | { kind?: 'chat'; chatId: string; title: string }
   | { kind: 'command'; command: string }
   | { kind: 'timer'; note: string }
   | { kind: 'ended'; chatId: string; title: string }
+  | { kind: 'self'; agent: AgentId }
 
 /** The chat a message came from, when another chat sent it. */
 export function senderChat(from: ChatSender | undefined): string | undefined {
@@ -423,9 +432,49 @@ export type ChatItem =
        */
       question?: string
     }
+  | {
+      /**
+       * The agent asks the user to fill in a form (ACP elicitation), such as
+       * Claude Code's AskUserQuestion; or, with `url`, to open a page, such as
+       * an MCP server's sign-in.
+       */
+      kind: 'form'
+      id: string
+      message: string
+      fields: FormField[]
+      url?: string
+      /** Undefined while waiting on the user. */
+      resolved?: 'accepted' | 'declined' | 'cancelled'
+      /** What the user answered, field title and answer, to show afterwards. */
+      answers?: { title: string; answer: string }[]
+    }
   | { kind: 'error'; id: string; text: string }
   /** Something the app tells the user about the chat, such as a finished compaction. */
   | { kind: 'notice'; id: string; text: string }
+
+/**
+ * A field of a form an agent asks the user to fill in, read from the ACP
+ * elicitation schema: a pick of one option, of several, free text, a number
+ * or a yes/no.
+ */
+export type FormField = {
+  key: string
+  title: string
+  description?: string
+  required: boolean
+} & (
+  | {
+      type: 'choice' | 'choices'
+      options: { value: string; title: string; description?: string }[]
+      default?: string[]
+    }
+  | { type: 'text'; default?: string }
+  | { type: 'number' | 'integer'; default?: number }
+  | { type: 'boolean'; default?: boolean }
+)
+
+/** A form's answers, by field key, as the agent reads them. */
+export type FormAnswers = Record<string, string | number | boolean | string[]>
 
 /**
  * A subtitle next to the agent orb: something the agent said or thought, a
