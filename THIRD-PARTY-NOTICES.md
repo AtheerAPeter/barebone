@@ -1,6 +1,6 @@
 # Third-party notices
 
-Barebone includes code from the projects below. Playwright and ZCode are under the Apache License, Version 2.0, whose text is at the end; ONNX Runtime is under the MIT License, given with it. The Supertonic 3 voice model is not part of the app: it is downloaded when speech is on, under its own license.
+Barebone includes code from the projects below. Playwright and ZCode are under the Apache License, Version 2.0, whose text is at the end; ONNX Runtime, electron-liquid-glass and LobeHub Icons are under the MIT License, given with each. The Supertonic 3 voice model is not part of the app: it is downloaded when speech is on, under its own license.
 
 ## Playwright
 
@@ -48,6 +48,36 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+## electron-liquid-glass
+
+The window's Liquid Glass on macOS (`addGlass` in `src/main/index.ts`) comes from `electron-liquid-glass` 1.1.1 by Meridius Labs, whose native module the app ships: https://github.com/Meridius-Labs/electron-liquid-glass
+
+```
+Copyright 2025 Meridius Labs
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+## LobeHub Icons
+
+The Codex and Claude logos in the model picker (`src/renderer/src/assets/agents/codex.svg` and `claude.svg`) are from LobeHub Icons 1.101.0 (`@lobehub/icons-static-svg`), Claude's set on a tile: https://github.com/lobehub/lobe-icons. The logos are trademarks of OpenAI and Anthropic.
+
+```
+MIT License
+
+Copyright (c) 2023 LobeHub
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 ## Supertonic 3
