@@ -75,6 +75,8 @@ const agents = new AgentManager(
       // no longer controls a tab.
       browser?.prune()
       browser?.endControl()
+      // A chat's turn began or ended: its recording pauses while the agent thinks.
+      recorder?.refresh()
     }
   },
   (chatId) => browser?.state(chatId)
@@ -533,7 +535,10 @@ app.whenReady().then(async () => {
     stop: (which) => send('speech:stop', which)
   })
   browser = createWindow()
-  recorder = new PageRecorder(mainWindow.webContents)
+  recorder = new PageRecorder(
+    mainWindow.webContents,
+    (chatId) => store.getState().chats.find((chat) => chat.id === chatId)?.running === true
+  )
   registerIpc(browser)
   // On by default: the voice downloads in the background the first time.
   if (store.speechOn()) void speech.fetchModel()
@@ -548,7 +553,15 @@ app.whenReady().then(async () => {
     {
       // Offered once the voice is on this Mac, so an agent never speaks into a missing one.
       on: () => store.speechOn() && speech.status().state === 'ready',
-      speak: (chatId, text, language, pace) => speech.speak(chatId, text, language, pace),
+      speak: (chatId, text, language, pace) => {
+        const spoken = speech.speak(chatId, text, language, pace)
+        // What the chat says is in its video: it records from just before the voice to its end.
+        void spoken.started.then((begun) => {
+          if (begun) void spoken.ended.then(recorder?.hold(chatId))
+        })
+        return spoken
+      },
+      save: (path, text, language, pace) => speech.save(path, text, language, pace),
       said: (chatId) => speech.said(chatId)
     },
     recorder

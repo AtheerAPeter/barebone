@@ -495,24 +495,40 @@ async function buildServer(
   }
 
   /**
+   * Until the page may change: the step the voice is telling has been told,
+   * and while the chat records a video, all it said (speak too), so what the
+   * video shows matches what it says.
+   */
+  const told = async (chatId: string): Promise<void> => {
+    await narrations.get(chatId)
+    if (recorder.recording(chatId)) await offeredSpeech()?.said(chatId)
+  }
+
+  /**
    * Run a tool on a chat's page. While a dialog holds the page nothing else can
    * run there, so only handle_dialog gets past one. A tool that changes what
-   * the user sees waits until the step the voice is telling has been told;
-   * one that only reads the page (`afterVoice: false`) goes ahead.
+   * the user sees waits until the voice has told what it shows (told); one
+   * that only reads the page (`afterVoice: false`) goes ahead. What changes the
+   * page is in the chat's video (`recorded`), which skips the rest.
    */
   const act = async (
     id: string | undefined,
     tab: string | undefined,
     work: (page: ChatPage) => Promise<ToolResult>,
-    { duringDialog = false, afterVoice = true } = {}
+    { duringDialog = false, afterVoice = true, recorded = afterVoice } = {}
   ): Promise<ToolResult> => {
     const chatId = chatFor(id)
-    if (afterVoice) await narrations.get(chatId)
+    if (afterVoice) await told(chatId)
     const page = await browser.ensureReady(chatId, tab)
     if (page.dialog && !duringDialog) return text(`Nothing was done. ${dialogNote(page.dialog)}`)
     const before = new Set(browser.tabs(chatId).tabs)
-    const result = await page.automate(() => work(page))
-    return withOpenedTabs(chatId, before, result)
+    const release = recorded ? recorder.hold(chatId) : undefined
+    try {
+      const result = await page.automate(() => work(page))
+      return withOpenedTabs(chatId, before, result)
+    } finally {
+      release?.()
+    }
   }
 
   /** Say which tabs an action opened (links to a new tab, window.open, popups). */
@@ -903,7 +919,7 @@ async function buildServer(
     },
     async ({ url, browser: id }) => {
       const chatId = chatFor(id)
-      await narrations.get(chatId)
+      await told(chatId)
       await browser.ensureReady(chatId)
       const page = browser.newTab(chatId)
       if (!url) return text(`Opened tab ${page.id}, now the active tab.`)
@@ -920,7 +936,7 @@ async function buildServer(
     },
     async ({ tab, browser: id }) => {
       const chatId = chatFor(id)
-      await narrations.get(chatId)
+      await told(chatId)
       browser.selectTab(chatId, tab)
       return act(id, tab, (page) => snapshot(page))
     }
@@ -938,7 +954,7 @@ async function buildServer(
     },
     async ({ tab, browser: id }) => {
       const chatId = chatFor(id)
-      await narrations.get(chatId)
+      await told(chatId)
       const closing = tab ?? browser.tabs(chatId).active.id
       browser.closeTab(chatId, closing)
       const { tabs, active } = browser.tabs(chatId)
@@ -1116,8 +1132,9 @@ async function buildServer(
         inputSchema: {
           caption: z
             .string()
+            .optional()
             .describe(
-              'What this step is about, a sentence or two, like "Step 2 of 4: pick a plan"'
+              'What this step is about, a sentence or two, like "Step 2 of 4: pick a plan"; none when left out'
             ),
           position: z
             .enum(['auto', 'bottom', 'top'])
@@ -1154,7 +1171,6 @@ async function buildServer(
             const drawn = toShapes(shapes ?? [])
             const chatId = chatFor(id)
             const voice = say ? offeredSpeech() : undefined
-            const before = narrations.get(chatId)
             // The step shows as its voice begins, so what the user sees matches what they hear.
             // Its voice comes after what is being said already, as a step without one does.
             const spoken =
@@ -1168,16 +1184,18 @@ async function buildServer(
               })
               heard = await untilAbort(spoken.started, signal)
             } else {
-              await untilAbort(before ?? Promise.resolve(), signal)
+              await untilAbort(told(chatId), signal)
             }
             if (signal.aborted) {
               spoken?.stop()
               return text('Stopped before the step was shown.')
             }
+            // In the chat's video, with its voice when it has one.
+            const release = recorder.hold(chatId)
             const result = await untilDialog(page, () =>
               page.driver.overlay({
                 type: 'step',
-                caption: caption.trim(),
+                caption: (caption ?? '').trim(),
                 position: position ?? 'auto',
                 point: point
                   ? {
@@ -1188,18 +1206,20 @@ async function buildServer(
                   : undefined,
                 shapes: drawn
               })
-            ).catch((error: unknown) => {
-              // Not a word about a step the user cannot see.
-              spoken?.stop()
-              throw error
-            })
+            )
+              .catch((error: unknown) => {
+                // Not a word about a step the user cannot see.
+                spoken?.stop()
+                throw error
+              })
+              .finally(release)
             if ('dialog' in result) {
               spoken?.stop()
               return text(dialogNote(result.dialog))
             }
             const { revealed, problems } = result.value
             const parts = [
-              'Showing the step: the caption',
+              `Showing the step: ${caption?.trim() ? 'the caption' : 'no caption'}`,
               ...(point ? [`the pointer on ${described(markTarget(point, 'The pointer'))}`] : []),
               ...(drawn.length ? [`${drawn.length} shape${drawn.length === 1 ? '' : 's'}`] : []),
               ...(heard ? ['and the voice saying it'] : [])
@@ -1326,7 +1346,8 @@ async function buildServer(
                   : `The user clicked ${click.clicked}, not ${ref}.`
             return acted(page, done, before)
           },
-          { afterVoice: false }
+          // What the user does is in the video.
+          { afterVoice: false, recorded: true }
         )
     )
 
@@ -1352,7 +1373,7 @@ async function buildServer(
     server.registerTool(
       'start_recording',
       {
-        description: `Record the tab as a video, an MP4 file with sound, when the user asks for a video: a demo, a walkthrough, a bug report. The page is in it as the user sees it${drawing ? ', with the drawings, the pointer and the caption' : ''}${voice ? `, and what you say with speak${drawing ? " or show_step's say" : ''} is its sound` : ''}. It records this tab, at the size it has now, until stop_recording; tabs opened meanwhile are not in it. A chat records one tab at a time.${drawing && voice ? ' For a narrated walkthrough, show each step with show_step and its say, and do the clicks yourself.' : ''} The browser is signed in to the user's accounts, so what the page shows is in the video.`,
+        description: `Record the tab as a video, an MP4 file with sound, when the user asks for a video: a demo, a walkthrough, a bug report. The page is in it as the user sees it${drawing ? ', with the drawings, the pointer and the caption' : ''}${voice ? `, and what you say with speak${drawing ? " or show_step's say" : ''} is its sound` : ''}. It records this tab, at the size it has now, until stop_recording; tabs opened meanwhile are not in it. A chat records one tab at a time. While you work out your next step it pauses, so the video has no waits however long you take.${voice ? ' Narrate it with this voice only, never another text-to-speech or sound added afterwards.' : ''}${drawing && voice ? ` For a narrated walkthrough, read the Video section of the browser-tutorial skill first: ${BROWSER_TUTORIAL_SKILL}` : ''} The browser is signed in to the user's accounts, so what the page shows is in the video.`,
         inputSchema: {
           path: z.string().describe('Absolute path of the .mp4 file to write'),
           ...pageArgs
@@ -1377,7 +1398,9 @@ async function buildServer(
         const chatId = chatFor(id)
         await offeredSpeech()?.said(chatId)
         // The video ends a moment after the last word, not on it.
+        const release = recorder.hold(chatId)
         await sleep(AFTER_TELLING_MS)
+        release()
         const video = await recorder.stop(chatId)
         const early = video.endedBy ? ` It ended before you stopped it: ${video.endedBy}.` : ''
         return text(

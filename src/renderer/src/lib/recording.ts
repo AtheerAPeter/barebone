@@ -125,9 +125,21 @@ export function usePageRecorder(tap: (chatId: string) => VoiceTap): void {
       else if (starting.has(id)) stopped.add(id)
     })
 
+    // A paused recording leaves the time out of the video: it goes on where it paused.
+    const offPause = window.api.recording.onPause((id) => {
+      const recorder = recorders.get(id)
+      if (recorder?.state === 'recording') recorder.pause()
+    })
+    const offResume = window.api.recording.onResume((id) => {
+      const recorder = recorders.get(id)
+      if (recorder?.state === 'paused') recorder.resume()
+    })
+
     return () => {
       offStart()
       offStop()
+      offPause()
+      offResume()
       for (const recorder of recorders.values()) recorder.stop()
     }
   }, [tap])

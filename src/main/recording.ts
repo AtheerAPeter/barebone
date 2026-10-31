@@ -13,10 +13,17 @@ import { withTimeout } from './page-driver'
  * keeps pages out of sight rendering, adds the chat's voice (lib/speech.ts)
  * as the sound, and sends the MP4 here a second at a time, written as it
  * comes. A chat records one tab at a time.
+ *
+ * The video leaves out the time the agent spends working out what to do next:
+ * while its turn runs, it records only while something is held (`hold`: the
+ * voice talking, the page changing), and a moment after. Between turns it
+ * records all along, as the user may be the one acting on the page.
  */
 
 /** How long the window has to start recording before start fails. */
 const START_TIMEOUT = 10_000
+/** How long it keeps recording after what it held: the page settling, a breath after the words. */
+const TAIL_MS = 600
 
 /** A recording that has ended, and its file written. */
 export interface Recorded {
@@ -43,6 +50,14 @@ interface Recording {
   endedBy?: string
   /** The window was asked to stop it. */
   stopping: boolean
+  /** Holds not yet released: while there are any, it records. */
+  holds: number
+  /** Since when it is paused, while it is. */
+  pausedAt?: number
+  /** How long it was paused before, which the video leaves out. */
+  pausedMs: number
+  /** Pauses it once the tail after the last hold is over. */
+  pauseTimer?: ReturnType<typeof setTimeout>
   started: { resolve: () => void; reject: (error: Error) => void }
   /** Settles once the file is closed. */
   done: Promise<Recorded>
@@ -58,7 +73,9 @@ export class PageRecorder {
 
   constructor(
     /** The window, which records. */
-    private readonly window: WebContents
+    private readonly window: WebContents,
+    /** Whether a chat's agent is working on a turn now. */
+    private readonly working: (chatId: string) => boolean
   ) {
     const from = <Args extends unknown[]>(
       channel: string,
@@ -131,16 +148,21 @@ export class PageRecorder {
       bytes: 0,
       startedAt: Date.now(),
       stopping: false,
+      holds: 0,
+      pausedMs: 0,
       started,
       finish,
       done: finished.then(async () => {
         this.writing.delete(request.id)
+        clearTimeout(recording.pauseTimer)
         contents.off('destroyed', closed)
         await new Promise<void>((resolve) => file.end(() => resolve()))
+        const end = recording.endedAt ?? Date.now()
+        const paused = recording.pausedMs + (recording.pausedAt ? end - recording.pausedAt : 0)
         return {
           path,
           tab: tab.id,
-          duration: (recording.endedAt ?? Date.now()) - recording.startedAt,
+          duration: end - recording.startedAt - paused,
           bytes: recording.bytes,
           endedBy: recording.endedBy
         }
@@ -160,6 +182,7 @@ export class PageRecorder {
         () => new Error(`The recording did not start within ${START_TIMEOUT / 1000}s.`)
       ).finally(() => (tab.capturing = false))
       recording.startedAt = Date.now()
+      this.settle(recording)
     } catch (error) {
       if (this.latest.get(chatId) === recording) this.latest.delete(chatId)
       // The window may start it still; it stops it then.
@@ -179,6 +202,59 @@ export class PageRecorder {
     const recorded = await recording.done
     if (this.latest.get(chatId) === recording) this.latest.delete(chatId)
     return recorded
+  }
+
+  /** Whether a chat is recording now. */
+  recording(chatId: string): boolean {
+    const recording = this.latest.get(chatId)
+    return recording !== undefined && this.writing.has(recording.id) && !recording.stopping
+  }
+
+  /**
+   * Keep a chat's recording going while something happens that belongs in
+   * it; returns its release. Does nothing when the chat is not recording.
+   */
+  hold(chatId: string): () => void {
+    const recording = this.latest.get(chatId)
+    if (!recording || !this.recording(chatId)) return () => undefined
+    recording.holds++
+    this.settle(recording)
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      recording.holds--
+      this.settle(recording)
+    }
+  }
+
+  /** A chat's turn began or ended: recordings pause or go on as it says. */
+  refresh(): void {
+    for (const recording of this.writing.values()) this.settle(recording)
+  }
+
+  /**
+   * Record while something is held or the agent is between turns; else pause
+   * once the tail after the last hold is over.
+   */
+  private settle(recording: Recording): void {
+    if (recording.stopping || this.window.isDestroyed()) return
+    if (recording.holds > 0 || !this.working(recording.chatId)) {
+      clearTimeout(recording.pauseTimer)
+      recording.pauseTimer = undefined
+      if (recording.pausedAt !== undefined) {
+        recording.pausedMs += Date.now() - recording.pausedAt
+        recording.pausedAt = undefined
+        this.window.send('recording:resume', recording.id)
+      }
+    } else if (recording.pausedAt === undefined && !recording.pauseTimer) {
+      recording.pauseTimer = setTimeout(() => {
+        recording.pauseTimer = undefined
+        if (recording.stopping || this.window.isDestroyed()) return
+        recording.pausedAt = Date.now()
+        this.window.send('recording:pause', recording.id)
+      }, TAIL_MS)
+    }
   }
 
   /** Stop every recording, for quitting; settles once their files are closed. */
@@ -207,6 +283,7 @@ export class PageRecorder {
   private end(recording: Recording, reason?: string): void {
     if (recording.stopping) return
     recording.stopping = true
+    clearTimeout(recording.pauseTimer)
     recording.endedAt = Date.now()
     recording.endedBy ??= reason
     if (this.window.isDestroyed()) recording.finish()

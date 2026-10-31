@@ -66,6 +66,10 @@ const api = {
     onStart: (listener: (request: RecordingRequest) => void) => on('recording:start', listener),
     /** Main asks for a recording to stop. */
     onStop: (listener: (id: string) => void) => on('recording:stop', listener),
+    /** Main asks for a recording to pause, while the agent works out what to do next. */
+    onPause: (listener: (id: string) => void) => on('recording:pause', listener),
+    /** Main asks for a paused recording to go on. */
+    onResume: (listener: (id: string) => void) => on('recording:resume', listener),
     started: (id: string): void => ipcRenderer.send('recording:started', id),
     failed: (id: string, message: string): void =>
       ipcRenderer.send('recording:failed', id, message),

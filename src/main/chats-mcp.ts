@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { isAbsolute } from 'node:path'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import type { Finished, Running } from './background'
@@ -110,6 +111,8 @@ export interface SpeechApi {
   on(): boolean
   /** Say a message out loud, after what plays already; throws why it cannot be said. */
   speak(chatId: string, text: string, language: Language, pace?: number): Spoken
+  /** Say a message into a new WAV file; resolves with its length in seconds once written. */
+  save(path: string, text: string, language: Language, pace?: number): Promise<number>
   /** Once everything the chat has said so far has been heard, or will not be. */
   said(chatId: string): Promise<void>
 }
@@ -416,17 +419,34 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
       'speak',
       {
         description:
-          "Say something to the user out loud, in a natural voice played on their computer, as well as writing your reply. Use it whenever hearing you helps: when you need their answer or permission, when a long task is done or something went wrong, or to keep them in the loop while they watch the browser instead of the chat. Keep it short and spoken: one to three plain sentences, in the language you write to them in. Never read out code, file paths, URLs, lists or tables; they stay in your written reply. It returns at once, while the voice plays. To narrate a step of a tutorial in the browser, use show_step's say instead, which shows the step as the voice begins.",
+          "Say something out loud in Barebone's voice, a natural voice that runs on the user's Mac. It is the voice for anything spoken, so never use macOS say or another text-to-speech. Without path, it plays to the user now, alongside your written reply: when you need their answer or permission, when a long task is done or something went wrong, or to keep them in the loop while they watch the browser. Keep that short: one to three plain sentences, never code, file paths, URLs, lists or tables. It returns at once, while the voice plays. With path, it saves the speech to a new .wav file instead, for audio or a video you make yourself, and returns once it is written. To narrate a step of a tutorial or video in the browser, use show_step's say instead.",
         inputSchema: {
           text: z.string().describe('What to say: plain spoken sentences'),
           language: languageArg,
           pace: paceArg,
+          path: z
+            .string()
+            .optional()
+            .describe(
+              'Absolute path of a new .wav file to save the speech to, instead of playing it'
+            ),
           ...chatArg
         }
       },
-      ({ text: said, language, pace, chat }) => {
-        voice.speak(chatForKey(chat), said, language, pace)
-        return text('Speaking it to the user now.')
+      async ({ text: said, language, pace, path, chat }) => {
+        const caller = chatForKey(chat)
+        if (path === undefined) {
+          voice.speak(caller, said, language, pace)
+          return text('Speaking it to the user now.')
+        }
+        if (!isAbsolute(path)) throw new Error(`"path" must be absolute: ${path}`)
+        if (!path.toLowerCase().endsWith('.wav')) {
+          throw new Error(
+            `The speech is saved as a WAV file: "path" must end in .wav, not ${path}.`
+          )
+        }
+        const seconds = await voice.save(path, said, language, pace)
+        return text(`Saved ${seconds.toFixed(1)}s of speech to ${path}.`)
       }
     )
   }

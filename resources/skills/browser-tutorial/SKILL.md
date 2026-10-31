@@ -37,6 +37,17 @@ To tell the user the step out loud, give `show_step` a `say` (it is there when t
 - **Demo**: do the steps yourself only when the user asks you to show them. Point at each element and caption it, then click it.
 - **Overview** (for "explain this page" or "what is all this"): draw everything at once with one `annotate` call. Use numbered box labels ("1", "2", ...) and explain each number in your chat reply.
 
+## Video
+
+For a narrated video of a walkthrough or demo (`start_recording` is there when recording is on in Settings):
+
+1. Open the page, take a snapshot, and plan the steps before you record.
+2. Call `start_recording`.
+3. For each step, make one `show_step` call with `say` and a `point` on the element, then do the step yourself (`click`, `type`). Leave out `caption` when `say` already tells the step. The click waits until the voice is done, so what the video shows matches what it says.
+4. Call `stop_recording`. It waits for the last words.
+
+The video pauses while you work out the next step, so take your time. All the narration goes in `say`: don't call `speak` alongside it, and never make audio with another voice or add sound to the file afterwards. Don't take screenshots to check a step, because its result already says what's in the way.
+
 ## Writing on the page
 
 - Keep page text short. A label is a few words and a caption is at most two sentences. Put longer explanations in the chat.

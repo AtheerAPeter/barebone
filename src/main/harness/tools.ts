@@ -652,7 +652,7 @@ export const chatTools = appServerTools({
   kind: 'other',
   // The speak tool comes and goes with Settings and the voice's download.
   variant: speechOffered,
-  paths: () => []
+  paths: (name, args) => (name === 'speak' ? stringsIn(args.path) : [])
 })
 
 async function connectAppServer(server: AppServer): Promise<Tool[]> {

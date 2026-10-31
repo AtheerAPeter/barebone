@@ -1,7 +1,7 @@
 import { app, net, utilityProcess, type UtilityProcess } from 'electron'
 import { createHash } from 'node:crypto'
 import { createWriteStream, existsSync, statSync } from 'node:fs'
-import { mkdir, rename, rm } from 'node:fs/promises'
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import type { SpeechStatus, SpeechStop, SpokenAudio } from '../../shared/types'
@@ -61,6 +61,15 @@ export class Speech {
   private idleTimer?: ReturnType<typeof setTimeout>
   /** Messages being made, with the chat that spoke them. */
   private readonly messages = new Map<string, { chatId?: string; text: string }>()
+  /** Messages being made into files (save), with their pieces so far. */
+  private readonly files = new Map<
+    string,
+    {
+      pieces: Float32Array[]
+      done: (audio: { samples: Float32Array; sampleRate: number }) => void
+      fail: (error: Error) => void
+    }
+  >()
   /** Messages not heard to their end yet, with what to tell when they begin and end. */
   private readonly unsaid = new Map<
     string,
@@ -231,6 +240,35 @@ export class Speech {
     return { started, ended, stop: () => this.stopMessage(id) }
   }
 
+  /**
+   * Say a message into a new WAV file instead of out loud; resolves with how
+   * long it is, in seconds, once the file is written. Throws why it cannot be.
+   */
+  async save(path: string, text: string, lang: Language, pace = 1): Promise<number> {
+    if (!text.trim()) throw new Error('There is nothing to say: the text is empty.')
+    if (!this.ready()) {
+      throw new Error('The voice is not downloaded. The user can download it in Settings.')
+    }
+    const id = crypto.randomUUID()
+    const { samples, sampleRate } = await new Promise<{
+      samples: Float32Array
+      sampleRate: number
+    }>((done, fail) => {
+      this.files.set(id, { pieces: [], done, fail })
+      this.send({ type: 'speak', id, text, lang, pace })
+    })
+    await mkdir(dirname(path), { recursive: true })
+    // A new file only, as videos are (main/recording.ts).
+    await writeFile(path, wav(samples, sampleRate), { flag: 'wx' }).catch(
+      (error: NodeJS.ErrnoException) => {
+        throw error.code === 'EEXIST'
+          ? new Error(`${path} exists already. Save to a new file.`)
+          : error
+      }
+    )
+    return samples.length / sampleRate
+  }
+
   /** Once everything a chat has said so far has been heard, or will not be. */
   async said(chatId: string): Promise<void> {
     const waiting = [...this.unsaid.values()].filter((message) => message.chatId === chatId)
@@ -303,7 +341,23 @@ export class Speech {
 
   private onWorker(message: FromWorker): void {
     this.keepAlive()
-    if (message.type === 'audio') {
+    const file = 'id' in message ? this.files.get(message.id) : undefined
+    if (file && message.type === 'audio') {
+      file.pieces.push(message.samples)
+      if (!message.last) return
+      this.files.delete(message.id)
+      // The pieces back to back, as the player plays them.
+      const samples = new Float32Array(file.pieces.reduce((sum, piece) => sum + piece.length, 0))
+      let at = 0
+      for (const piece of file.pieces) {
+        samples.set(piece, at)
+        at += piece.length
+      }
+      file.done({ samples, sampleRate: message.sampleRate })
+    } else if (file && message.type === 'failed') {
+      this.files.delete(message.id)
+      file.fail(new Error(`The voice could not say it: ${message.message}`))
+    } else if (message.type === 'audio') {
       const spoken = this.messages.get(message.id)
       if (!spoken) return
       const played = this.events.audio({
@@ -346,9 +400,37 @@ export class Speech {
   /** The engine ended: the messages it was making will not come. */
   private dropMessages(): void {
     for (const id of [...this.messages.keys()]) this.stopMessage(id)
+    for (const [id, file] of this.files) {
+      this.files.delete(id)
+      file.fail(new Error('The voice stopped before it was done.'))
+    }
   }
 
   private emitStatus(): void {
     this.events.status(this.status())
   }
+}
+
+/** Mono samples as a 16-bit PCM WAV file, which every player and editor opens. */
+function wav(samples: Float32Array, sampleRate: number): Buffer {
+  const data = samples.length * 2
+  const out = Buffer.alloc(44 + data)
+  out.write('RIFF', 0)
+  out.writeUInt32LE(36 + data, 4)
+  out.write('WAVE', 8)
+  out.write('fmt ', 12)
+  out.writeUInt32LE(16, 16)
+  out.writeUInt16LE(1, 20) // PCM
+  out.writeUInt16LE(1, 22) // mono
+  out.writeUInt32LE(sampleRate, 24)
+  out.writeUInt32LE(sampleRate * 2, 28)
+  out.writeUInt16LE(2, 32)
+  out.writeUInt16LE(16, 34)
+  out.write('data', 36)
+  out.writeUInt32LE(data, 40)
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]))
+    out.writeInt16LE(Math.round(s < 0 ? s * 0x8000 : s * 0x7fff), 44 + i * 2)
+  }
+  return out
 }
