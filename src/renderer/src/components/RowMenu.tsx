@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useOverlay } from '../lib/overlays'
 import { MoreIcon } from './icons'
 
@@ -10,7 +11,10 @@ export interface RowMenuItem {
 
 /**
  * A row's ⋮ button and its menu. The menu is fixed to the window, so the
- * scrolling sidebar cannot clip it; near the bottom it opens upward.
+ * scrolling sidebar cannot clip it; near the bottom it opens upward. It sits
+ * on the body, not in the row: a row is a stacking context of its own (its
+ * glass under a press, styles.css), in which the menu would go under the rows
+ * after it.
  */
 export function RowMenu({
   label,
@@ -27,7 +31,10 @@ export function RowMenu({
   useEffect(() => {
     if (!at) return
     const onPointer = (event: PointerEvent): void => {
-      if (!rootRef.current?.contains(event.target as Node)) setAt(undefined)
+      const target = event.target as Node
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
+        setAt(undefined)
+      }
     }
     // Capture phase, and handled: closing the menu must not also stop the agent.
     const onKey = (event: KeyboardEvent): void => {
@@ -70,24 +77,26 @@ export function RowMenu({
       >
         <MoreIcon width={14} height={14} />
       </button>
-      {at && (
-        <div className="menu" role="menu" style={at} ref={menuRef}>
-          {items.map((item) => (
-            <button
-              key={item.name}
-              role="menuitem"
-              className={item.danger ? 'danger' : undefined}
-              autoFocus={item === items[0]}
-              onClick={() => {
-                setAt(undefined)
-                item.onSelect()
-              }}
-            >
-              {item.name}
-            </button>
-          ))}
-        </div>
-      )}
+      {at &&
+        createPortal(
+          <div className="menu" role="menu" style={at} ref={menuRef}>
+            {items.map((item) => (
+              <button
+                key={item.name}
+                role="menuitem"
+                className={item.danger ? 'danger' : undefined}
+                autoFocus={item === items[0]}
+                onClick={() => {
+                  setAt(undefined)
+                  item.onSelect()
+                }}
+              >
+                {item.name}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
     </div>
   )
 }
