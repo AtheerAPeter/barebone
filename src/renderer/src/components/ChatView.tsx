@@ -69,6 +69,14 @@ export function ChatView({
   const stickToBottom = useRef(true)
   const plan = useMemo(() => items.findLast((i) => i.kind === 'plan'), [items])
   const turns = useMemo(() => toTurns(items), [items])
+  // Messages sent while the agent works (steering) start a part of the turn
+  // it is working on: the parts at the end, which the turn's end has not
+  // timed yet, are all its own, and stay open until it ends.
+  const workingFrom = useMemo(() => {
+    let from = turns.length
+    while (from > 0 && turns[from - 1].user?.workedMs === undefined) from--
+    return from
+  }, [turns])
   /** Items there when the chat opened; only ones that arrive after animate in. */
   const [loaded, setLoaded] = useState<Set<string>>()
 
@@ -204,6 +212,7 @@ export function ChatView({
               chatId={chat.id}
               projectPath={projectPath}
               live={chat.running && index === turns.length - 1}
+              working={chat.running && index >= Math.min(workingFrom, turns.length - 1)}
               loaded={loaded}
             />
           ))}
@@ -315,13 +324,16 @@ function TurnView({
   chatId,
   projectPath,
   live,
+  working,
   loaded
 }: {
   turn: Turn
   chatId: string
   projectPath: string
-  /** The agent is working on this turn. */
+  /** The agent is working on this part of the turn: the last one. */
   live: boolean
+  /** The agent is working on the turn this is part of: this or a later part. */
+  working: boolean
   /** Items there when the chat opened; only ones that arrive after animate in. */
   loaded?: Set<string>
 }): React.JSX.Element {
@@ -344,7 +356,7 @@ function TurnView({
       )}
       {work.length > 0 && (
         <BlockFrame id={`${turn.id}:work`} loaded={loaded}>
-          <TurnWork live={live} workedMs={turn.user?.workedMs}>
+          <TurnWork working={working} workedMs={turn.user?.workedMs}>
             {work.map((block, index) => (
               <BlockView
                 key={blockId(block)}
@@ -446,26 +458,28 @@ function BlockView({
 /**
  * A turn's work, as Codex shows it: "Activity" while the agent works, then
  * "Worked for 1m 4s" once the turn is done, when it folds away above the
- * answer. A click opens or folds it at any time.
+ * answer. A message that steers the agent meanwhile leaves it open. A click
+ * opens or folds it at any time.
  */
 function TurnWork({
-  live,
+  working,
   workedMs,
   children
 }: {
-  live: boolean
+  working: boolean
   workedMs?: number
   children: React.ReactNode
 }): React.JSX.Element {
-  const [open, setOpen] = useState(live)
+  const [open, setOpen] = useState(working)
   // Open while the agent works, folded when it finishes (React's pattern for
   // state that follows a prop: compare with the value at the last render).
-  const [wasLive, setWasLive] = useState(live)
-  if (wasLive !== live) {
-    setWasLive(live)
-    setOpen(live)
+  const [wasWorking, setWasWorking] = useState(working)
+  if (wasWorking !== working) {
+    setWasWorking(working)
+    setOpen(working)
   }
-  const label = !live && workedMs !== undefined ? `Worked for ${workedFor(workedMs)}` : 'Activity'
+  const label =
+    !working && workedMs !== undefined ? `Worked for ${workedFor(workedMs)}` : 'Activity'
   return (
     <div className={`turn-work${open ? ' open' : ''}`}>
       <button className="turn-work-head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
