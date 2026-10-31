@@ -90,9 +90,12 @@ function createWindow(): BuiltinBrowser {
     titleBarStyle: 'hiddenInset',
     // Centred on the sidebar's 48px top row.
     trafficLightPosition: { x: 16, y: 17 },
-    // Opaque, in the chat's background color: a transparent window would make
-    // macOS blend it with what is behind it on every frame.
-    backgroundColor: windowBackground(),
+    // On the Mac, see-through so the Liquid Glass behind the page shows where the
+    // page is (addGlass); macOS then blends the window with what is behind it on
+    // every frame. Elsewhere opaque, in the chat's background color.
+    ...(process.platform === 'darwin'
+      ? { transparent: true }
+      : { backgroundColor: windowBackground() }),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       sandbox: false,
@@ -144,9 +147,20 @@ function createWindow(): BuiltinBrowser {
     lastReload = Date.now()
     mainWindow.webContents.reload()
   })
-  nativeTheme.on('updated', () => {
-    if (!mainWindow.isDestroyed()) mainWindow.setBackgroundColor(windowBackground())
-  })
+  if (process.platform === 'darwin') {
+    // The package adds the glass once the page has loaded; it stays across reloads.
+    mainWindow.webContents.once('did-finish-load', () => addGlass(mainWindow))
+  }
+  // Clear on the Mac, so the glass shows, except in full screen: nothing is
+  // behind the window there but black, which would darken the glass in light mode.
+  const setBackground = (): void => {
+    if (mainWindow.isDestroyed()) return
+    const clear = process.platform === 'darwin' && !mainWindow.isFullScreen()
+    mainWindow.setBackgroundColor(clear ? '#00000000' : windowBackground())
+  }
+  nativeTheme.on('updated', setBackground)
+  mainWindow.on('enter-full-screen', setBackground)
+  mainWindow.on('leave-full-screen', setBackground)
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
@@ -199,9 +213,25 @@ function createWindow(): BuiltinBrowser {
   return browser
 }
 
-/** The window's color behind the page, matching --canvas in styles.css. */
+/**
+ * The window's color behind the page where it has no glass (outside the Mac, and
+ * in full screen), matching the chat's in styles.css.
+ */
 function windowBackground(): string {
   return nativeTheme.shouldUseDarkColors ? '#000000' : '#ffffff'
+}
+
+/**
+ * macOS 26's Liquid Glass behind the whole page: Apple's NSGlassEffectView,
+ * through electron-liquid-glass. It follows the window's light or dark
+ * appearance; before macOS 26 the package puts the older window blur there.
+ * Loaded on demand, as the package only installs on the Mac.
+ */
+async function addGlass(window: BrowserWindow): Promise<void> {
+  const { default: liquidGlass } = await import('electron-liquid-glass')
+  if (liquidGlass.addView(window.getNativeWindowHandle()) === -1) {
+    console.error('Liquid Glass could not be added to the window')
+  }
 }
 
 /**

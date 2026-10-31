@@ -61,6 +61,7 @@
   },
   "license": "MIT",
   "dependencies": {
+    "electron-liquid-glass": "^1.1.1",
     "onnxruntime-node": "^1.31.1"
   }
 }
