@@ -149,6 +149,14 @@ export function useSpeechPlayer(): {
     tapper.current = (chatId) => {
       const { context } = ensureOutput()
       const tap = context.createMediaStreamDestination()
+      // The stream carries sound only while something plays into it, and a
+      // recorder puts what comes next right after it: the silence between
+      // messages would be left out, and the voice run ahead of the video.
+      // A source of silence that never ends keeps the stream going.
+      const silent = context.createConstantSource()
+      silent.offset.value = 0
+      silent.connect(tap)
+      silent.start()
       const chatTaps = taps.get(chatId) ?? new Set()
       taps.set(chatId, chatTaps.add(tap))
       // What the chat is saying already is in it from here on.
@@ -156,6 +164,8 @@ export function useSpeechPlayer(): {
       return {
         stream: tap.stream,
         close: () => {
+          silent.stop()
+          silent.disconnect()
           chatTaps.delete(tap)
           if (!chatTaps.size) taps.delete(chatId)
           for (const piece of queue) {
