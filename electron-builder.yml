@@ -16,6 +16,10 @@ files:
   # versioned file is an identical copy).
   - '!node_modules/onnxruntime-node/bin/napi-v*/{linux,win32}/**'
   - '!node_modules/onnxruntime-node/bin/napi-v*/darwin/*/libonnxruntime.*.*.*.dylib'
+  # The Codex and Claude Code adapters run the user's own CLI (main/agents.ts),
+  # so the copies their packages bring, 600 MB of them, stay out.
+  - '!node_modules/@openai/codex{,-*}/**'
+  - '!node_modules/@anthropic-ai/claude-agent-sdk-*/**'
 asarUnpack:
   - resources/**
   # Native code is loaded from real files, not from inside the asar.

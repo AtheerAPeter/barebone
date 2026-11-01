@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { homedir } from 'node:os'
 import { basename, dirname, extname, join } from 'node:path'
+import { createRequire } from 'node:module'
 import { statSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { app, shell } from 'electron'
@@ -72,6 +73,7 @@ import { openCode, opencodeMajor } from './harness/opencode'
 import { cline } from './harness/cline'
 import { custom } from './harness/custom'
 import opencodePlugin from '../../resources/opencode-plugin/server.js?asset&asarUnpack'
+import adapterEnv from '../../resources/adapter-env.cjs?asset&asarUnpack'
 
 /** Agents run as a CLI over ACP; the app's own harness agents are not. */
 type AcpAgent = Exclude<AgentId, HarnessAgentId>
@@ -79,13 +81,51 @@ type AcpAgent = Exclude<AgentId, HarnessAgentId>
 /** The provider APIs the app's own harness runs on. */
 const PROVIDERS: Provider[] = [commandCode, openCode, cline, custom]
 
-const COMMANDS: Record<AcpAgent, { command: string; args: string[] }> = {
+/**
+ * Codex and Claude Code have no ACP mode of their own. The adapters their
+ * makers co-maintain give them one, and the app ships them (package.json) and
+ * runs them on its own Node, so they need nothing installed but the CLI they
+ * run: the user's own, the one they signed in to, named in the variable each
+ * adapter reads. The copies of the CLIs the adapters' packages bring are left
+ * out of the app (electron-builder.yml).
+ */
+const ADAPTERS = {
+  codex: {
+    script: '@agentclientprotocol/codex-acp/dist/index.js',
+    cli: 'codex',
+    variable: 'CODEX_PATH'
+  },
+  claude: {
+    script: '@agentclientprotocol/claude-agent-acp/dist/index.js',
+    cli: 'claude',
+    variable: 'CLAUDE_CODE_EXECUTABLE'
+  }
+} as const
+type AdapterAgent = keyof typeof ADAPTERS
+
+const isAdapterAgent = (agent: AgentId): agent is AdapterAgent => agent in ADAPTERS
+
+/** The agents whose CLI has an ACP mode, and how to start it. */
+const COMMANDS: Record<Exclude<AcpAgent, AdapterAgent>, { command: string; args: string[] }> = {
   opencode: { command: 'opencode', args: ['acp'] },
   cline: { command: 'cline', args: ['--acp'] },
-  commandcode: { command: 'cmd', args: ['acp'] },
-  // Codex and Claude Code have no ACP mode of their own; these adapters run them.
-  codex: { command: 'codex-acp', args: [] },
-  claude: { command: 'claude-agent-acp', args: [] }
+  commandcode: { command: 'cmd', args: ['acp'] }
+}
+
+/** The CLI an agent needs installed. */
+const cliOf = (agent: AcpAgent): string =>
+  isAdapterAgent(agent) ? ADAPTERS[agent].cli : COMMANDS[agent].command
+
+/**
+ * How to start an agent's ACP process: its CLI, or the app's own binary as
+ * Node (ELECTRON_RUN_AS_NODE, set by agentEnv) running its adapter. That Node
+ * reads the app's archive, where the adapter finds its own dependencies, and
+ * adapter-env.cjs keeps the variable from what the adapter starts.
+ */
+function commandFor(agent: AcpAgent): { command: string; args: string[] } {
+  if (!isAdapterAgent(agent)) return COMMANDS[agent]
+  const script = createRequire(import.meta.url).resolve(ADAPTERS[agent].script)
+  return { command: process.execPath, args: ['--require', adapterEnv, script] }
 }
 
 /**
@@ -249,16 +289,18 @@ async function loadSdk(): Promise<typeof acp> {
  * mode: work started that way resumes the session where the app cannot see it
  * (see resources/opencode-plugin), while run_in_background wakes the chat.
  *
- * Claude Code's adapter runs the user's own `claude`, the one they signed in
- * to with `claude auth login`, unless CLAUDE_CODE_EXECUTABLE names another.
- * Without it the adapter would run the copy bundled with its SDK. The app never
- * reads or passes the sign-in: Claude Code finds it itself.
+ * The Codex and Claude Code adapters run on the app's own Node, and run the
+ * user's own CLI, the one they signed in to (`codex login`, `claude auth
+ * login`), unless its variable names another (ADAPTERS). The app never reads or
+ * passes the sign-in: the CLI finds it itself.
  */
 async function agentEnv(agent: AgentId): Promise<{ env: NodeJS.ProcessEnv; mcpInConfig: boolean }> {
-  if (agent === 'claude') {
-    const claude = process.env.CLAUDE_CODE_EXECUTABLE ?? (await commandPath('claude'))
+  if (isAdapterAgent(agent)) {
+    const { cli, variable } = ADAPTERS[agent]
+    const path = process.env[variable] ?? (await commandPath(cli))
+    if (!path) throw new Error(`\`${cli}\` was not found on your PATH.`)
     return {
-      env: claude ? { ...process.env, CLAUDE_CODE_EXECUTABLE: claude } : process.env,
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', [variable]: path },
       mcpInConfig: false
     }
   }
@@ -568,7 +610,7 @@ class AgentProcess implements AgentBackend {
   private async start(): Promise<acp.ClientConnection> {
     const { client, methods, ndJsonStream, PROTOCOL_VERSION } = await loadSdk()
     await loadShellPath()
-    const { command, args } = COMMANDS[this.agent]
+    const { command, args } = commandFor(this.agent)
     const { env, mcpInConfig } = await agentEnv(this.agent)
     this.mcpInConfig = mcpInConfig
     const child = spawn(command, args, {
@@ -1689,14 +1731,11 @@ export class AgentManager implements ChatsApi {
     }
     let cached = this.statuses.get(agent)
     if (!cached) {
-      cached = commandVersion(COMMANDS[agent].command).then((version) =>
+      const cli = cliOf(agent)
+      cached = commandVersion(cli).then((version) =>
         version
           ? { agent, available: true, version }
-          : {
-              agent,
-              available: false,
-              error: `\`${COMMANDS[agent].command}\` was not found on your PATH.`
-            }
+          : { agent, available: false, error: `\`${cli}\` was not found on your PATH.` }
       )
       this.statuses.set(agent, cached)
     }

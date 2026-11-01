@@ -12,7 +12,7 @@
 
 ---
 
-Barebone has no model providers and no API keys of its own. It starts the CLIs you already have installed, talks to them over the [Agent Client Protocol](https://agentclientprotocol.com) (`opencode acp`, `cline --acp`, `cmd acp`), and shows whatever models they report. Codex and Claude Code have no ACP mode of their own, so the app runs them through the ACP adapters their makers co-maintain, [codex-acp](https://github.com/agentclientprotocol/codex-acp) and [claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp). If a model works in your terminal, it works here.
+Barebone has no model providers and no API keys of its own. It starts the CLIs you already have installed, talks to them over the [Agent Client Protocol](https://agentclientprotocol.com) (`opencode acp`, `cline --acp`, `cmd acp`), and shows whatever models they report. Codex and Claude Code have no ACP mode of their own, so the app runs them through the ACP adapters their makers co-maintain, [codex-acp](https://github.com/agentclientprotocol/codex-acp) and [claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp). The adapters come with the app and run your own `codex` and `claude`, so there is nothing else to install for them. If a model works in your terminal, it works here.
 
 The exceptions are **Command Code API**, **OpenCode API** and **Cline API**. For these the app runs its own small agent, modeled on [pi](https://github.com/earendil-works/pi): four tools (read, bash, edit, write), opencode's Exa web search, and the browser panel. Web search works without a key on Exa's free tier; add your own Exa API key in Settings (⌘,) to use your Exa account. It calls each provider's API directly with the login its CLI already saved: `cmd login`, `opencode auth login` (Zen and Go) or `cline auth` (usage billing and ClinePass). Model lists come from the providers live, so new models show up without an update. The free models of OpenCode and Cline are not listed: both serve them only to their own apps.
 
@@ -52,8 +52,8 @@ Apple Silicon only. You also need at least one agent installed and signed in:
 - opencode (1 or 2): `curl -fsSL https://opencode.ai/install | bash`, then `opencode auth login`. OpenCode API follows the opencode you have installed: opencode 2 keeps its keys in its database and reads its config in its own order, opencode 1 keeps them in `auth.json`.
 - Cline: `npm i -g cline`, then `cline auth`
 - Command Code (1.74 or newer): `npm i -g command-code`, then `cmd login`. Command Code API uses the same login; its API access needs a GOAT plan or higher. OpenCode API and Cline API use the opencode and Cline logins above.
-- Codex: `npm i -g @openai/codex @agentclientprotocol/codex-acp`, then `codex login` (ChatGPT plan or API key).
-- Claude Code: install [Claude Code](https://code.claude.com/docs/en/setup) and `npm i -g @agentclientprotocol/claude-agent-acp`, then `claude auth login`. The adapter runs your own `claude`, so a Claude plan is used the way Anthropic allows: you sign in through Claude Code itself, and the app never sees the login.
+- Codex: `brew install --cask codex` or `npm i -g @openai/codex`, then `codex login` (ChatGPT plan or API key).
+- Claude Code: install [Claude Code](https://code.claude.com/docs/en/setup), then `claude auth login`. The adapter runs your own `claude`, so a Claude plan is used the way Anthropic allows: you sign in through Claude Code itself, and the app never sees the login.
 
 The app finds the CLIs through your login shell's `PATH`, the same way your terminal does.
 

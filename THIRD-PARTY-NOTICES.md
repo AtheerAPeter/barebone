@@ -1,6 +1,6 @@
 # Third-party notices
 
-Barebone includes code from the projects below. Playwright and ZCode are under the Apache License, Version 2.0, whose text is at the end; ONNX Runtime, electron-liquid-glass and LobeHub Icons are under the MIT License, given with each. The Supertonic 3 voice model is not part of the app: it is downloaded when speech is on, under its own license.
+Barebone includes code from the projects below. Playwright, ZCode, codex-acp and claude-agent-acp are under the Apache License, Version 2.0, whose text is at the end; ONNX Runtime, electron-liquid-glass and LobeHub Icons are under the MIT License, given with each. The Supertonic 3 voice model is not part of the app: it is downloaded when speech is on, under its own license.
 
 ## Playwright
 
@@ -21,6 +21,12 @@ How the built-in browser is automated (`src/main/page-driver.ts`, the page prelo
 ```
 Copyright 2026 Z.AI Co., Ltd
 ```
+
+## codex-acp and claude-agent-acp
+
+Codex and Claude Code chats run through `@agentclientprotocol/codex-acp` 2.5.0 and `@agentclientprotocol/claude-agent-acp` 0.99.1, which the app ships with the packages they depend on, each with its license file. https://github.com/agentclientprotocol/codex-acp, https://github.com/agentclientprotocol/claude-agent-acp
+
+claude-agent-acp depends on Anthropic's `@anthropic-ai/claude-agent-sdk`, which is not open source: © Anthropic PBC, all rights reserved, used under Anthropic's terms (https://code.claude.com/docs/en/legal-and-compliance). The app ships its JavaScript only. The Codex and Claude Code programs are not part of the app: the adapters run the ones you installed, signed in to your own account.
 
 ## ONNX Runtime
 
