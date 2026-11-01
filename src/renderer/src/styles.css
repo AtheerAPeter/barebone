@@ -7,11 +7,11 @@
  * color and shadow is a token, so dark mode is the same design with its own
  * values.
  *
- * In macOS 27's Liquid Glass: the window is see-through to Apple's glass behind
- * the page (index.ts). The sidebar and browser lift it just enough for their
- * text to read, the chat tints it more, and everything drawn on it is glass of
- * its own: a soft veil, a bright rim with a shaded edge, and a blur of what is
- * under it. The toolbar is the window's own glass, and the chat fades out under it.
+ * In macOS 26's Liquid Glass: the window is see-through to Apple's glass behind
+ * the page (index.ts). The sidebar and browser show it as it is, the chat tints
+ * it so long text reads, and what floats over them (menus, pickers, the
+ * palette) is a CSS glass of its own: a translucent fill that blurs what is
+ * under it, with a light rim along its top edge.
  */
 
 :root {
@@ -25,9 +25,9 @@
   --on-accent: #ffffff;
 
   --text: #0d0d0d;
-  --text-soft: #414141;
-  --text-muted: #6b6b6b;
-  --placeholder: #7a7a7a;
+  --text-soft: #5d5d5d;
+  --text-muted: #8f8f8f;
+  --placeholder: #8f8f8f;
   --border: rgba(0, 0, 0, 0.1);
   --border-strong: rgba(0, 0, 0, 0.2);
   --danger: #d92d20;
@@ -39,68 +39,50 @@
   --fill-strong: rgba(0, 0, 0, 0.08);
   --hover: rgba(0, 0, 0, 0.04);
   /* The open chat or view in the sidebar, and the highlighted row of a menu: strong glass. */
-  --selected: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.78));
-  --menu-hover: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.72));
+  --selected: rgba(255, 255, 255, 0.85);
+  --menu-hover: rgba(255, 255, 255, 0.75);
 
   /* Behind everything: see-through to the window's Liquid Glass (index.ts). */
   --canvas: transparent;
 
-  /*
-   * One sheet of glass across the window: the sidebar, the chat and the
-   * browser are the same material, divided by a hairline. The chat's long
-   * prose sits on the same veil, which is enough for it to read.
-   */
-  --panel: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.44));
-  --panel-main: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.44));
+  /* The sidebar and browser, which show the glass, and the chat, which tints it. */
+  --panel: transparent;
+  --panel-main: rgba(255, 255, 255, 0.78);
 
   /* Raised: the on segment, the active browser tab. */
   --raised: var(--glass-strong);
   --raised-shadow: var(--glass-rim);
 
-  /* Cards: the edits card, the new-skill form, settings. Glass, like everything else. */
-  --card: linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.46));
-  --card-edge:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(0, 0, 0, 0.04),
-    0 0 0 0.5px rgba(0, 0, 0, 0.09), 0 10px 24px -18px rgba(0, 0, 0, 0.3);
+  /* Cards: the edits card, the new-skill form, settings. */
+  --card: rgba(255, 255, 255, 0.55);
+  --card-edge: 0 0 0 1px var(--border), inset 0 1px 0 rgba(255, 255, 255, 0.7);
   /* Sunken: output, diffs, code. */
   --well: rgba(0, 0, 0, 0.035);
   /* Opaque, for a field that must hide what is under it. */
   --surface: #ffffff;
 
   /* What floats: menus, pickers and the palette blur what is under them. */
-  --glass-blur: blur(30px) saturate(165%) brightness(1.03);
+  --glass-blur: blur(28px) saturate(180%);
   /*
-   * Every control is glass, as Apple's is: a soft warm veil, brightest along
-   * the top edge where the light falls; a bright rim all round with a faint
-   * shade below, which is the lens; and the least hairline that separates it
-   * from the glass behind. Strong is the hovered, selected or raised one.
+   * Every control is glass: a veil of white, a light rim along its top edge
+   * and a hairline that sets it off the glass behind. Strong is the hovered,
+   * selected or raised one.
    */
-  --glass: linear-gradient(
-    172deg,
-    rgba(255, 253, 250, 0.78) 0%,
-    rgba(255, 255, 255, 0.46) 48%,
-    rgba(255, 255, 255, 0.54) 100%
-  );
-  --glass-strong: linear-gradient(
-    172deg,
-    rgba(255, 255, 255, 0.94) 0%,
-    rgba(255, 255, 255, 0.64) 48%,
-    rgba(255, 255, 255, 0.74) 100%
-  );
+  --glass: rgba(255, 255, 255, 0.55);
+  --glass-strong: rgba(255, 255, 255, 0.85);
   --glass-rim:
-    inset 0 1px 0 rgba(255, 255, 255, 1), inset 0 -1px 0 rgba(0, 0, 0, 0.05),
-    inset 0 0 0 0.5px rgba(255, 255, 255, 0.55), 0 0 0 0.5px rgba(0, 0, 0, 0.09),
-    0 1px 2px rgba(0, 0, 0, 0.05), 0 8px 20px -12px rgba(0, 0, 0, 0.32);
+    inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 0 0 0.5px rgba(0, 0, 0, 0.12),
+    0 1px 3px rgba(0, 0, 0, 0.08);
   /*
    * A pressed control: a faint, wide lift in light, a little stronger under the
    * pointer, and its rim catching more light.
    */
-  --press-light: rgba(255, 255, 255, 0.5);
-  --press-rim: rgba(255, 255, 255, 0.95);
+  --press-light: rgba(255, 255, 255, 0.35);
+  --press-rim: rgba(255, 255, 255, 0.9);
   /* Glass tinted with the accent: the primary and send buttons, the user's messages. */
   --tint-rim:
-    inset 0 1px 0 rgba(255, 255, 255, 0.5), inset 0 -1px 0 rgba(0, 0, 0, 0.06),
-    0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 4px 12px -6px rgba(47, 111, 237, 0.5);
+    inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.1),
+    0 2px 6px -2px rgba(47, 111, 237, 0.45);
 
   /* Solid: done todos. */
   --solid: #0d0d0d;
@@ -112,30 +94,25 @@
   --del-text: #b42318;
   --code-bg: rgba(0, 0, 0, 0.06);
 
-  /* Menus: glass, with a specular rim, a shaded edge and a deep, soft shadow. */
-  --menu: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.7));
+  /* Menus: glass, with a light rim and a hairline around it. */
+  --menu: rgba(255, 255, 255, 0.68);
   /* Nearly opaque, for titles that stay put while rows scroll under them. */
-  --menu-title: rgba(250, 250, 250, 0.96);
+  --menu-title: rgba(250, 250, 250, 0.94);
   --menu-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(0, 0, 0, 0.06),
-    inset 0 0 0 0.5px rgba(255, 255, 255, 0.4), 0 0 0 0.5px rgba(0, 0, 0, 0.16),
-    0 24px 60px -20px rgba(0, 0, 0, 0.45);
+    inset 0 1px 0 rgba(255, 255, 255, 0.8), inset 0 0 0 1px rgba(255, 255, 255, 0.35),
+    0 0 0 0.5px rgba(0, 0, 0, 0.15), 0 16px 40px -10px rgba(0, 0, 0, 0.25);
 
-  --composer: linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.66));
+  --composer: rgba(255, 255, 255, 0.72);
   --composer-edge:
-    inset 0 1px 0 rgba(255, 255, 255, 0.98), inset 0 -1px 0 rgba(0, 0, 0, 0.05),
-    0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 16px 40px -20px rgba(0, 0, 0, 0.4);
-  --strip: linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.44));
-  --strip-edge:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 0 0 0.5px rgba(0, 0, 0, 0.12),
-    0 -8px 20px -16px rgba(0, 0, 0, 0.3);
-  --ask-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.7));
-  --ask-glow:
-    0 0 0 0.5px rgba(47, 111, 237, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 12px 30px -16px rgba(47, 111, 237, 0.5);
+    inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 0 0 0.5px rgba(0, 0, 0, 0.14),
+    0 8px 24px -8px rgba(0, 0, 0, 0.15);
+  --strip: rgba(255, 255, 255, 0.55);
+  --strip-edge: 0 0 0 1px var(--border), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --ask-bg: rgba(255, 255, 255, 0.72);
+  --ask-glow: 0 0 0 1px rgba(47, 111, 237, 0.5), 0 8px 24px -10px rgba(47, 111, 237, 0.3);
 
   /* The user's messages: pills of blue-tinted glass. */
-  --bubble: linear-gradient(168deg, rgba(47, 111, 237, 0.22), rgba(47, 111, 237, 0.13));
+  --bubble: rgba(47, 111, 237, 0.16);
   --bubble-text: #0d0d0d;
 
   /*
@@ -144,9 +121,9 @@
    */
   --radius-sm: 6px;
   --radius: 10px;
-  --radius-lg: 14px;
-  --radius-bubble: 21px;
-  --radius-xl: 24px;
+  --radius-lg: 16px;
+  --radius-bubble: 22px;
+  --radius-xl: 28px;
   --radius-pill: 999px;
 
   /* Width of the chat column; the composer lines up with it. */
@@ -170,59 +147,45 @@
     --accent-ring: rgba(60, 102, 191, 0.35);
     --focus-ring: rgba(255, 255, 255, 0.08);
 
-    --text: #f7f7f7;
-    --text-soft: #d2d2d2;
-    --text-muted: #a6a6a6;
-    --placeholder: #a6a6a6;
+    --text: #ededed;
+    --text-soft: #afafaf;
+    --text-muted: #8f8f8f;
+    --placeholder: #afafaf;
     --border: rgba(255, 255, 255, 0.1);
     --border-strong: rgba(255, 255, 255, 0.2);
     --danger: #ff6b64;
     --ok: #4cc38a;
     --warn: #e7a14a;
 
-    --fill: rgba(255, 255, 255, 0.08);
-    --fill-strong: rgba(255, 255, 255, 0.12);
-    --hover: rgba(255, 255, 255, 0.07);
-    --selected: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.13));
-    --menu-hover: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.11));
+    --fill: rgba(255, 255, 255, 0.06);
+    --fill-strong: rgba(255, 255, 255, 0.1);
+    --hover: rgba(255, 255, 255, 0.05);
+    --selected: rgba(255, 255, 255, 0.12);
+    --menu-hover: rgba(255, 255, 255, 0.12);
 
     --canvas: transparent;
 
-    --panel: linear-gradient(180deg, rgba(12, 12, 14, 0.54), rgba(12, 12, 14, 0.48));
-    --panel-main: linear-gradient(180deg, rgba(12, 12, 14, 0.54), rgba(12, 12, 14, 0.48));
+    --panel: transparent;
+    --panel-main: rgba(0, 0, 0, 0.72);
 
     --raised: var(--glass-strong);
     --raised-shadow: var(--glass-rim);
 
-    --card: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
-    --card-edge:
-      inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 -1px 0 rgba(0, 0, 0, 0.3),
-      0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 10px 24px -18px rgba(0, 0, 0, 0.8);
-    --well: rgba(0, 0, 0, 0.28);
+    --card: rgba(255, 255, 255, 0.05);
+    --card-edge: 0 0 0 1px var(--border), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    --well: rgba(0, 0, 0, 0.25);
     --surface: #2a2a2a;
 
-    /* The same three parts at night: a veil, a specular rim, a shaded edge. */
-    --glass: linear-gradient(
-      172deg,
-      rgba(255, 255, 255, 0.22) 0%,
-      rgba(255, 255, 255, 0.07) 46%,
-      rgba(255, 255, 255, 0.11) 100%
-    );
-    --glass-strong: linear-gradient(
-      172deg,
-      rgba(255, 255, 255, 0.3) 0%,
-      rgba(255, 255, 255, 0.13) 46%,
-      rgba(255, 255, 255, 0.17) 100%
-    );
-    --press-light: rgba(255, 255, 255, 0.12);
-    --press-rim: rgba(255, 255, 255, 0.28);
+    --glass: rgba(255, 255, 255, 0.07);
+    --glass-strong: rgba(255, 255, 255, 0.14);
+    --press-light: rgba(255, 255, 255, 0.07);
+    --press-rim: rgba(255, 255, 255, 0.2);
     --glass-rim:
-      inset 0 1px 0 rgba(255, 255, 255, 0.24), inset 0 -1px 0 rgba(0, 0, 0, 0.4),
-      inset 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 0 0 0.5px rgba(0, 0, 0, 0.6),
-      0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 20px -12px rgba(0, 0, 0, 0.7);
+      inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06),
+      0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.3);
     --tint-rim:
-      inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -1px 0 rgba(0, 0, 0, 0.3),
-      0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 4px 12px -6px rgba(0, 0, 0, 0.6);
+      inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 0 0 0.5px rgba(0, 0, 0, 0.5),
+      0 2px 6px -2px rgba(0, 0, 0, 0.5);
 
     --solid: #ffffff;
     --on-solid: #0d0d0d;
@@ -233,27 +196,22 @@
     --del-text: #ffa29d;
     --code-bg: rgba(255, 255, 255, 0.1);
 
-    --menu: linear-gradient(180deg, rgba(52, 52, 56, 0.78), rgba(40, 40, 44, 0.72));
-    --menu-title: rgba(44, 44, 46, 0.97);
+    --menu: rgba(40, 40, 42, 0.62);
+    --menu-title: rgba(44, 44, 46, 0.96);
     --menu-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 0 rgba(0, 0, 0, 0.4),
-      inset 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 0 0 0.5px rgba(0, 0, 0, 0.7),
-      0 24px 60px -20px rgba(0, 0, 0, 0.85);
+      inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 0 0 1px rgba(255, 255, 255, 0.07),
+      0 0 0 0.5px rgba(0, 0, 0, 0.6), 0 16px 40px -10px rgba(0, 0, 0, 0.7);
 
-    --composer: linear-gradient(180deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.09));
+    --composer: rgba(255, 255, 255, 0.07);
     --composer-edge:
-      inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 0 rgba(0, 0, 0, 0.35),
-      0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 16px 40px -20px rgba(0, 0, 0, 0.9);
-    --strip: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.06));
-    --strip-edge:
-      inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 0 0 0.5px rgba(255, 255, 255, 0.08),
-      0 -8px 20px -16px rgba(0, 0, 0, 0.8);
-    --ask-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.07));
-    --ask-glow:
-      0 0 0 0.5px rgba(60, 102, 191, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.24),
-      0 12px 30px -16px rgba(0, 0, 0, 0.8);
+      inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 8px 24px -8px rgba(0, 0, 0, 0.5);
+    --strip: rgba(255, 255, 255, 0.05);
+    --strip-edge: 0 0 0 1px var(--border), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    --ask-bg: rgba(255, 255, 255, 0.07);
+    --ask-glow: 0 0 0 1px rgba(60, 102, 191, 0.6);
 
-    --bubble: linear-gradient(168deg, rgba(86, 130, 232, 0.72), rgba(52, 88, 176, 0.66));
+    --bubble: rgba(60, 102, 191, 0.6);
     --bubble-text: #ffffff;
     color-scheme: dark;
   }
@@ -273,8 +231,8 @@ body,
 body {
   background: var(--canvas);
   color: var(--text);
-  /* Medium throughout: crisp at these sizes. Titles and emphasis step up to 600. */
-  font: 500 14px/1.5 var(--sans);
+  /* Regular weight throughout; titles and emphasis step up to 500 or 600. */
+  font: 400 14px/1.5 var(--sans);
   -webkit-font-smoothing: antialiased;
   user-select: none;
   overflow: hidden;
@@ -399,20 +357,9 @@ kbd {
   background: var(--panel-main);
 }
 
-/*
- * As in macOS 27, the toolbar is no band of its own: it sits on the window's
- * glass, and the chat fades out before it reaches the title (.chat-scroll).
- * No backdrop-filter: in this see-through window Chromium paints the blurred
- * backdrop over the backdrop itself, so the chat's tint would double there
- * and the toolbar would read as a darker, solid strip.
- */
 .topbar {
-  position: absolute;
-  z-index: 6;
-  top: 0;
-  left: 0;
-  right: 0;
   height: 48px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -433,9 +380,8 @@ kbd {
   flex: 0 1 auto;
   min-width: 0;
   padding: 0 6px;
-  font-size: 15px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  font-size: 16px;
+  font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -443,7 +389,7 @@ kbd {
 
 .crumb {
   color: var(--text-muted);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .status-chip {
@@ -585,7 +531,6 @@ kbd {
   height: 36px;
   padding: 0 10px;
   text-align: left;
-  font-weight: 550;
   border-radius: var(--radius);
 }
 
@@ -612,20 +557,19 @@ kbd {
   padding: 0 6px 12px;
 }
 
-/* A section's name, and how many chats it holds. */
+/* A section's name, quiet as in ChatGPT, and how many chats it holds. */
 .side-label {
   display: flex;
   align-items: center;
   gap: 6px;
   width: 100%;
   padding: 16px 10px 6px;
-  color: var(--text-soft);
-  font-weight: 650;
+  color: var(--text-muted);
   text-align: left;
 }
 
 .side-label b {
-  font-weight: 650;
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
 
@@ -757,7 +701,7 @@ kbd {
   font-size: 12px;
 }
 
-/* The project's icon on a small tile: the icon in the project's color, which pops off a neutral chip. */
+/* The project's icon on a small tile, tinted in the project's color when it has one. */
 .project-tile {
   flex-shrink: 0;
   display: grid;
@@ -767,7 +711,7 @@ kbd {
 }
 
 .project-tile.colored {
-  background: var(--fill);
+  background: color-mix(in srgb, var(--project-color) 22%, transparent);
 }
 
 .project-icon {
@@ -868,7 +812,6 @@ img.project-icon {
   column-gap: 8px;
   min-height: 36px;
   padding: 0 4px 0 10px;
-  font-weight: 550;
   border-radius: var(--radius);
 }
 
@@ -876,11 +819,9 @@ img.project-icon {
   background: var(--hover);
 }
 
-/* As in macOS 27, the open chat is set in semibold, not by its fill alone. */
 .chat-row.selected {
   background: var(--selected);
   box-shadow: var(--glass-rim);
-  font-weight: 650;
 }
 
 .chat-dot {
@@ -1092,7 +1033,7 @@ img.project-icon {
   border-radius: var(--radius);
 }
 
-/* Along the top of the window they sit in glass circles, as in macOS 27's toolbars. */
+/* Along the top of the window they sit in glass circles, as in macOS 26's toolbars. */
 .sidebar-top .icon-btn,
 .topbar .icon-btn,
 .browser-toolbar .icon-btn {
@@ -1273,31 +1214,21 @@ img.project-icon {
   flex: 1;
   overflow-x: hidden;
   overflow-y: auto;
-  /* Content fades out under the toolbar and above the composer, not cut off. */
-  -webkit-mask-image: linear-gradient(
-    transparent 40px,
-    #000 62px,
-    #000 calc(100% - 24px),
-    transparent
-  );
-  mask-image: linear-gradient(transparent 40px, #000 62px, #000 calc(100% - 24px), transparent);
+  /* Content fades out above the composer instead of being cut by it. */
+  -webkit-mask-image: linear-gradient(#000 calc(100% - 24px), transparent);
+  mask-image: linear-gradient(#000 calc(100% - 24px), transparent);
 }
 
 .chat-items {
   max-width: calc(var(--chat-width) + 48px);
   margin: 0 auto;
-  padding: 64px 24px 32px;
+  padding: 16px 24px 32px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   font-size: 16px;
   line-height: 1.75;
   user-select: text;
-}
-
-/* Nothing scrolls in an empty chat, so its greeting sits under the toolbar. */
-.chat.empty .chat-items {
-  padding-top: 16px;
 }
 
 .chat-empty {
@@ -1309,7 +1240,7 @@ img.project-icon {
   margin: 0;
   color: var(--text);
   font-size: 28px;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: -0.01em;
 }
 
@@ -1330,7 +1261,6 @@ img.project-icon {
   background: var(--bubble);
   color: var(--bubble-text);
   line-height: 1.5;
-  font-weight: 550;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   border-radius: var(--radius-bubble);
@@ -3432,7 +3362,7 @@ img.project-icon {
   width: 280px;
   flex-shrink: 0;
   overflow-y: auto;
-  padding: 60px 10px 12px;
+  padding: 12px 10px;
   border-right: 1px solid var(--border);
 }
 
@@ -3446,7 +3376,7 @@ img.project-icon {
 .skills-header h2 {
   margin: 0;
   font-size: 16px;
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .section-label {
@@ -3504,7 +3434,7 @@ img.project-icon {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 60px 22px 22px;
+  padding: 14px 22px 22px;
 }
 
 .skills-editor-bar {
@@ -3610,7 +3540,7 @@ img.project-icon {
   width: 100%;
   max-width: 600px;
   margin: 0 auto;
-  padding: 76px 22px 28px;
+  padding: 28px 22px;
 }
 
 .settings h2 {
