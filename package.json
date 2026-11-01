@@ -1,6 +1,6 @@
 {
   "name": "barebone",
-  "version": "1.0.83",
+  "version": "1.0.84",
   "description": "Minimal GUI for opencode and cline",
   "main": "./out/main/index.js",
   "author": "AtheerAPeter",
