@@ -1,7 +1,7 @@
 import { Fragment, useRef, useState } from 'react'
 import type { Project } from '../../../shared/types'
 import { useOverlay } from '../lib/overlays'
-import { ProjectStyle, ProjectTile } from './ProjectIcon'
+import { ProjectIcon, ProjectStyle } from './ProjectIcon'
 import { FolderPlusIcon, PencilIcon, SearchIcon, TrashIcon } from './icons'
 
 /**
@@ -86,7 +86,7 @@ export function ProjectPicker({
                 onMouseMove={() => setActive(i)}
                 onClick={() => choose(i)}
               >
-                <ProjectTile project={project} size={15} />
+                <ProjectIcon project={project} size={28} />
                 <div className="palette-text">
                   <span className="palette-name">{project.name}</span>
                   <span className="palette-path">{project.path}</span>
@@ -133,9 +133,7 @@ export function ProjectPicker({
             onMouseMove={() => setActive(shown.length)}
             onClick={() => choose(shown.length)}
           >
-            <span className="project-tile">
-              <FolderPlusIcon width={15} height={15} />
-            </span>
+            <FolderPlusIcon width={28} height={28} strokeWidth={2.2} className="project-icon" />
             <div className="palette-text">
               <span className="palette-name">Open a folder…</span>
             </div>

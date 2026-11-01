@@ -6,32 +6,32 @@ import {
   type ProjectIconName
 } from '../../../shared/types'
 import { COLOR_VALUES, colorValue } from '../lib/project-colors'
+import { CloseIcon, PlusIcon } from './icons'
 import {
-  BookIcon,
-  ChatIcon,
-  CloseIcon,
-  FolderIcon,
-  GaugeIcon,
-  PlusIcon,
-  GlobeIcon,
-  LockIcon,
-  PencilIcon,
-  ShieldIcon,
-  TerminalIcon,
-  WrenchIcon
-} from './icons'
+  SolidBookIcon,
+  SolidChatIcon,
+  SolidFolderIcon,
+  SolidGaugeIcon,
+  SolidGlobeIcon,
+  SolidLockIcon,
+  SolidPencilIcon,
+  SolidShieldIcon,
+  SolidTerminalIcon,
+  SolidWrenchIcon
+} from './project-glyphs'
 
-const GLYPHS: Record<ProjectIconName, typeof FolderIcon> = {
-  folder: FolderIcon,
-  globe: GlobeIcon,
-  terminal: TerminalIcon,
-  book: BookIcon,
-  chat: ChatIcon,
-  wrench: WrenchIcon,
-  shield: ShieldIcon,
-  gauge: GaugeIcon,
-  pencil: PencilIcon,
-  lock: LockIcon
+/** Project icons are solid, so they read at a glance in the project's color. */
+const GLYPHS: Record<ProjectIconName, typeof SolidFolderIcon> = {
+  folder: SolidFolderIcon,
+  globe: SolidGlobeIcon,
+  terminal: SolidTerminalIcon,
+  book: SolidBookIcon,
+  chat: SolidChatIcon,
+  wrench: SolidWrenchIcon,
+  shield: SolidShieldIcon,
+  gauge: SolidGaugeIcon,
+  pencil: SolidPencilIcon,
+  lock: SolidLockIcon
 }
 
 /** Each project's own icon, asked for once per launch, and replaced when the user chooses one. */
@@ -78,28 +78,6 @@ export function ProjectIcon({
       className="project-icon"
       style={project.color ? { color: colorValue(project.color) } : undefined}
     />
-  )
-}
-
-/** The project's icon on a small tile tinted in its color: how chats and projects are told apart. */
-export function ProjectTile({
-  project,
-  size
-}: {
-  project: Project
-  size: number
-}): React.JSX.Element {
-  return (
-    <span
-      className={`project-tile${project.color ? ' colored' : ''}`}
-      style={
-        project.color
-          ? ({ '--project-color': colorValue(project.color) } as React.CSSProperties)
-          : undefined
-      }
-    >
-      <ProjectIcon project={project} size={size} />
-    </span>
   )
 }
 

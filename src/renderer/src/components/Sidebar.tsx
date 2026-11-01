@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { ThemeToggle } from './ThemeToggle'
 import { Collapse } from './Collapse'
-import { ProjectTile } from './ProjectIcon'
+import { ProjectIcon } from './ProjectIcon'
 import { RowMenu } from './RowMenu'
+import { AgentLogo } from './model-picker/AgentLogo'
 import { startedChats, type AppState, type Chat, type Project } from '../../../shared/types'
 import { readPref, writePref } from '../lib/prefs'
 import { waitingOn } from '../lib/background'
@@ -102,6 +103,12 @@ export function Sidebar({
     return window.api.update.onAvailable(setUpdate)
   }, [])
   useEffect(() => writePref('settledOpen', settledOpen), [settledOpen])
+  // The time the rows' ages are counted from, moved on each minute so "5m" does not go stale.
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000)
+    return () => clearInterval(timer)
+  }, [])
 
   const projects = new Map(state.projects.map((p) => [p.id, p]))
   // Open the Settled section, the project's folder and the chat that leads a newly selected
@@ -180,28 +187,33 @@ export function Sidebar({
     setOpenProjects((current) => toggled(current, projectId))
   }
 
-  /** One chat, led by its project's icon; in a project's folder, the folder shows it instead. */
+  /** One chat: by status, a card that names its project; in a project's folder, one line. */
   function chatRow(chat: Chat): React.JSX.Element {
     const project = projects.get(chat.projectId)
     const led = q ? undefined : started.get(chat.id)
     const workingLed = led?.filter((c) => c.running).length ?? 0
     const isOpen = openLeads.has(chat.id)
+    const waits = !chat.running ? waitingOn(chat, startedWorking(chat)) : undefined
+    const latest = chat.waiting ? 'Waiting for approval' : waits || chat.preview
+    // By status, each chat is a card: its project and status, its title, then its latest and agent.
+    const card = !byProject
     const row = (
       <div
         key={chat.id}
         data-chat={chat.id}
-        className={`chat-row${led ? ' lead' : ''}${view === 'chat' && chat.id === selectedChatId ? ' selected' : ''}`}
-        title={[
-          project?.name,
-          chat.waiting
-            ? 'Waiting for approval'
-            : (!chat.running && waitingOn(chat, startedWorking(chat))) || chat.preview
-        ]
-          .filter(Boolean)
-          .join(' · ')}
+        className={`chat-row${card ? ' card' : ''}${led ? ' lead' : ''}${view === 'chat' && chat.id === selectedChatId ? ' selected' : ''}`}
+        title={[project?.name, latest].filter(Boolean).join(' · ')}
         onClick={() => onSelectChat(chat.id)}
       >
-        {project && !byProject ? <ProjectTile project={project} size={12} /> : <span />}
+        {card ? (
+          <div className="card-head">
+            {project && <ProjectIcon project={project} size={22} />}
+            <span className="card-project">{project?.name}</span>
+            <CardStatus chat={chat} working={working(chat)} now={now} />
+          </div>
+        ) : (
+          <span />
+        )}
         <div className="chat-line">
           {renaming === chat.id ? (
             <RenameField
@@ -234,7 +246,7 @@ export function Sidebar({
               <ChevronIcon width={10} height={10} className="chevron" />
             </button>
           )}
-          <ChatStatus chat={chat} working={working(chat)} />
+          {!card && <ChatStatus chat={chat} working={working(chat)} />}
           <RowMenu
             label="Chat options"
             items={[
@@ -247,6 +259,12 @@ export function Sidebar({
             ]}
           />
         </div>
+        {card && (
+          <div className="card-foot">
+            <span className="card-latest">{waits ?? chat.preview}</span>
+            <AgentLogo agent={chat.agent} size={18} />
+          </div>
+        )}
       </div>
     )
     if (!led) return row
@@ -367,7 +385,7 @@ export function Sidebar({
           aria-expanded={isOpen}
           onClick={() => toggleProject(project.id)}
         >
-          <ProjectTile project={project} size={14} />
+          <ProjectIcon project={project} size={24} />
           <div className="chat-line">
             <span className="chat-title">{project.name}</span>
             {/* Open, its chats show their own. */}
@@ -624,6 +642,35 @@ function ChatStatus({ chat, working }: { chat: Chat; working: boolean }): React.
   return null
 }
 
+/** A card's status, top right: what the chat is doing, or how long ago it last moved. */
+function CardStatus({
+  chat,
+  working,
+  now
+}: {
+  chat: Chat
+  working: boolean
+  now: number
+}): React.JSX.Element {
+  if (chat.waiting) {
+    return (
+      <span className="card-status waiting">
+        <span className="chat-dot waiting" />
+        Needs approval
+      </span>
+    )
+  }
+  if (chat.running || working) {
+    return (
+      <span className={`card-status${chat.running ? ' running' : ''}`}>
+        <span className={`chat-dot ${chat.running ? 'running' : 'background'}`} />
+        {chat.running ? 'Working' : 'Waiting'}
+      </span>
+    )
+  }
+  return <span className="card-status">{age(chat.updatedAt, now)}</span>
+}
+
 /** A closed folder's status: the most urgent of its chats', so a closed folder hides none. */
 function FolderStatus({
   chats,
@@ -635,6 +682,18 @@ function FolderStatus({
   const busiest =
     chats.find((c) => c.waiting) ?? chats.find((c) => c.running) ?? chats.find(working)
   return busiest ? <ChatStatus chat={busiest} working /> : null
+}
+
+/** How long ago `time` was, short: "now", "5m", "3h", "2d", then the date. */
+function age(time: number, now: number): string {
+  const minutes = Math.floor((now - time) / 60_000)
+  if (minutes < 1) return 'now'
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d`
+  return new Date(time).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
 /** The set with `id` added, or taken out when it is in it. */

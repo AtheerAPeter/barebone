@@ -701,26 +701,15 @@ kbd {
   font-size: 12px;
 }
 
-/* The project's icon on a small tile, tinted in the project's color when it has one. */
-.project-tile {
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  padding: 3px;
-  border-radius: var(--radius-sm);
-}
-
-.project-tile.colored {
-  background: color-mix(in srgb, var(--project-color) 22%, transparent);
-}
-
+/* The project's icon, drawn bare in the project's color: how chats and projects are told apart. */
 .project-icon {
   flex-shrink: 0;
-  color: var(--text-muted);
+  color: var(--text-soft);
 }
 
 img.project-icon {
   object-fit: contain;
+  border-radius: 22%;
 }
 
 /* The project's icon and color picker, under its row. */
@@ -807,11 +796,12 @@ img.project-icon {
 
 .chat-row {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
+  /* The icon is centered at 19px and titles start at 36px, in line with the nav labels above. */
+  grid-template-columns: 24px minmax(0, 1fr);
   align-items: center;
-  column-gap: 8px;
+  column-gap: 5px;
   min-height: 36px;
-  padding: 0 4px 0 10px;
+  padding: 0 4px 0 7px;
   border-radius: var(--radius);
 }
 
@@ -917,6 +907,72 @@ img.project-icon {
 
 .chat-status {
   flex-shrink: 0;
+}
+
+/*
+ * By status, each chat is a card: its project and status on top, its title,
+ * then its latest message and the agent's logo.
+ */
+.chat-row.card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  margin-bottom: 4px;
+  padding: 9px 10px 9px 12px;
+  border-radius: var(--radius-lg);
+}
+
+.card-head,
+.card-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 24px;
+}
+
+.card-project,
+.card-latest {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-soft);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-latest {
+  color: var(--text-muted);
+}
+
+.card-status {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-status:is(.running, .waiting) {
+  color: var(--accent-text);
+}
+
+.chat-row.card .chat-line {
+  height: 24px;
+}
+
+.chat-row.card .chat-title {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.card-foot .agent-logo {
+  flex-shrink: 0;
+  margin-right: 2px;
 }
 
 .row-menu {
@@ -2051,7 +2107,8 @@ img.project-icon {
 }
 
 .todo-strip {
-  max-width: calc(var(--chat-width) - 2 * var(--radius-xl));
+  /* Inset from the composer's own width, so the tab clears its corners at any window size. */
+  width: calc(min(100%, var(--chat-width)) - 2 * var(--radius-xl));
   margin: 0 auto;
   background: var(--strip);
   box-shadow: var(--strip-edge);
@@ -2113,7 +2170,8 @@ img.project-icon {
 
 /* The chat's background commands and timer, one row each, docked like the todos. */
 .background-strip {
-  max-width: calc(var(--chat-width) - 2 * var(--radius-xl));
+  /* Inset from the composer's own width, so the tab clears its corners at any window size. */
+  width: calc(min(100%, var(--chat-width)) - 2 * var(--radius-xl));
   margin: 0 auto;
   padding: 2px 0;
   background: var(--strip);
@@ -4997,10 +5055,6 @@ button,
 .palette-row.active {
   background: var(--selected);
   box-shadow: var(--glass-rim);
-}
-
-.palette-row .project-tile {
-  padding: 5px;
 }
 
 .palette-text {
