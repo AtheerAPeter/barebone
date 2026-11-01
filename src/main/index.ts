@@ -1,6 +1,7 @@
 // First: moves the data folder of the app's former name before anything uses it.
 import './former-name'
 import { app, shell, BrowserWindow, ipcMain, dialog, nativeTheme } from 'electron'
+import { readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import appIcon from '../../resources/icon.png?asset'
@@ -11,9 +12,14 @@ import type {
   AgentOption,
   Chat,
   ChatItem,
+  CodeDoc,
   CustomProviderInput,
   FormAnswers,
+  GitBranch,
+  GitChange,
+  GitStatus,
   OrbState,
+  WalkControl,
   Project,
   Rect,
   SkillScope,
@@ -41,6 +47,8 @@ import type { Language } from './speech/supertonic'
 import { loadShellPath } from './shell-env'
 import * as skills from './skills'
 import { listProjectFiles } from './files'
+import * as git from './git'
+import { WalkPlayer } from './walkthrough'
 import { chooseProjectIcon, projectIcon } from './project-icon'
 import { handleImageRequests, registerImageScheme, thumbnail } from './images'
 import { availableUpdate, checkForUpdates, installUpdate, watchForUpdates } from './updates'
@@ -51,6 +59,8 @@ let browser: BuiltinBrowser | undefined
 let speech: Speech
 /** Records browser tabs as videos, in the window; made with the window. */
 let recorder: PageRecorder | undefined
+/** Plays agents' code walkthroughs, with the voice; made with the voice. */
+let walks: WalkPlayer
 /** Set once the app is quitting: closing the window then really closes it. */
 let quitting = false
 /** How long quitting waits for the agents and the browser to stop. */
@@ -247,11 +257,148 @@ function setTheme(theme: Theme): void {
   send('state:changed', store.getState())
 }
 
-/** The browser panel is open or closed per chat, saved with the chat. */
+/**
+ * The browser panel is open or closed per chat, saved with the chat. It
+ * shares its place with the code panel: opening one closes the other.
+ */
 function setBrowserOpen(chatId: string, open: boolean): void {
   if (!store.getState().chats.some((c) => c.id === chatId)) return
-  store.updateChat(chatId, { browserOpen: open })
+  store.updateChat(chatId, open ? { browserOpen: true, codeOpen: false } : { browserOpen: false })
   send('state:changed', store.getState())
+}
+
+/** The code panel is open or closed per chat, in the browser panel's place. */
+function setCodeOpen(chatId: string, open: boolean): void {
+  if (!store.getState().chats.some((c) => c.id === chatId)) return
+  store.updateChat(chatId, open ? { codeOpen: true, browserOpen: false } : { codeOpen: false })
+  send('state:changed', store.getState())
+}
+
+/** The folder of a chat's project. */
+function projectPathOf(chatId: string): string | undefined {
+  const { chats, projects } = store.getState()
+  const chat = chats.find((c) => c.id === chatId)
+  return projects.find((p) => p.id === chat?.projectId)?.path
+}
+
+/** The repository a project is in, by its top folder; throws when it is in none. */
+async function repoOf(projectId: string): Promise<string> {
+  const project = store.getState().projects.find((p) => p.id === projectId)
+  if (!project) throw new Error('This project is no longer open.')
+  const root = await git.repoRoot(project.path)
+  if (!root) throw new Error(`${project.name} is not in a git repository.`)
+  return root
+}
+
+/** Ask before something that cannot be undone; true when the user goes ahead. */
+async function confirm(message: string, detail: string, action: string): Promise<boolean> {
+  const { response } = await dialog.showMessageBox(mainWindow, {
+    type: 'warning',
+    message,
+    detail,
+    buttons: [action, 'Cancel'],
+    defaultId: 0,
+    cancelId: 1
+  })
+  return response === 0
+}
+
+/** Source control for the code panel (git.ts), by project. */
+function registerGitIpc(): void {
+  ipcMain.handle('code:setOpen', (_e, chatId: string, open: boolean) => setCodeOpen(chatId, open))
+  ipcMain.handle('walk:get', (_e, chatId: string) => walks.current(chatId) ?? null)
+  ipcMain.handle('walk:control', (_e, chatId: string, action: WalkControl, index?: number) =>
+    walks.control(chatId, action, index)
+  )
+
+  ipcMain.handle('git:status', (_e, projectId: string): Promise<GitStatus> => {
+    const project = store.getState().projects.find((p) => p.id === projectId)
+    return project ? git.status(project.path) : Promise.resolve({ repo: false })
+  })
+  ipcMain.handle(
+    'git:diff',
+    async (_e, projectId: string, change: GitChange, staged: boolean): Promise<CodeDoc> => {
+      const root = await repoOf(projectId)
+      const path = join(root, change.path)
+      // A conflicted file has no stage to compare: it shows as it is, markers and all.
+      if (change.kind === 'conflicted') {
+        return { kind: 'file', path, text: await readFile(path, 'utf8') }
+      }
+      return { kind: 'diff', path, staged, ...(await git.diff(root, change, staged)) }
+    }
+  )
+  ipcMain.handle('git:stage', async (_e, projectId: string, changes: GitChange[]) =>
+    git.stage(await repoOf(projectId), changes)
+  )
+  ipcMain.handle('git:unstage', async (_e, projectId: string, changes: GitChange[]) =>
+    git.unstage(await repoOf(projectId), changes)
+  )
+  ipcMain.handle('git:discard', async (_e, projectId: string, changes: GitChange[]) => {
+    const root = await repoOf(projectId)
+    const untracked = changes.filter((c) => c.kind === 'untracked').length
+    const one = changes.length === 1 ? basename(changes[0].path) : undefined
+    const sure = await confirm(
+      one
+        ? untracked
+          ? `Delete ${one}?`
+          : `Discard the changes in ${one}?`
+        : `Discard the changes in ${changes.length} files?`,
+      untracked
+        ? `${untracked === 1 ? 'A file that git does not track is' : `${untracked} files that git does not track are`} deleted, and cannot be brought back.`
+        : 'This cannot be undone.',
+      one && untracked ? 'Delete' : 'Discard'
+    )
+    if (sure) await git.discard(root, changes)
+    return sure
+  })
+  ipcMain.handle('git:commit', async (_e, projectId: string, message: string) => {
+    const root = await repoOf(projectId)
+    const repo = await git.status(root)
+    if (!repo.repo) return false
+    if (repo.conflicts.length) throw new Error('Resolve the merge conflicts before committing.')
+    // As VS Code's smart commit: with nothing staged, offer to commit every change.
+    const all = repo.staged.length === 0
+    if (all) {
+      if (!repo.unstaged.length) throw new Error('There are no changes to commit.')
+      const { response } = await dialog.showMessageBox(mainWindow, {
+        type: 'question',
+        message: 'There are no staged changes to commit.',
+        detail: 'Stage all your changes and commit them?',
+        buttons: ['Stage all and commit', 'Cancel'],
+        defaultId: 0,
+        cancelId: 1
+      })
+      if (response !== 0) return false
+    }
+    await git.commit(root, message, all)
+    return true
+  })
+  ipcMain.handle('git:branches', async (_e, projectId: string) =>
+    git.branches(await repoOf(projectId))
+  )
+  ipcMain.handle('git:checkout', async (_e, projectId: string, branch: GitBranch) =>
+    git.checkout(await repoOf(projectId), branch)
+  )
+  ipcMain.handle('git:createBranch', async (_e, projectId: string, name: string) =>
+    git.createBranch(await repoOf(projectId), name)
+  )
+  ipcMain.handle('git:sync', async (_e, projectId: string) => git.sync(await repoOf(projectId)))
+
+  // The open panel's repository is watched, so its list follows what changes on disk.
+  const watching = new Map<string, () => void>()
+  ipcMain.handle('git:watch', async (_e, projectId: string) => {
+    if (watching.has(projectId)) return
+    const root = await repoOf(projectId).catch(() => undefined)
+    if (!root || watching.has(projectId)) return
+    watching.set(
+      projectId,
+      git.watchRepo(root, () => send('git:changed', projectId))
+    )
+  })
+  ipcMain.handle('git:unwatch', (_e, projectId: string) => {
+    watching.get(projectId)?.()
+    watching.delete(projectId)
+  })
 }
 
 function registerIpc(browser: BuiltinBrowser): void {
@@ -265,6 +412,10 @@ function registerIpc(browser: BuiltinBrowser): void {
   })
   ipcMain.handle('annotations:set', (_e, on: boolean) => {
     store.setAnnotations(on)
+    send('state:changed', store.getState())
+  })
+  ipcMain.handle('codeTours:set', (_e, on: boolean) => {
+    store.setCodeTours(on)
     send('state:changed', store.getState())
   })
   ipcMain.handle('recording:set', (_e, on: boolean) => {
@@ -374,6 +525,7 @@ function registerIpc(browser: BuiltinBrowser): void {
   ipcMain.handle('chat:delete', async (_e, chatId: string) => {
     await agents.deleteChat(chatId)
     browser.closeChat(chatId)
+    walks.forget(chatId)
   })
 
   // A chat the user leaves before sending anything is of no use, so it goes.
@@ -382,6 +534,7 @@ function registerIpc(browser: BuiltinBrowser): void {
     if (!chat || chat.running || chat.draft || store.getMessages(chatId).length > 0) return
     await agents.deleteChat(chatId)
     browser.closeChat(chatId)
+    walks.forget(chatId)
   })
 
   // The composer saves its draft before it is left (Composer.tsx), so a chat
@@ -534,12 +687,21 @@ app.whenReady().then(async () => {
     audio: (audio) => send('speech:audio', audio),
     stop: (which) => send('speech:stop', which)
   })
+  // A walkthrough speaks only while the voice is on and on this Mac, as the speak tool does.
+  walks = new WalkPlayer(
+    (chatId, text, language, pace) =>
+      language && store.speechOn() && speech.status().state === 'ready'
+        ? speech.speak(chatId, text, language, pace)
+        : undefined,
+    (chatId, at) => send('walk:at', chatId, at)
+  )
   browser = createWindow()
   recorder = new PageRecorder(
     mainWindow.webContents,
     (chatId) => store.getState().chats.find((chat) => chat.id === chatId)?.running === true
   )
   registerIpc(browser)
+  registerGitIpc()
   // On by default: the voice downloads in the background the first time.
   if (store.speechOn()) void speech.fetchModel()
   watchForUpdates((version) => send('update:available', version))
@@ -564,7 +726,15 @@ app.whenReady().then(async () => {
       save: (path, text, language, pace) => speech.save(path, text, language, pace),
       said: (chatId) => speech.said(chatId)
     },
-    recorder
+    recorder,
+    {
+      projectPath: projectPathOf,
+      start: (chatId, walk, language, pace) => {
+        setCodeOpen(chatId, true)
+        send('walk:start', chatId, walk)
+        walks.start(chatId, walk, language, pace)
+      }
+    }
   )
   // Only when cline is installed; failures are logged and the app works without it.
   // One at a time: each rewrites cline's settings file.

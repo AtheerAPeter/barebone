@@ -342,7 +342,7 @@ kbd {
 
 .sidebar,
 .main,
-.browser {
+.side-panel {
   min-height: 0;
   background: var(--panel);
 }
@@ -1036,7 +1036,7 @@ img.project-icon {
 /* Along the top of the window they sit in glass circles, as in macOS 26's toolbars. */
 .sidebar-top .icon-btn,
 .topbar .icon-btn,
-.browser-toolbar .icon-btn {
+.panel-toolbar .icon-btn {
   background: var(--glass);
   box-shadow: var(--glass-rim);
   border-radius: 50%;
@@ -3149,7 +3149,7 @@ img.project-icon {
 
 /* Browser: the page itself is a native view placed over .browser-viewport */
 
-.browser {
+.side-panel {
   position: relative;
   flex: 0 1 auto;
   min-width: 320px;
@@ -3163,18 +3163,18 @@ img.project-icon {
   display: none;
 }
 
-.browser.chat-folded {
+.side-panel.chat-folded {
   flex: 1;
   border-left: 0;
 }
 
 /* With the sidebar hidden too, the window buttons sit over the tabs. */
-.sidebar-hidden.chat-folded .browser-tabs {
+.sidebar-hidden.chat-folded .panel-tabs {
   padding-left: 80px;
 }
 
 /* Grabbed on the line left of the panel. */
-.browser-resize {
+.panel-resize {
   position: absolute;
   top: 0;
   bottom: 0;
@@ -3185,7 +3185,7 @@ img.project-icon {
 }
 
 /* Back, forward, reload, the address and the menu, under the tabs. */
-.browser-toolbar {
+.panel-toolbar {
   height: 40px;
   flex-shrink: 0;
   display: flex;
@@ -3222,7 +3222,7 @@ img.project-icon {
 }
 
 /* Tabs on top, as in Chrome, in the panels' shared 48px row; its gaps drag the window. */
-.browser-tabs {
+.panel-tabs {
   height: 48px;
   flex-shrink: 0;
   display: flex;
@@ -3234,11 +3234,11 @@ img.project-icon {
   -webkit-app-region: drag;
 }
 
-.browser-tabs > * {
+.panel-tabs > * {
   -webkit-app-region: no-drag;
 }
 
-.browser-tab {
+.panel-tab {
   position: relative;
   flex: 0 1 180px;
   min-width: 72px;
@@ -3252,28 +3252,28 @@ img.project-icon {
   border-radius: var(--radius);
 }
 
-.browser-tab:hover {
+.panel-tab:hover {
   background: var(--fill);
 }
 
-.browser-tab.active {
+.panel-tab.active {
   background: var(--raised);
   color: var(--text);
   box-shadow: var(--raised-shadow);
 }
 
 /* The tab the agent works in: a yellow edge, and a dot on its icon that pulses. */
-.browser-tab.controlled {
+.panel-tab.controlled {
   box-shadow: inset 0 0 0 1.5px var(--accent);
 }
 
-.browser-tab.active.controlled {
+.panel-tab.active.controlled {
   box-shadow:
     inset 0 0 0 1.5px var(--accent),
     var(--raised-shadow);
 }
 
-.browser-tab-icon {
+.panel-tab-icon {
   position: relative;
   width: 14px;
   height: 14px;
@@ -3282,14 +3282,14 @@ img.project-icon {
   place-items: center;
 }
 
-.browser-tab-icon img {
+.panel-tab-icon img {
   width: 14px;
   height: 14px;
   object-fit: contain;
   border-radius: var(--radius-sm);
 }
 
-.browser-tab-agent {
+.panel-tab-agent {
   position: absolute;
   right: -3px;
   bottom: -3px;
@@ -3307,16 +3307,16 @@ img.project-icon {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .browser-tab-agent {
+  .panel-tab-agent {
     animation: none;
   }
 }
 
-.browser-new-tab {
+.panel-new-tab {
   flex-shrink: 0;
 }
 
-.browser-tab-title {
+.panel-tab-title {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -3324,7 +3324,7 @@ img.project-icon {
   text-overflow: ellipsis;
 }
 
-.browser-tab-close {
+.panel-tab-close {
   width: 18px;
   height: 18px;
   flex-shrink: 0;
@@ -3334,7 +3334,7 @@ img.project-icon {
   border-radius: var(--radius-sm);
 }
 
-.browser-tab-close:hover {
+.panel-tab-close:hover {
   background: var(--fill);
 }
 
@@ -3348,6 +3348,752 @@ img.project-icon {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+/* Code panel: source control as in VS Code, and the agent's code tours, in the browser's place */
+
+.code-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-grid;
+  place-items: center;
+  margin-left: 6px;
+  color: var(--text-soft);
+  background: var(--fill);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  border-radius: var(--radius-pill);
+}
+
+.code-tab-note {
+  margin-left: 6px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.code-toolbar {
+  gap: 4px;
+  padding: 0 8px;
+}
+
+.code-branch {
+  min-width: 0;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  background: var(--glass);
+  box-shadow: var(--glass-rim);
+  font-size: 13px;
+  font-weight: 550;
+  border-radius: var(--radius-pill);
+}
+
+.code-branch span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.code-branch:hover:not(:disabled) {
+  background: var(--glass-strong);
+}
+
+.code-sync-count {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.code-branch-menu {
+  width: 280px;
+  overflow-y: auto;
+}
+
+.code-branch-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.code-branch-menu button span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.code-branch-menu button small {
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.code-branch-menu button.current {
+  font-weight: 650;
+  opacity: 1;
+}
+
+.code-branch-new input {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  outline: none;
+  background: var(--glass);
+  box-shadow: var(--glass-rim);
+  border-radius: var(--radius);
+}
+
+.code-branch-note {
+  padding: 8px 10px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.code-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 8px 10px 0;
+  padding: 8px 6px 8px 12px;
+  color: var(--danger);
+  background: var(--del-bg);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: var(--radius);
+}
+
+.code-error .icon-btn {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.code-empty,
+.code-clean {
+  padding: 28px 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.code-scm {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 8px 16px;
+}
+
+.code-commit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 2px 12px;
+}
+
+.code-commit textarea {
+  width: 100%;
+  padding: 8px 12px;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: var(--glass);
+  box-shadow: var(--glass-rim);
+  font-size: 13px;
+  line-height: 1.45;
+  border-radius: var(--radius);
+}
+
+.code-commit textarea:focus {
+  box-shadow:
+    var(--glass-rim),
+    0 0 0 4px var(--focus-ring);
+}
+
+.code-commit-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+}
+
+.code-group + .code-group {
+  margin-top: 6px;
+}
+
+.code-group-head,
+.code-file {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 0 8px;
+  font-size: 13px;
+  border-radius: var(--radius);
+  cursor: default;
+}
+
+.code-group-head {
+  color: var(--text-soft);
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.code-group-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.code-chevron {
+  flex-shrink: 0;
+  transition: transform var(--fast) ease;
+}
+
+.code-chevron.open {
+  transform: rotate(90deg);
+}
+
+.code-file {
+  padding-left: 26px;
+}
+
+.code-group-head:hover,
+.code-file:hover {
+  background: var(--hover);
+}
+
+.code-file.open {
+  background: var(--selected);
+  box-shadow: var(--glass-rim);
+}
+
+.code-file-name {
+  flex-shrink: 0;
+  max-width: 70%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 550;
+}
+
+.code-file-name.deleted {
+  text-decoration: line-through;
+}
+
+.code-file-dir {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* A row's actions show on hover, as in VS Code. */
+.code-actions {
+  display: flex;
+  gap: 1px;
+  opacity: 0;
+}
+
+.code-group-head:is(:hover, :focus-within) .code-actions,
+.code-file:is(:hover, :focus-within) .code-actions {
+  opacity: 1;
+}
+
+.code-kind {
+  width: 14px;
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 650;
+  text-align: center;
+}
+
+.code-kind.modified,
+.code-kind.renamed,
+.code-kind.copied {
+  color: var(--warn);
+}
+
+.code-kind.added,
+.code-kind.untracked {
+  color: var(--add-text);
+}
+
+.code-kind.deleted,
+.code-kind.conflicted {
+  color: var(--del-text);
+}
+
+.code-view {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 0 24px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  user-select: text;
+}
+
+.code-row {
+  display: flex;
+  align-items: flex-start;
+  padding-right: 12px;
+  transition: opacity var(--move) var(--ease);
+}
+
+.code-number {
+  width: 44px;
+  flex-shrink: 0;
+  padding-right: 12px;
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  opacity: 0.7;
+}
+
+.diff .code-number {
+  width: 40px;
+  padding-right: 8px;
+}
+
+.code-sign {
+  width: 14px;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.code-text {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Syntax colors: VS Code's Light+ and Dark+ (lib/highlight.ts). */
+.code-text span {
+  color: var(--shiki-light, var(--text));
+}
+
+@media (prefers-color-scheme: dark) {
+  .code-text span {
+    color: var(--shiki-dark, var(--text));
+  }
+}
+
+.code-row.add {
+  background: var(--add-bg);
+}
+
+.code-row.add .code-sign {
+  color: var(--add-text);
+}
+
+.code-row.del {
+  background: var(--del-bg);
+}
+
+.code-row.del .code-sign {
+  color: var(--del-text);
+}
+
+.code-skip {
+  margin: 6px 0;
+  padding: 2px 0 2px 56px;
+  color: var(--text-muted);
+  background: var(--fill);
+  font-family: var(--sans);
+  font-size: 11.5px;
+}
+
+/* Walkthrough: an agent's route through the code, as it plays (components/Walkthrough.tsx) */
+
+.walk {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The route: every stop in order, with the file it is in. */
+.walk-route {
+  height: 46px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px 0 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.walk-stops {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.walk-stop {
+  flex-shrink: 0;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 0 6px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+  border-radius: var(--radius-pill);
+}
+
+.walk-stop b {
+  color: var(--text-soft);
+  font-weight: 600;
+}
+
+.walk-stop:hover {
+  background: var(--hover);
+}
+
+.walk-n {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  background: var(--fill);
+  font-size: 11px;
+  font-weight: 650;
+  border-radius: 50%;
+}
+
+.walk-stop.done .walk-n {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+
+.walk-stop.now {
+  color: var(--text);
+  background: var(--glass-strong);
+  box-shadow: var(--glass-rim);
+}
+
+.walk-stop.now b {
+  color: var(--text);
+}
+
+.walk-stop.now .walk-n {
+  color: var(--on-accent);
+  background: var(--accent);
+}
+
+.walk-arrow {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.walk-canvas {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* The cards, with room on the left for the links between them. */
+.walk-column {
+  position: relative;
+  padding: 14px 14px 120px 128px;
+}
+
+.walk-links {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.walk-links marker path {
+  fill: var(--accent);
+}
+
+.walk-link {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  opacity: 0.4;
+  transition: opacity var(--move) ease;
+}
+
+.walk-link.now {
+  opacity: 1;
+}
+
+/* Back to code shown before, as a return. */
+.walk-link.back:not(.drawing) {
+  stroke-dasharray: 4 5;
+}
+
+/* Drawn in from where the code leaves (its pathLength is 1 meanwhile, Walkthrough.tsx). */
+.walk-link.drawing {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: walk-draw 750ms var(--ease) forwards;
+}
+
+@keyframes walk-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.walk-link-label {
+  position: absolute;
+  z-index: 1;
+  transform: translateX(-100%);
+  max-width: 96px;
+  padding: 3px 8px;
+  color: var(--text-muted);
+  background: var(--glass);
+  box-shadow: var(--glass-rim);
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 1.3;
+  text-align: right;
+  border-radius: var(--radius);
+}
+
+.walk-link-label.now {
+  color: var(--text);
+  background: var(--glass-strong);
+}
+
+.walk-card {
+  margin-bottom: 22px;
+  overflow: hidden;
+  background: var(--card);
+  box-shadow: var(--card-edge);
+  border-radius: var(--radius-lg);
+  transition: opacity var(--move) ease;
+}
+
+.walk-card.ahead {
+  opacity: 0.5;
+}
+
+.walk-card.past {
+  opacity: 0.72;
+}
+
+.walk-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.walk-card.ahead .walk-card-head {
+  border-bottom-color: transparent;
+}
+
+.walk-dir {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.walk-file {
+  margin-left: -8px;
+  font-weight: 650;
+}
+
+.walk-fn {
+  padding: 0 7px;
+  color: var(--text-soft);
+  background: var(--fill);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  border-radius: var(--radius-sm);
+}
+
+.walk-changes {
+  color: var(--warn);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.walk-lines {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A card ahead of the walk is shut to its file's name; it opens as the walk reaches it. */
+.walk-card-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 520ms var(--ease);
+}
+
+.walk-card.ahead .walk-card-body {
+  grid-template-rows: 0fr;
+}
+
+.walk-card-body > div {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.walk-code {
+  flex: none;
+  overflow: visible;
+  padding: 6px 0;
+}
+
+/* The stop's lines stay bright along an accent edge; the rest of its card dims. */
+.walk-card.spot .code-row:not(.lit) {
+  opacity: 0.4;
+}
+
+.walk-card .code-row.lit {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.walk-card .code-row.lit:not(.add, .del) {
+  background: var(--accent-soft);
+}
+
+/* A short note at the end of its line: the current stop's in the accent, earlier ones quiet. */
+.walk-note {
+  flex-shrink: 0;
+  max-width: 45%;
+  margin: 1px 0 1px 12px;
+  padding: 0 9px;
+  overflow: hidden;
+  color: var(--text-soft);
+  background: var(--fill);
+  font-family: var(--sans);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.7;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border-radius: var(--radius-pill);
+}
+
+.walk-note.now {
+  color: var(--on-accent);
+  background: var(--accent);
+  animation: walk-note-in 350ms var(--ease) both;
+}
+
+@keyframes walk-note-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px) scale(0.96);
+  }
+}
+
+/* Where the code goes on: the link coming next, the one just taken, and older ones. */
+.walk-mark {
+  color: inherit;
+  background: none;
+  border-radius: 4px;
+  transition:
+    background var(--move) ease,
+    box-shadow var(--move) ease;
+}
+
+.walk-mark.next,
+.walk-mark.past {
+  box-shadow: 0 0 0 1px var(--accent-ring);
+}
+
+.walk-mark.on {
+  background: var(--accent-ring);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* What the voice says now, along the bottom. */
+.walk-said {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  width: min(560px, calc(100% - 32px));
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 16px;
+  background: var(--menu);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--menu-shadow);
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 1.4;
+  border-radius: var(--radius-xl);
+}
+
+.walk-orb {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  background: radial-gradient(circle at 35% 30%, #9cc0ff, var(--accent) 62%);
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.walk.playing .walk-orb {
+  animation: walk-talk 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes walk-talk {
+  to {
+    transform: scale(1.15);
+    box-shadow: 0 0 0 6px var(--accent-soft);
+  }
+}
+
+.walk-said-text {
+  animation: appear var(--move) var(--ease) both;
+}
+
+.walk-count {
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .walk.playing .walk-orb,
+  .walk-note.now,
+  .walk-link.drawing {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
 }
 
 /* Skills */
@@ -3812,7 +4558,7 @@ button,
 .chat-row,
 .palette-row,
 .skill-row,
-.browser-tab,
+.panel-tab,
 .address input,
 .sidebar-search {
   transition:
@@ -3839,7 +4585,7 @@ button,
 
 .btn:active:not(:disabled),
 .label-btn:active:not(:disabled),
-.browser-tab:active {
+.panel-tab:active {
   transform: scale(1.05);
 }
 
@@ -3879,7 +4625,7 @@ button,
 .icon-btn,
 .label-btn,
 .send-button,
-.browser-tab,
+.panel-tab,
 .segmented button,
 .composer,
 .nav-row,
@@ -3900,7 +4646,7 @@ button,
 .icon-btn::after,
 .label-btn::after,
 .send-button::after,
-.browser-tab::after,
+.panel-tab::after,
 .segmented button::after,
 .composer::after,
 .nav-row::after,
@@ -3935,7 +4681,7 @@ button,
 .icon-btn:active:not(:disabled)::after,
 .label-btn:active:not(:disabled)::after,
 .send-button:active:not(:disabled)::after,
-.browser-tab:active::after,
+.panel-tab:active::after,
 .segmented button:active::after,
 .composer:active::after,
 .nav-row:active::after,

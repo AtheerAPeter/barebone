@@ -227,3 +227,42 @@ export const LeadIcon = (p: IconProps): React.JSX.Element => (
     <rect x="17" y="15" width="4" height="5" rx="1" />
   </Icon>
 )
+/** Git's branch: source control and the branch picker. */
+export const BranchIcon = (p: IconProps): React.JSX.Element => (
+  <Icon {...p}>
+    <circle cx="6" cy="5.5" r="2.5" />
+    <circle cx="6" cy="18.5" r="2.5" />
+    <circle cx="18" cy="7.5" r="2.5" />
+    <path d="M6 8v8M18 10c0 4-6 3.5-11 7" />
+  </Icon>
+)
+export const MinusIcon = (p: IconProps): React.JSX.Element => (
+  <Icon {...p}>
+    <path d="M5 12h14" />
+  </Icon>
+)
+/** An arrow turning back: discard changes. */
+export const DiscardIcon = (p: IconProps): React.JSX.Element => (
+  <Icon {...p}>
+    <path d="M9 14 4 9l5-5" />
+    <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+  </Icon>
+)
+/** Two arrows in a circle: pull and push. */
+export const SyncIcon = (p: IconProps): React.JSX.Element => (
+  <Icon {...p}>
+    <path d="M20 12a8 8 0 0 0-14-5.3L4 9M4 4v5h5" />
+    <path d="M4 12a8 8 0 0 0 14 5.3l2-2.3M20 20v-5h-5" />
+  </Icon>
+)
+export const PlayIcon = (p: IconProps): React.JSX.Element => (
+  <Icon fill="currentColor" stroke="none" {...p}>
+    <path d="M8 5.6v12.8a1 1 0 0 0 1.5.86l10.6-6.4a1 1 0 0 0 0-1.72L9.5 4.74A1 1 0 0 0 8 5.6z" />
+  </Icon>
+)
+export const PauseIcon = (p: IconProps): React.JSX.Element => (
+  <Icon fill="currentColor" stroke="none" {...p}>
+    <rect x="6" y="5" width="4" height="14" rx="1.2" />
+    <rect x="14" y="5" width="4" height="14" rx="1.2" />
+  </Icon>
+)

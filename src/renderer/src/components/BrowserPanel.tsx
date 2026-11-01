@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { BrowserState, BrowserTab } from '../../../shared/types'
 import { onOverlays, overlaysCover } from '../lib/overlays'
+import { dragDivider } from '../lib/side-panel'
 import {
   BackIcon,
   CloseIcon,
@@ -23,11 +24,6 @@ interface BrowserPanelProps {
   /** Shown first in the tab row, as the sidebar button when the chat's top bar is folded away. */
   leading?: React.ReactNode
 }
-
-/** The narrowest the chat gets by dragging; dragging further folds it into the agent orb. */
-const CHAT_MIN_WIDTH = 340
-/** The browser's own narrowest. */
-const BROWSER_MIN_WIDTH = 320
 
 /**
  * The page itself is a native WebContentsView owned by the main process. This
@@ -106,57 +102,39 @@ export function BrowserPanel({
     return () => window.api.browser.setHidden(false)
   }, [parked])
 
-  /**
-   * Drag the divider: the panel takes the width the chat gives up, down to the
-   * chat's narrowest. Dragging well past that folds the chat into the agent orb.
-   */
+  /** Drag the divider; dragging well past the chat's narrowest folds it into the agent orb. */
   function startDrag(event: React.PointerEvent): void {
-    event.preventDefault()
-    const chatLeft = chatRef.current?.getBoundingClientRect().left ?? 0
     setDragging(true)
-    const stop = (): void => {
-      setDragging(false)
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', stop)
-    }
-    const onMove = (e: PointerEvent): void => {
-      const chatWidth = e.clientX - chatLeft
-      if (chatWidth < CHAT_MIN_WIDTH / 2) {
-        stop()
-        onFoldChat()
-        return
-      }
-      const next = window.innerWidth - Math.max(e.clientX, chatLeft + CHAT_MIN_WIDTH)
-      onResize(Math.max(next, BROWSER_MIN_WIDTH))
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', stop)
+    dragDivider(event, chatRef.current, onResize, {
+      onEnd: () => setDragging(false),
+      onFold: onFoldChat
+    })
   }
 
   return (
     <aside
-      className={`browser${chatFolded ? ' chat-folded' : ''}`}
+      className={`side-panel${chatFolded ? ' chat-folded' : ''}`}
       style={chatFolded ? undefined : { width }}
     >
-      {!chatFolded && <div className="browser-resize" onPointerDown={startDrag} />}
+      {!chatFolded && <div className="panel-resize" onPointerDown={startDrag} />}
       {/* Tabs on top, as in Chrome, in the panels' shared top row. */}
-      <div className="browser-tabs" role="tablist">
+      <div className="panel-tabs" role="tablist">
         {leading}
         {state?.tabs.map((tab) => (
           <div
             key={tab.id}
             role="tab"
             aria-selected={tab.id === state.activeTab}
-            className={`browser-tab${tab.id === state.activeTab ? ' active' : ''}${tab.controlled ? ' controlled' : ''}`}
+            className={`panel-tab${tab.id === state.activeTab ? ' active' : ''}${tab.controlled ? ' controlled' : ''}`}
             title={
               tab.controlled ? `The agent is working in this tab\n${tab.url}` : tab.url || 'New tab'
             }
             onClick={() => window.api.browser.selectTab(tab.id)}
           >
             <TabIcon tab={tab} />
-            <span className="browser-tab-title">{tab.title || tab.url || 'New tab'}</span>
+            <span className="panel-tab-title">{tab.title || tab.url || 'New tab'}</span>
             <button
-              className="browser-tab-close"
+              className="panel-tab-close"
               title="Close tab"
               onClick={(e) => {
                 e.stopPropagation()
@@ -168,14 +146,14 @@ export function BrowserPanel({
           </div>
         ))}
         <button
-          className="icon-btn small browser-new-tab"
+          className="icon-btn small panel-new-tab"
           title="New tab"
           onClick={() => window.api.browser.newTab()}
         >
           <PlusIcon width={14} height={14} />
         </button>
       </div>
-      <div className="browser-toolbar">
+      <div className="panel-toolbar">
         <button
           className="icon-btn"
           title="Back"
@@ -262,7 +240,7 @@ function TabIcon({ tab }: { tab: BrowserTab }): React.JSX.Element {
   /** The icon address that failed to load, so the globe shows instead. */
   const [failed, setFailed] = useState<string>()
   return (
-    <span className="browser-tab-icon">
+    <span className="panel-tab-icon">
       {tab.loading ? (
         <span className="spinner" />
       ) : tab.favicon && tab.favicon !== failed ? (
@@ -270,7 +248,7 @@ function TabIcon({ tab }: { tab: BrowserTab }): React.JSX.Element {
       ) : (
         <GlobeIcon width={14} height={14} />
       )}
-      {tab.controlled && <span className="browser-tab-agent" />}
+      {tab.controlled && <span className="panel-tab-agent" />}
     </span>
   )
 }

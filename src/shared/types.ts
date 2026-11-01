@@ -198,6 +198,11 @@ export interface Chat {
   /** Whether the browser panel is open in this chat; every chat starts closed at launch. */
   browserOpen?: boolean
   /**
+   * Whether the code panel (source control and walkthroughs) is open in this
+   * chat, in the browser's place: opening one closes the other. Closed at launch.
+   */
+  codeOpen?: boolean
+  /**
    * The chat whose agent started this one with start_chat (chats-mcp.ts), or
    * null when the user did. Absent only in chats saved before it was recorded,
    * until the next launch looks it up.
@@ -266,6 +271,8 @@ export interface AppState {
   annotations?: boolean
   /** Whether agents get the browser tools that record a tab as a video. Off when missing. */
   recording?: boolean
+  /** Whether agents get the walkthrough tool, which walks the user through code in the code panel. Off when missing. */
+  codeTours?: boolean
   /** False when the user turned off speech: the speak tool, which says a message out loud (main/speech). On when missing. */
   speech?: boolean
 }
@@ -565,3 +572,155 @@ export interface Skill {
   /** Agents that discover this skill from its location. */
   agents: AgentId[]
 }
+
+/** How a file changed, as git reports it (main/git.ts). */
+export type GitChangeKind =
+  'modified' | 'added' | 'deleted' | 'renamed' | 'copied' | 'untracked' | 'conflicted'
+
+/** A changed file; paths are relative to the repository's top folder. */
+export interface GitChange {
+  path: string
+  /** Where a renamed or copied file came from. */
+  oldPath?: string
+  kind: GitChangeKind
+}
+
+/** A project's repository, as the code panel's source control shows it. */
+export type GitStatus =
+  | { repo: false }
+  | {
+      repo: true
+      /** The repository's top folder, absolute; the project may be a folder inside it. */
+      root: string
+      /** The checked-out branch; none when HEAD is detached. */
+      branch?: string
+      /** The commit checked out, abbreviated; none before the first commit. */
+      head?: string
+      /** The branch it tracks, as origin/main; none when it tracks none. */
+      upstream?: string
+      /** Commits the branch has that its upstream lacks, and the other way round. */
+      ahead: number
+      behind: number
+      /** Files with merge conflicts to resolve. */
+      conflicts: GitChange[]
+      staged: GitChange[]
+      /** Changes in the working tree that are not staged, untracked files among them. */
+      unstaged: GitChange[]
+    }
+
+export interface GitBranch {
+  /** As git names it: main, or origin/main for a remote one. */
+  name: string
+  remote: boolean
+  current: boolean
+}
+
+/** A line of a diff: its number in the old file, the new file, or both. */
+export interface DiffLine {
+  type: 'context' | 'add' | 'del'
+  old?: number
+  new?: number
+  /** A deleted line: the new file's line it stands before, which it counts as in a spotlight. */
+  before?: number
+}
+
+/** A run of changed lines with the unchanged lines around them. */
+export interface DiffHunk {
+  /** The lines before it that the diff leaves out. */
+  skipped: number
+  lines: DiffLine[]
+}
+
+/** What the code panel shows: a file, or a file's changes. Paths are absolute. */
+export type CodeDoc =
+  | { kind: 'file'; path: string; text: string }
+  | {
+      kind: 'diff'
+      path: string
+      /** The staged changes (index against the last commit) rather than the unstaged ones. */
+      staged: boolean
+      /** The file before and after; a diff line's text is the line of that number in one of them. */
+      old: string
+      new: string
+      hunks: DiffHunk[]
+      /** Git found binary contents, so there are no lines to show. */
+      binary: boolean
+    }
+
+/**
+ * An agent's code walkthrough (main/walkthrough.ts): a route through the code,
+ * one stop after another, played in the code panel with the voice. The code
+ * it passes through shows as cards, one per stretch of a file, linked where
+ * the code goes from one stop to the next.
+ */
+export interface Walkthrough {
+  /** Grows with each walkthrough, so the panel can tell a new one. */
+  id: number
+  title: string
+  files: WalkFile[]
+  cards: WalkCard[]
+  stops: WalkStop[]
+}
+
+/** A file the walk passes through, or its changes; a card's lines are lines of it. */
+export interface WalkFile {
+  /** Absolute. */
+  path: string
+  /** As the user knows it: relative to the project when it is in it. */
+  name: string
+  text: string
+  /** With changes: the file before them, the text of deleted lines. */
+  old?: string
+  changes?: 'unstaged' | 'staged'
+}
+
+/** A stretch of a file the walk passes through, shown as one card. */
+export interface WalkCard {
+  file: number
+  /** The new file's lines it shows, inclusive. */
+  from: number
+  to: number
+  /** Its lines in order; with changes, deleted ones among them, before the line they stood before. */
+  rows: DiffLine[]
+}
+
+export interface WalkStop {
+  card: number
+  /** For the route: the function or part it is at, like "checkout()". */
+  name: string
+  /** The lines it is about, in the card's file. */
+  from: number
+  to: number
+  /** One short sentence: what the voice says, and the subtitle shows. */
+  say: string
+  /** Short tags at the end of lines. */
+  notes: WalkNote[]
+  /** Where the code goes from here to the next stop. */
+  link?: WalkLink
+}
+
+export interface WalkNote {
+  line: number
+  text: string
+}
+
+/** How one stop leads to the next: drawn from a line of this stop to a line of the next. */
+export interface WalkLink {
+  line: number
+  /** The code on that line it goes through, like "total(items)", marked. */
+  text?: string
+  /** Like "calls total()" or "returns net". */
+  label: string
+  /** Back to code shown before, as a return: drawn dashed. */
+  back: boolean
+  /** The line it arrives at, in the next stop's file. */
+  to: number
+}
+
+/** Where a walkthrough is: the stop it shows, and whether it plays on by itself. */
+export interface WalkAt {
+  index: number
+  playing: boolean
+}
+
+export type WalkControl = 'play' | 'pause' | 'next' | 'prev' | 'goto'

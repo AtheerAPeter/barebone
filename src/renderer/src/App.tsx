@@ -5,8 +5,16 @@ import { ChatView } from './components/ChatView'
 import { SkillsView } from './components/SkillsView'
 import { SettingsView } from './components/SettingsView'
 import { BrowserPanel } from './components/BrowserPanel'
+import { CodePanel } from './components/CodePanel'
 import { ProjectPicker } from './components/ProjectPicker'
-import { ChatIcon, ComposeIcon, GlobeIcon, OrbIcon, SidebarIcon } from './components/icons'
+import {
+  BranchIcon,
+  ChatIcon,
+  ComposeIcon,
+  GlobeIcon,
+  OrbIcon,
+  SidebarIcon
+} from './components/icons'
 import { readPref, writePref } from './lib/prefs'
 import { usePageRecorder } from './lib/recording'
 import { useSpeechPlayer } from './lib/speech'
@@ -86,6 +94,13 @@ export default function App(): React.JSX.Element {
     const current = stateRef.current.chats.find((c) => c.id === chatId)
     window.api.browser.setOpen(chatId, open ?? !current?.browserOpen)
   }, [])
+  // The code panel takes the browser's place in the chat: opening one closes the other.
+  const codeOpen = Boolean(chat?.codeOpen)
+  const toggleCode = (chatId: string | undefined, open?: boolean): void => {
+    if (!chatId) return
+    const current = stateRef.current.chats.find((c) => c.id === chatId)
+    window.api.code.setOpen(chatId, open ?? !current?.codeOpen)
+  }
 
   // Folding needs the browser beside the chat; Skills and Settings always show whole.
   const folded = chatFolded && browserOpen && view === 'chat' && Boolean(chat)
@@ -122,6 +137,14 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     selectedChatRef.current = chat?.id
   }, [chat?.id])
+  // A walkthrough an agent starts in a chat the user is not looking at waits, paused, for them.
+  useEffect(
+    () =>
+      window.api.walk.onStart((chatId) => {
+        if (chatId !== selectedChatRef.current) void window.api.walk.control(chatId, 'pause')
+      }),
+    []
+  )
   useEffect(
     () =>
       window.api.onMenu((command) => {
@@ -242,6 +265,14 @@ export default function App(): React.JSX.Element {
             </button>
           )}
           <button
+            className={`icon-btn${codeOpen ? ' on' : ''}`}
+            title="Source control and walkthroughs"
+            disabled={!chat}
+            onClick={() => toggleCode(chat?.id)}
+          >
+            <BranchIcon />
+          </button>
+          <button
             className={`icon-btn${browserOpen ? ' on' : ''}`}
             title="Toggle browser (⇧⌘B)"
             disabled={!chat}
@@ -257,6 +288,7 @@ export default function App(): React.JSX.Element {
             instructions={state.instructions}
             annotations={state.annotations === true}
             recording={state.recording === true}
+            codeTours={state.codeTours === true}
             speech={state.speech !== false}
             onProvidersChange={() => readStatus('custom-api')}
           />
@@ -301,6 +333,17 @@ export default function App(): React.JSX.Element {
             newChat(projectId)
           }}
           onClose={() => setPicking(false)}
+        />
+      )}
+      {codeOpen && chat && project && (
+        <CodePanel
+          key={chat.id}
+          chatId={chat.id}
+          project={project}
+          width={browserWidth}
+          onResize={setBrowserWidth}
+          onClose={() => toggleCode(chat.id, false)}
+          chatRef={mainRef}
         />
       )}
       {browserOpen && (

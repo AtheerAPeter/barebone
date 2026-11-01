@@ -8,6 +8,7 @@ import { ProvidersCard } from './ProvidersCard'
  * `instructions`: the saved custom instructions.
  * `annotations`: whether agents get the browser tools that draw on pages.
  * `recording`: whether agents get the browser tools that record a tab as a video.
+ * `codeTours`: whether agents get the walkthrough tool, which plays in the code panel.
  * `speech`: whether agents may speak out loud (the speak tool).
  * `onProvidersChange`: a provider was added, changed or removed.
  */
@@ -15,12 +16,14 @@ export function SettingsView({
   instructions,
   annotations,
   recording,
+  codeTours,
   speech,
   onProvidersChange
 }: {
   instructions: string | undefined
   annotations: boolean
   recording: boolean
+  codeTours: boolean
   speech: boolean
   onProvidersChange: () => void
 }): React.JSX.Element {
@@ -31,6 +34,7 @@ export function SettingsView({
       <InstructionsCard saved={instructions ?? ''} />
       <AnnotationsCard on={annotations} />
       <RecordingCard on={recording} />
+      <CodeToursCard on={codeTours} />
       <section className="settings-card">
         <h3>Web search</h3>
         <p>
@@ -239,6 +243,25 @@ function RecordingCard({ on }: { on: boolean }): React.JSX.Element {
         started after it.
       </p>
       <OnOffSwitch label="Recording videos" on={on} save={window.api.setRecording} />
+    </section>
+  )
+}
+
+/** Whether agents get the walkthrough tool, which walks the user through code in the code panel. */
+function CodeToursCard({ on }: { on: boolean }): React.JSX.Element {
+  return (
+    <section className="settings-card">
+      <h3>Code walkthroughs</h3>
+      <p>
+        Gives every agent a tool that walks you through code in the code panel: how a feature works,
+        where data goes, or what your uncommitted changes do. The agent plans the whole route, and
+        it plays stop after stop, the voice saying each one when speech is on. The code it passes
+        through stays on screen, file by file, with short notes on its lines and links showing where
+        it goes next. You can pause it and step back and forth. Turned off, the tool stays out of
+        the chats&apos; context; source control in the panel works either way. A change applies to
+        chats started after it.
+      </p>
+      <OnOffSwitch label="Code walkthroughs" on={on} save={window.api.setCodeTours} />
     </section>
   )
 }

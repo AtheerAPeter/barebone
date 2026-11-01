@@ -11,10 +11,14 @@ import type {
   BrowserState,
   Chat,
   ChatItem,
+  CodeDoc,
   CustomProvider,
   CustomProviderCheck,
   CustomProviderInput,
   FormAnswers,
+  GitBranch,
+  GitChange,
+  GitStatus,
   OrbState,
   Project,
   RecordingRequest,
@@ -24,7 +28,10 @@ import type {
   Rect,
   Skill,
   SkillScope,
-  Theme
+  Theme,
+  WalkAt,
+  WalkControl,
+  Walkthrough
 } from '../shared/types'
 import type { MenuCommand } from '../main/menu'
 
@@ -59,6 +66,8 @@ const api = {
   setAnnotations: (on: boolean): Promise<void> => ipcRenderer.invoke('annotations:set', on),
   /** Give agents the browser tools that record a tab as a video, or take them away. */
   setRecording: (on: boolean): Promise<void> => ipcRenderer.invoke('recording:set', on),
+  /** Give agents the walkthrough tool, which plays in the code panel, or take it away. */
+  setCodeTours: (on: boolean): Promise<void> => ipcRenderer.invoke('codeTours:set', on),
 
   /** Videos of browser tabs agents record, made here (main/recording.ts). */
   recording: {
@@ -252,6 +261,54 @@ const api = {
     /** Open or close the browser panel in a chat. */
     setOpen: (chatId: string, open: boolean): Promise<void> =>
       ipcRenderer.invoke('browser:setOpen', chatId, open)
+  },
+
+  /** The code panel, in the browser panel's place: source control and walkthroughs. */
+  code: {
+    /** Open or close the code panel in a chat. */
+    setOpen: (chatId: string, open: boolean): Promise<void> =>
+      ipcRenderer.invoke('code:setOpen', chatId, open)
+  },
+
+  /** Agents' code walkthroughs (main/walkthrough.ts), played in the code panel. */
+  walk: {
+    /** The chat's walkthrough and where it is; null when its agent has started none. */
+    get: (chatId: string): Promise<{ walk: Walkthrough; at: WalkAt } | null> =>
+      ipcRenderer.invoke('walk:get', chatId),
+    onStart: (listener: (chatId: string, walk: Walkthrough) => void) => on('walk:start', listener),
+    onAt: (listener: (chatId: string, at: WalkAt) => void) => on('walk:at', listener),
+    /** Play, pause, or move to another stop (`goto` with its index). */
+    control: (chatId: string, action: WalkControl, index?: number): Promise<void> =>
+      ipcRenderer.invoke('walk:control', chatId, action, index)
+  },
+
+  /** Source control in the code panel (main/git.ts), by project. */
+  git: {
+    status: (projectId: string): Promise<GitStatus> => ipcRenderer.invoke('git:status', projectId),
+    diff: (projectId: string, change: GitChange, staged: boolean): Promise<CodeDoc> =>
+      ipcRenderer.invoke('git:diff', projectId, change, staged),
+    stage: (projectId: string, changes: GitChange[]): Promise<void> =>
+      ipcRenderer.invoke('git:stage', projectId, changes),
+    unstage: (projectId: string, changes: GitChange[]): Promise<void> =>
+      ipcRenderer.invoke('git:unstage', projectId, changes),
+    /** After the user confirms; false when they did not. */
+    discard: (projectId: string, changes: GitChange[]): Promise<boolean> =>
+      ipcRenderer.invoke('git:discard', projectId, changes),
+    /** Commit what is staged, or offer to stage everything first; false when nothing was committed. */
+    commit: (projectId: string, message: string): Promise<boolean> =>
+      ipcRenderer.invoke('git:commit', projectId, message),
+    branches: (projectId: string): Promise<GitBranch[]> =>
+      ipcRenderer.invoke('git:branches', projectId),
+    checkout: (projectId: string, branch: GitBranch): Promise<void> =>
+      ipcRenderer.invoke('git:checkout', projectId, branch),
+    createBranch: (projectId: string, name: string): Promise<void> =>
+      ipcRenderer.invoke('git:createBranch', projectId, name),
+    /** Pull and push, or publish a branch with no upstream. */
+    sync: (projectId: string): Promise<void> => ipcRenderer.invoke('git:sync', projectId),
+    /** Tell when the project's repository changes on disk, until unwatch. */
+    watch: (projectId: string): Promise<void> => ipcRenderer.invoke('git:watch', projectId),
+    unwatch: (projectId: string): Promise<void> => ipcRenderer.invoke('git:unwatch', projectId),
+    onChanged: (listener: (projectId: string) => void) => on('git:changed', listener)
   },
 
   listFiles: (projectPath: string): Promise<string[]> =>

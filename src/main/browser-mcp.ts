@@ -28,6 +28,7 @@ import { COLORS, type Color, type Shape, type Target } from './page-overlay'
 import type { PageRecorder } from './recording'
 import { BROWSER_TUTORIAL_SKILL } from './skills'
 import { getState } from './store'
+import { buildWalkthrough, type WalkthroughApi } from './walkthrough'
 
 /**
  * An MCP server that drives the built-in browser, on loopback HTTP guarded by a
@@ -474,6 +475,7 @@ async function buildServer(
   browser: BuiltinBrowser,
   routing: BrowserRouting,
   recorder: PageRecorder,
+  walkthroughs: WalkthroughApi,
   pathChat: string | undefined
 ): Promise<McpServer> {
   // The MCP SDK takes ~150 ms to load; it loads with the first request, not at launch.
@@ -1366,6 +1368,99 @@ async function buildServer(
     )
   }
 
+  // Walkthroughs of code in the code panel; only listed when Settings turns them on.
+  if (getState().codeTours) {
+    const voice = speechOffered()
+    server.registerTool(
+      'walkthrough',
+      {
+        description: `Walk the user through code in the code panel beside the chat: how a feature works, how data flows, what happens when the user does something, or a review of uncommitted changes. Plan the whole route first, then send it in one call; the app plays it stop after stop${voice ? ', the voice saying each stop' : ''}, and the user can pause it and step back and forth. Follow the code where it really goes, across files: where it starts, each function it calls, what comes back, where it ends. Every stop is one function or a few lines, with a name for the route (like "checkout()"), one short sentence to say${voice ? ' (spoken, so plain words, no code)' : ''}, and at most a few notes: tags of two to six words pinned at the end of a line, like "empty cart → stops". Link each stop to the next where the code goes on: the line and the call on it (text "total(items)", label "calls total()"), or back to code shown before (back, label "returns net"). Stops in the same stretch of a file share one card, so the user sees the code they came from. For a review, give stops changes. Each stop's code is read now, so read the files first and give exact line numbers. Three to twelve stops; after starting it, keep your written reply to a sentence.`,
+        inputSchema: {
+          title: z.string().describe('What the walkthrough shows, like "How checkout works"'),
+          stops: z
+            .array(
+              z.object({
+                path: z.string().describe('The file: absolute, or relative to the project folder'),
+                lines: z
+                  .object({
+                    from: z.number().int().describe('First line, from 1'),
+                    to: z.number().int().describe('Last line, included')
+                  })
+                  .describe(
+                    "The lines this stop is about; with changes, the new file's line numbers"
+                  ),
+                name: z
+                  .string()
+                  .describe('Its name in the route: the function or part, like "checkout()"'),
+                say: z
+                  .string()
+                  .describe(
+                    'One short sentence on what happens here, under twenty words, in the language you write to the user in'
+                  ),
+                notes: z
+                  .array(
+                    z.object({
+                      line: z.number().int().describe('The line it sits at the end of'),
+                      text: z.string().describe('Two to six words, like "free from 50"')
+                    })
+                  )
+                  .max(4)
+                  .optional(),
+                changes: z
+                  .enum(['unstaged', 'staged'])
+                  .optional()
+                  .describe(
+                    'Show the file with its uncommitted changes, added and deleted lines marked: unstaged (the working tree against the index) or staged (the index against the last commit)'
+                  ),
+                link: z
+                  .object({
+                    line: z.number().int().describe('The line of this stop the code goes on from'),
+                    text: z
+                      .string()
+                      .optional()
+                      .describe(
+                        'The code on that line it goes through, exactly as written, like "total(items)"'
+                      ),
+                    label: z
+                      .string()
+                      .describe('A few words, like "calls total()" or "returns net"'),
+                    back: z
+                      .boolean()
+                      .optional()
+                      .describe('True when it goes back to code shown before, as a return'),
+                    to_line: z
+                      .number()
+                      .int()
+                      .optional()
+                      .describe(
+                        "The line it arrives at in the next stop's file; the next stop's first line when left out"
+                      )
+                  })
+                  .optional()
+                  .describe('Where the code goes from here to the next stop; none on the last stop')
+              })
+            )
+            .min(1)
+            .max(20),
+          // Only while the voice is offered, as the speak tool is.
+          ...(voice ? { language: languageArg, pace: paceArg } : {}),
+          ...browserArg
+        }
+      },
+      async ({ title, stops, language, pace, browser: id }) => {
+        const chatId = chatFor(id)
+        const project = walkthroughs.projectPath(chatId)
+        if (!project) throw new Error('Could not find the project of this chat.')
+        const walk = await buildWalkthrough(project, title, stops)
+        walkthroughs.start(chatId, walk, language, pace)
+        const files = [...new Set(walk.files.map((f) => f.name))]
+        return text(
+          `Playing "${walk.title}" in the code panel: ${walk.stops.length} stops through ${files.join(', ')}${voice ? ', the voice saying each' : ''}. The user can pause it and step through it. Keep your reply to a sentence; the walkthrough says the rest.`
+        )
+      }
+    )
+  }
+
   // Videos of a tab; only listed when Settings turns them on.
   if (getState().recording) {
     const drawing = getState().annotations === true
@@ -1424,7 +1519,8 @@ export async function startBrowserMcp(
   routing: BrowserRouting,
   chats: ChatsApi,
   speech: SpeechApi,
-  recorder: PageRecorder
+  recorder: PageRecorder,
+  walkthroughs: WalkthroughApi
 ): Promise<BrowserMcpEndpoint> {
   provideSpeech(speech)
   const saved = readSaved()
@@ -1444,7 +1540,7 @@ export async function startBrowserMcp(
     // Stateless mode: a fresh server and transport per request.
     const server = forChats
       ? await buildChatsServer(chats)
-      : await buildServer(browser, routing, recorder, match![1])
+      : await buildServer(browser, routing, recorder, walkthroughs, match![1])
     const { StreamableHTTPServerTransport } =
       await import('@modelcontextprotocol/sdk/server/streamableHttp.js')
     const transport = new StreamableHTTPServerTransport({

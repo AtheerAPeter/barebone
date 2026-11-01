@@ -98,8 +98,9 @@ for (const chat of state.chats) {
   chat.waiting = false
   delete chat.waitingMessages
   delete chat.background
-  // The browser panel starts closed; an agent or the header button opens it.
+  // The browser and code panels start closed; an agent or the header buttons open them.
   chat.browserOpen = false
+  chat.codeOpen = false
   // Chats from before sidebar previews, or before the chat that started a chat was recorded,
   // get them once from their messages; they are saved from then on.
   if (chat.preview === undefined || chat.startedBy === undefined) {
@@ -181,6 +182,12 @@ export function setInstructions(text: string): void {
 /** Turn the browser tools that draw on pages, and their skill, on or off. */
 export function setAnnotations(on: boolean): void {
   state.annotations = on || undefined
+  scheduleFlush()
+}
+
+/** Turn the walkthrough tool, which walks the user through code in the code panel, on or off. */
+export function setCodeTours(on: boolean): void {
+  state.codeTours = on || undefined
   scheduleFlush()
 }
 
