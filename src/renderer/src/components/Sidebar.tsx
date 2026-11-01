@@ -169,9 +169,11 @@ export function Sidebar({
     const lead = nested(chat) ? byId.get(chat.startedBy!) : undefined
     return Boolean(lead && working(lead) && !lead.waiting)
   }
+  // Pinned chats are listed together under the chats that need the user, working or not.
   const waiting = chats.filter((c) => c.waiting)
-  const running = chats.filter((c) => working(c) && !c.waiting && !leadWorking(c))
-  const settled = chats.filter((c) => !working(c) && !c.waiting && !nested(c))
+  const pinned = chats.filter((c) => c.pinned && !c.waiting)
+  const running = chats.filter((c) => !c.pinned && working(c) && !c.waiting && !leadWorking(c))
+  const settled = chats.filter((c) => !c.pinned && !working(c) && !c.waiting && !nested(c))
   // While searching, settled matches are always listed.
   const settledShut = !settledOpen && !q
   /** Whether the open chat is this one or one it leads, to keep it in view past "Show more". */
@@ -196,7 +198,9 @@ export function Sidebar({
     const waits = !chat.running ? waitingOn(chat, startedWorking(chat)) : undefined
     const latest = chat.waiting ? 'Waiting for approval' : waits || chat.preview
     // By status, each chat is a card: its project and status, its title, then its latest and agent.
-    const card = !byProject
+    // Pinned chats are one line, led by their project's icon, so the Pinned list stays short.
+    const compact = !byProject && chat.pinned && !chat.waiting
+    const card = !byProject && !compact
     const row = (
       <div
         key={chat.id}
@@ -211,6 +215,8 @@ export function Sidebar({
             <span className="card-project">{project?.name}</span>
             <CardStatus chat={chat} working={working(chat)} now={now} />
           </div>
+        ) : compact && project ? (
+          <ProjectIcon project={project} size={20} />
         ) : (
           <span />
         )}
@@ -250,6 +256,15 @@ export function Sidebar({
           <RowMenu
             label="Chat options"
             items={[
+              // Pinned chats have their own list by status; grouped by project there is none.
+              ...(!byProject
+                ? [
+                    {
+                      name: chat.pinned ? 'Unpin' : 'Pin',
+                      onSelect: () => window.api.pinChat(chat.id, !chat.pinned)
+                    }
+                  ]
+                : []),
               { name: 'Rename', onSelect: () => setRenaming(chat.id) },
               {
                 name: 'Delete',
@@ -323,7 +338,7 @@ export function Sidebar({
     )
   }
 
-  /** The chats grouped by status: Needs you, Working, then Settled. */
+  /** The chats grouped by status: Needs you, Pinned, Working, then Settled. */
   function statusLists(): React.JSX.Element {
     return (
       <>
@@ -333,6 +348,14 @@ export function Sidebar({
               Needs you <b>{waiting.length}</b>
             </div>
             {waiting.map(chatRow)}
+          </>
+        )}
+        {pinned.length > 0 && (
+          <>
+            <div className="side-label">
+              Pinned <b>{pinned.length}</b>
+            </div>
+            {pinned.map(chatRow)}
           </>
         )}
         {running.length > 0 && (

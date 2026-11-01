@@ -164,6 +164,8 @@ export interface Chat {
   title: string
   /** Set once the user renames the chat; automatic titles no longer replace it. */
   renamed?: boolean
+  /** Listed in the sidebar's Pinned section, by status, until the user unpins it. */
+  pinned?: boolean
   agent: AgentId
   /**
    * The agent the chat switched from after it had started. The new agent has

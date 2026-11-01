@@ -551,6 +551,10 @@ function registerIpc(browser: BuiltinBrowser): void {
     store.updateChat(chatId, { title: trimmed, renamed: true })
     send('state:changed', store.getState())
   })
+  ipcMain.handle('chat:pin', (_e, chatId: string, pinned: boolean) => {
+    store.updateChat(chatId, { pinned: pinned || undefined })
+    send('state:changed', store.getState())
+  })
   ipcMain.handle('chat:messages', (_e, chatId: string) => store.getMessages(chatId))
 
   ipcMain.handle(

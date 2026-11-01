@@ -193,6 +193,8 @@ const api = {
   leaveChat: (chatId: string): Promise<void> => ipcRenderer.invoke('chat:leave', chatId),
   renameChat: (chatId: string, title: string): Promise<void> =>
     ipcRenderer.invoke('chat:rename', chatId, title),
+  pinChat: (chatId: string, pinned: boolean): Promise<void> =>
+    ipcRenderer.invoke('chat:pin', chatId, pinned),
   getMessages: (chatId: string): Promise<ChatItem[]> => ipcRenderer.invoke('chat:messages', chatId),
   setAgent: (chatId: string, agent: AgentId, settings: Record<string, string>): Promise<void> =>
     ipcRenderer.invoke('chat:setAgent', chatId, agent, settings),
