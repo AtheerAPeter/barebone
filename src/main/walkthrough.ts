@@ -1,5 +1,6 @@
-import { readFile, stat } from 'node:fs/promises'
-import { isAbsolute, relative, resolve } from 'node:path'
+import { constants } from 'node:fs'
+import { open, realpath } from 'node:fs/promises'
+import { relative, resolve, sep } from 'node:path'
 import type {
   DiffLine,
   WalkAt,
@@ -53,15 +54,24 @@ export async function buildWalkthrough(
   title: string,
   stopArgs: WalkStopArgs[]
 ): Promise<Walkthrough> {
+  // Only the project's own files: an agent cannot use a walkthrough to read,
+  // or run git, anywhere else (a chat may be kept to its project).
+  const root = await realpath(projectPath)
+  const paths = await Promise.all(
+    stopArgs.map((stop, n) =>
+      projectFile(projectPath, root, stop.path, `Stop ${n + 1} (${stop.name})`)
+    )
+  )
+
   // The files, once each: a file and its changes are separate.
   const files: WalkFile[] = []
   const fileOf = new Map<string, number>()
   const hunks = new Map<number, DiffLine[]>()
   for (const [n, stop] of stopArgs.entries()) {
-    const path = isAbsolute(stop.path) ? stop.path : resolve(projectPath, stop.path)
+    const path = paths[n]
     const key = `${path}\0${stop.changes ?? ''}`
     if (fileOf.has(key)) continue
-    const name = path.startsWith(projectPath + '/') ? relative(projectPath, path) : path
+    const name = relative(root, path)
     const at = `Stop ${n + 1} (${stop.name})`
     if (stop.changes) {
       const changes = await diffOf(path, stop.changes === 'staged', at)
@@ -73,10 +83,7 @@ export async function buildWalkthrough(
     fileOf.set(key, files.length - 1)
   }
 
-  const fileIndex = stopArgs.map((stop) => {
-    const path = isAbsolute(stop.path) ? stop.path : resolve(projectPath, stop.path)
-    return fileOf.get(`${path}\0${stop.changes ?? ''}`)!
-  })
+  const fileIndex = stopArgs.map((stop, n) => fileOf.get(`${paths[n]}\0${stop.changes ?? ''}`)!)
   for (const [n, stop] of stopArgs.entries()) {
     const { from, to } = stop.lines
     const count = lineCount(files[fileIndex[n]].text)
@@ -159,16 +166,50 @@ export async function buildWalkthrough(
   return { id: ++lastId, title: title.trim(), files, cards, stops }
 }
 
+/**
+ * The file a stop names, by its real path, which must be inside the project:
+ * as named (against the project's path, or its real path `root`), so nothing
+ * is told of files elsewhere, not even whether they exist; and once links are
+ * followed, so a link out of the folder does not lead out of it.
+ */
+async function projectFile(
+  projectPath: string,
+  root: string,
+  path: string,
+  at: string
+): Promise<string> {
+  // resolve() also takes `..` out of an absolute path, so it cannot climb out unseen.
+  const named = resolve(root, path)
+  const inside = (p: string): boolean => p.startsWith(projectPath + sep) || p.startsWith(root + sep)
+  const outside = new Error(
+    `${at}: ${named} is outside the project folder; a walkthrough shows the project's own code.`
+  )
+  if (!inside(named)) throw outside
+  const real = await realpath(named).catch(() => undefined)
+  if (!real) throw new Error(`${at}: there is no file at ${named}.`)
+  if (!real.startsWith(root + sep)) throw outside
+  return real
+}
+
+/**
+ * A project file's text, read from the real path projectFile checked. Opened
+ * without following a link, so a file swapped for one since is refused.
+ */
 async function textOf(path: string, at: string): Promise<string> {
-  const info = await stat(path).catch(() => undefined)
-  if (!info) throw new Error(`${at}: there is no file at ${path}.`)
-  if (info.isDirectory()) throw new Error(`${at}: ${path} is a folder, not a file.`)
-  if (info.size > MAX_FILE_BYTES) {
-    throw new Error(`${at}: ${path} is ${(info.size / 1e6).toFixed(1)} MB, too big to show.`)
+  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW).catch(() => undefined)
+  if (!file) throw new Error(`${at}: ${path} could not be opened.`)
+  try {
+    const info = await file.stat()
+    if (!info.isFile()) throw new Error(`${at}: ${path} is not a file.`)
+    if (info.size > MAX_FILE_BYTES) {
+      throw new Error(`${at}: ${path} is ${(info.size / 1e6).toFixed(1)} MB, too big to show.`)
+    }
+    const text = await file.readFile('utf8')
+    if (text.includes('\0')) throw new Error(`${at}: ${path} is a binary file.`)
+    return text
+  } finally {
+    await file.close()
   }
-  const text = await readFile(path, 'utf8')
-  if (text.includes('\0')) throw new Error(`${at}: ${path} is a binary file.`)
-  return text
 }
 
 /** A file's uncommitted changes: the file before and after, and every changed or nearby line. */

@@ -1455,7 +1455,7 @@ async function buildServer(
         walkthroughs.start(chatId, walk, language, pace)
         const files = [...new Set(walk.files.map((f) => f.name))]
         return text(
-          `Playing "${walk.title}" in the code panel: ${walk.stops.length} stops through ${files.join(', ')}${voice ? ', the voice saying each' : ''}. The user can pause it and step through it. Keep your reply to a sentence; the walkthrough says the rest.`
+          `Playing "${walk.title}" in the code panel: ${walk.stops.length} stop${walk.stops.length === 1 ? '' : 's'} through ${files.join(', ')}${voice ? ', the voice saying each' : ''}. The user can pause it and step through it. Keep your reply to a sentence; the walkthrough says the rest.`
         )
       }
     )
