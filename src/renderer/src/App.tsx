@@ -229,13 +229,16 @@ export default function App(): React.JSX.Element {
               }
             />
           </div>
+          {/* A narrow top bar shows only their marks; the titles say the rest. */}
           {view === 'chat' && chat?.waiting && (
-            <span className="status-chip waiting">Needs you</span>
+            <span className="status-chip waiting" title="Needs you">
+              <span className="status-chip-label">Needs you</span>
+            </span>
           )}
           {view === 'chat' && chat?.running && !chat.waiting && (
-            <span className="status-chip running">
+            <span className="status-chip running" title="Working">
               <span className="spinner" />
-              Working
+              <span className="status-chip-label">Working</span>
             </span>
           )}
           {view === 'chat' && chat && speech.speaking?.chatId === chat.id && (
@@ -245,13 +248,16 @@ export default function App(): React.JSX.Element {
               onClick={() => window.api.speech.stop(chat.id)}
             >
               <LevelMeter level={speech.level} />
-              Speaking
+              <span className="status-chip-label">Speaking</span>
             </button>
           )}
           {view === 'chat' && waitingFor && (
-            <span className="status-chip running" title="It is woken when they end">
+            <span
+              className="status-chip running"
+              title={`${waitingFor}. It is woken when they end.`}
+            >
               <span className="spinner background" />
-              {waitingFor}
+              <span className="status-chip-label">{waitingFor}</span>
             </span>
           )}
           <span className="spacer" />

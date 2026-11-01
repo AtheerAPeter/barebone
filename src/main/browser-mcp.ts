@@ -1021,6 +1021,54 @@ async function buildServer(
   )
 
   server.registerTool(
+    'set_viewport',
+    {
+      description:
+        "Lay the page out at a set size in CSS pixels, to see and test it as on a phone, a tablet or another screen, or to record a video of it at that size: like 390×844 with mobile for a phone, 820×1180 with mobile for a tablet, 1280×720 or 1920×1080 for a desktop video. The page keeps that size whatever the panel's size; the panel shows it in the middle, scaled down when it is bigger. mobile makes it a phone's browser as well: a touch screen, a phone's user agent, and the page's viewport tag applied; the page reloads to take them up. Screenshots and points stay in the page's CSS pixels. The size stays until you call this again; call it without width and height to fill the panel again. For a video, set it before start_recording.",
+      inputSchema: {
+        width: z
+          .number()
+          .int()
+          .min(100)
+          .max(10000)
+          .optional()
+          .describe('Width in CSS pixels; leave out with height to fill the panel again'),
+        height: z
+          .number()
+          .int()
+          .min(100)
+          .max(10000)
+          .optional()
+          .describe('Height in CSS pixels; leave out with width to fill the panel again'),
+        mobile: z.boolean().optional().describe('A phone or tablet; false if left out'),
+        ...pageArgs
+      }
+    },
+    ({ width, height, mobile, browser: id, tab }) =>
+      act(id, tab, async (page) => {
+        if ((width === undefined) !== (height === undefined)) {
+          throw new Error('Pass both width and height, or neither to fill the panel again.')
+        }
+        const viewport =
+          width !== undefined && height !== undefined
+            ? { width, height, mobile: mobile ?? false }
+            : undefined
+        const before = page.contents.getURL()
+        await browser.setViewport(chatFor(id), page, viewport)
+        if (!viewport) return acted(page, 'The page fills the panel again.', before)
+        const shown =
+          page.scale < 1
+            ? ` The panel shows it at ${Math.round(page.scale * 100)}%, as it is bigger; a video of it has the pixels it shows at, so a bigger panel records it sharper.`
+            : ''
+        return acted(
+          page,
+          `The page is laid out at ${width}×${height}${viewport.mobile ? ' as on a phone' : ''}.${shown}`,
+          before
+        )
+      })
+  )
+
+  server.registerTool(
     'pdf',
     {
       description:
@@ -1468,7 +1516,7 @@ async function buildServer(
     server.registerTool(
       'start_recording',
       {
-        description: `Record the tab as a video, an MP4 file with sound, when the user asks for a video: a demo, a walkthrough, a bug report. The page is in it as the user sees it${drawing ? ', with the drawings, the pointer and the caption' : ''}${voice ? `, and what you say with speak${drawing ? " or show_step's say" : ''} is its sound` : ''}. It records this tab, at the size it has now, until stop_recording; tabs opened meanwhile are not in it. A chat records one tab at a time. While you work out your next step it pauses, so the video has no waits however long you take.${voice ? ' Narrate it with this voice only, never another text-to-speech or sound added afterwards.' : ''}${drawing && voice ? ` For a narrated walkthrough, read the Video section of the browser-tutorial skill first: ${BROWSER_TUTORIAL_SKILL}` : ''} The browser is signed in to the user's accounts, so what the page shows is in the video.`,
+        description: `Record the tab as a video, an MP4 file with sound, when the user asks for a video: a demo, a walkthrough, a bug report. The page is in it as the user sees it${drawing ? ', with the drawings, the pointer and the caption' : ''}${voice ? `, and what you say with speak${drawing ? " or show_step's say" : ''} is its sound` : ''}. It records this tab, at the size it has now (set a phone's or a video's size with set_viewport first), until stop_recording; tabs opened meanwhile are not in it. A chat records one tab at a time. While you work out your next step it pauses, so the video has no waits however long you take.${voice ? ' Narrate it with this voice only, never another text-to-speech or sound added afterwards.' : ''}${drawing && voice ? ` For a narrated walkthrough, read the Video section of the browser-tutorial skill first: ${BROWSER_TUTORIAL_SKILL}` : ''} The browser is signed in to the user's accounts, so what the page shows is in the video.`,
         inputSchema: {
           path: z.string().describe('Absolute path of the .mp4 file to write'),
           ...pageArgs

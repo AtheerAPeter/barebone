@@ -626,6 +626,7 @@ function registerIpc(browser: BuiltinBrowser): void {
   ipcMain.handle('browser:selectTab', (_e, tabId: string) => browser.selectActiveChatTab(tabId))
   ipcMain.handle('browser:closeTab', (_e, tabId: string) => browser.closeActiveChatTab(tabId))
   ipcMain.handle('browser:newTab', () => browser.newActiveChatTab())
+  ipcMain.handle('browser:fillPanel', () => browser.fillPanel())
   ipcMain.on('browser:menu', (_e, x: number, y: number) => browser.showMenu(x, y))
   ipcMain.handle('browser:state', () => browser.state())
 

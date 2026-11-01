@@ -193,6 +193,7 @@ export function BrowserPanel({
             placeholder="Search or enter address"
           />
         </form>
+        {state?.viewport && <ViewportChip viewport={state.viewport} />}
         <button
           className="icon-btn"
           title="More"
@@ -215,7 +216,9 @@ export function BrowserPanel({
             // A new element per picture, so a load always belongs to the current one.
             key={still}
             className="browser-still"
-            src={still}
+            // The picture has the display's pixels; at this density it covers
+            // just the page, also a page shown smaller than the panel.
+            srcSet={`${still} ${devicePixelRatio}x`}
             alt=""
             draggable={false}
             onLoad={(e) => {
@@ -229,6 +232,30 @@ export function BrowserPanel({
         )}
       </div>
     </aside>
+  )
+}
+
+/**
+ * The size an agent laid the page out at (set_viewport), shown while it has
+ * one; clicking it lays the page out at the panel's size again.
+ */
+function ViewportChip({
+  viewport
+}: {
+  viewport: NonNullable<BrowserState['viewport']>
+}): React.JSX.Element {
+  const { width, height, mobile, scale } = viewport
+  const percent = Math.round(scale * 100)
+  return (
+    <button
+      className="viewport-chip"
+      title={`The page is laid out at ${width} × ${height}${mobile ? ' as on a phone' : ''}${scale < 1 ? `, shown at ${percent}%` : ''}. Click to fill the panel again.`}
+      onClick={() => window.api.browser.fillPanel()}
+    >
+      {width} × {height}
+      {scale < 1 && <span className="viewport-chip-scale">{percent}%</span>}
+      <CloseIcon width={10} height={10} />
+    </button>
   )
 }
 

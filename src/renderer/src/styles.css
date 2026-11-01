@@ -367,6 +367,8 @@ kbd {
   -webkit-app-region: drag;
 }
 
+  /* Its parts adapt to its width (see the end of the status chips). */
+  container: topbar / inline-size;
 /* With the sidebar hidden, the window buttons sit over the toolbar. */
 .sidebar-hidden .topbar {
   padding-left: 80px;
@@ -437,6 +439,36 @@ kbd {
   display: flex;
   flex-direction: column;
   padding: 0 6px 6px;
+/*
+ * The top bar gives way as the chat narrows, so its buttons always fit and the
+ * title keeps what room is left: the project name and the chips' words go
+ * first (each chip keeps its mark, and its title says the rest), then the
+ * buttons get smaller.
+ */
+@container topbar (max-width: 600px) {
+  .crumb,
+  .status-chip-label {
+    display: none;
+  }
+
+  .status-chip {
+    width: 28px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+
+@container topbar (max-width: 440px) {
+  .topbar-title {
+    padding: 0 2px;
+  }
+
+  .topbar .icon-btn {
+    width: 28px;
+    height: 28px;
+  }
+}
+
   border-right: 1px solid var(--border);
 }
 
@@ -3401,11 +3433,31 @@ img.project-icon {
   flex: 1;
 }
 
-/* The page's picture while a popup covers it; the view itself is parked. */
+/* The page's picture while a popup covers it, where the page was; the view itself is parked. */
 .browser-still {
   display: block;
-  width: 100%;
-  height: 100%;
+  border-radius: 12px;
+}
+
+/* The size an agent laid the page out at; a click fills the panel again. */
+.viewport-chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px 0 12px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-soft);
+  background: var(--glass);
+  box-shadow: var(--glass-rim);
+  border-radius: var(--radius-pill);
+}
+
+.viewport-chip-scale {
+  color: var(--text-muted);
 }
 
 /* Code panel: source control as in VS Code, and the agent's code tours, in the browser's place */
@@ -3435,8 +3487,13 @@ img.project-icon {
   gap: 4px;
   padding: 0 8px;
 }
+/* A page an agent set to a smaller size than the panel sits in its middle (main/browser.ts). */
 
 .code-branch {
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
   min-width: 0;
   height: 30px;
   display: flex;
@@ -4806,6 +4863,7 @@ button,
  * little behind it, so it reads as one sheet leaving.
  */
 .sidebar {
+.viewport-chip:active,
   transition:
     margin-left var(--move) var(--ease),
     visibility 0s linear 0s;
@@ -4845,6 +4903,7 @@ button,
 /* A title the agent just gave the chat. */
 .topbar-name.changed {
   animation: appear var(--move) var(--ease) both;
+.viewport-chip,
 }
 
 .status-chip,
@@ -4866,6 +4925,7 @@ button,
   transform-origin: top left;
   animation-name: pop-down;
 }
+.viewport-chip::after,
 
 .menu {
   transform-origin: top right;
@@ -4901,6 +4961,7 @@ button,
   transform-origin: top center;
   animation: pop-down var(--move) var(--ease) both;
 }
+.viewport-chip:active::after,
 
 @keyframes fade-in {
   from {

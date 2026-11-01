@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { WebContents } from 'electron'
 import { source as playwrightSource } from 'playwright-injected-script'
 import { USKeyboardLayout } from 'playwright-keyboard-layout'
+import type { PageViewport } from '../shared/types'
 import {
   overlayFunction,
   type OverlayCommand,
@@ -465,6 +466,36 @@ interface Point {
   y: number
 }
 
+/** The size a page is laid out at (see emulate), and the scale its view draws it at. */
+type Emulation = PageViewport & { scale: number }
+
+/**
+ * Chrome's user agent on an Android phone, from the desktop one: the reduced
+ * form Chrome sends there, with the same Chrome version.
+ */
+function mobileUserAgent(desktop: string): string {
+  return desktop
+    .replace(/\([^)]*\)/, '(Linux; Android 10; K)')
+    .replace(/ Safari\//, ' Mobile Safari/')
+}
+
+/**
+ * What pages read from navigator.userAgentData and the Sec-CH-UA headers on
+ * that phone. A user agent set without it reports no browser and no phone.
+ */
+function mobileClientHints(): object {
+  const version = process.versions.chrome
+  return {
+    brands: [{ brand: 'Chromium', version: version.split('.')[0] }],
+    fullVersionList: [{ brand: 'Chromium', version }],
+    platform: 'Android',
+    platformVersion: '10.0.0',
+    architecture: '',
+    model: 'K',
+    mobile: true
+  }
+}
+
 /** A frame's ARIA tree, and what changed in it (undefined when it has nothing to compare with). */
 interface FrameTree {
   full: string
@@ -574,6 +605,12 @@ export class PageDriver {
   private readonly eventListeners = new Set<
     (method: string, params: unknown, sessionId?: string) => void
   >()
+  /** The size the page is to be laid out at, while it is not its view's (see emulate). */
+  private emulation?: Emulation
+  /** What the page has of it now; the protocol drops all of it when it detaches. */
+  private emulated?: Emulation
+  /** Settles once the latest emulate is applied, and rejects if that failed. */
+  emulating: Promise<void> = Promise.resolve()
 
   constructor(
     private readonly contents: WebContents,
@@ -616,6 +653,74 @@ export class PageDriver {
     await this.send('Log.enable')
     await this.send('Network.enable')
     await this.followIframes()
+    // Connected again after the page's renderer crashed: it keeps its size.
+    await this.applyEmulation()
+  }
+
+  /**
+   * Lay the page out at a size in CSS pixels, whatever its view's size, drawn
+   * at `scale` (its view being that size times the scale); or at its view's
+   * size again (undefined). A mobile page also gets a phone's touch screen,
+   * user agent and viewport handling; pages read the first two as they load,
+   * so they show once it reloads. Applied in order; see `emulating`.
+   */
+  emulate(viewport: PageViewport | undefined, scale = 1): void {
+    this.emulation = viewport && { ...viewport, scale }
+    const next = this.emulating
+      .catch(() => undefined)
+      .then(async () => {
+        // A page that was never set to a size needs nothing undone.
+        if (!this.emulation && !this.emulated) return
+        await this.attach()
+        await this.applyEmulation()
+      })
+    // Failures surface where someone waits for them (set_viewport), not as unhandled.
+    next.catch(() => undefined)
+    this.emulating = next
+  }
+
+  /** Bring the page's emulation in line with what was asked, sending only what differs. */
+  private async applyEmulation(): Promise<void> {
+    const want = this.emulation
+    const had = this.emulated
+    if (
+      want?.width !== had?.width ||
+      want?.height !== had?.height ||
+      want?.mobile !== had?.mobile ||
+      want?.scale !== had?.scale
+    ) {
+      await (want
+        ? this.send('Emulation.setDeviceMetricsOverride', {
+            width: want.width,
+            height: want.height,
+            // The display's own.
+            deviceScaleFactor: 0,
+            mobile: want.mobile,
+            scale: want.scale,
+            // The view keeps the size the app gives it; the page is scaled into it.
+            dontSetVisibleSize: true
+          })
+        : this.send('Emulation.clearDeviceMetricsOverride'))
+    }
+    if ((want?.mobile ?? false) !== (had?.mobile ?? false)) {
+      const mobile = want?.mobile ?? false
+      await this.send('Emulation.setTouchEmulationEnabled', {
+        enabled: mobile,
+        ...(mobile ? { maxTouchPoints: 5 } : {})
+      })
+      // An empty user agent puts the browser's own back.
+      await this.send(
+        'Emulation.setUserAgentOverride',
+        mobile
+          ? {
+              userAgent: mobileUserAgent(this.contents.getUserAgent()),
+              platform: 'Linux armv8l',
+              userAgentMetadata: mobileClientHints()
+            }
+          : { userAgent: '' }
+      )
+    }
+    this.emulated = want
   }
 
   private firstDocument(): Promise<void> {
@@ -665,6 +770,7 @@ export class PageDriver {
     this.cdp.off('message', this.onMessage)
     this.cdp.off('detach', this.reset)
     this.attaching = undefined
+    this.emulated = undefined
     this.frameSessions.clear()
     this.frames.clear()
     this.pageContexts.clear()
@@ -1150,8 +1256,17 @@ export class PageDriver {
     return { x, y }
   }
 
-  private mouse(type: string, { x, y }: Point, extra: object = {}): Promise<unknown> {
-    return this.send('Input.dispatchMouseEvent', { type, x, y, ...extra })
+  /**
+   * Input goes to points of the page's view: a page drawn scaled into it (see
+   * emulate) has its CSS pixels scaled with it. Wheel deltas stay CSS pixels.
+   */
+  private inView({ x, y }: Point): Point {
+    const scale = this.emulation?.scale ?? 1
+    return { x: x * scale, y: y * scale }
+  }
+
+  private mouse(type: string, point: Point, extra: object = {}): Promise<unknown> {
+    return this.send('Input.dispatchMouseEvent', { type, ...this.inView(point), ...extra })
   }
 
   async click(ref: string): Promise<void> {
@@ -1283,8 +1398,12 @@ export class PageDriver {
     }
   }
 
-  private dragEvent(type: string, { x, y }: Point): Promise<unknown> {
-    return this.send('Input.dispatchDragEvent', { type, x, y, data: this.interceptedDrag })
+  private dragEvent(type: string, point: Point): Promise<unknown> {
+    return this.send('Input.dispatchDragEvent', {
+      type,
+      ...this.inView(point),
+      data: this.interceptedDrag
+    })
   }
 
   /** Turn the mouse wheel at a point of the viewport; positive pixels scroll down. */
@@ -1466,14 +1585,20 @@ export class PageDriver {
    * is scaled to the page's width in CSS pixels, which keeps text legible with
    * a quarter of the pixels, and makes its pixels the points that input at a
    * point takes, at any zoom. Model APIs resend every image with each request
-   * and refuse images over 2000 pixels once a chat has many.
+   * and refuse images over 2000 pixels once a chat has many. A page set to a
+   * size bigger than the panel (see emulate) is drawn smaller than that; its
+   * capture is scaled up to it, so its pixels are still those points.
    */
   async screenshot(): Promise<string> {
-    const { width } = await this.viewport()
+    const { width, height } = await this.viewport()
     const image = await this.capture()
     if (image.isEmpty()) throw new Error('The page has not drawn anything yet.')
+    const size = image.getSize()
+    // Both sides: a scaled page's view is rounded to whole points, unevenly.
     const scaled =
-      width > 0 && image.getSize().width > width ? image.resize({ width, quality: 'best' }) : image
+      width > 0 && height > 0 && (size.width !== width || size.height !== height)
+        ? image.resize({ width, height, quality: 'best' })
+        : image
     return scaled.toPNG().toString('base64')
   }
 

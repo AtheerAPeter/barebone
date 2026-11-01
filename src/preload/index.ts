@@ -256,6 +256,8 @@ const api = {
     selectTab: (tabId: string): Promise<void> => ipcRenderer.invoke('browser:selectTab', tabId),
     closeTab: (tabId: string): Promise<void> => ipcRenderer.invoke('browser:closeTab', tabId),
     newTab: (): Promise<void> => ipcRenderer.invoke('browser:newTab'),
+    /** Lay the page out at the panel's size again, after an agent set it to another. */
+    fillPanel: (): Promise<void> => ipcRenderer.invoke('browser:fillPanel'),
     /** Open the panel's ⋮ menu at a point in the window. */
     showMenu: (x: number, y: number): void => ipcRenderer.send('browser:menu', x, y),
     getState: (): Promise<BrowserState> => ipcRenderer.invoke('browser:state'),

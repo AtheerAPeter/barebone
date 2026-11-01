@@ -12,7 +12,7 @@ import {
 import { EventEmitter } from 'node:events'
 import { existsSync } from 'node:fs'
 import { extname, basename, join } from 'node:path'
-import type { BrowserState, Rect, SavedTabs } from '../shared/types'
+import type { BrowserState, PageViewport, Rect, SavedTabs } from '../shared/types'
 import { PageDriver } from './page-driver'
 
 /**
@@ -94,6 +94,30 @@ function parked(bounds: Electron.Rectangle): Electron.Rectangle {
   return { ...bounds, x: -bounds.width - 100 }
 }
 
+/**
+ * Where a page goes in the panel's area: all of it, or the size an agent set
+ * (set_viewport) in the middle, scaled down to fit when it is bigger. The
+ * scale is the share of the page's CSS pixels the view shows it at.
+ */
+function placed(
+  viewport: PageViewport | undefined,
+  area: Electron.Rectangle
+): { bounds: Electron.Rectangle; scale: number } {
+  if (!viewport) return { bounds: area, scale: 1 }
+  const scale = Math.min(1, area.width / viewport.width, area.height / viewport.height)
+  const width = Math.round(viewport.width * scale)
+  const height = Math.round(viewport.height * scale)
+  return {
+    bounds: {
+      x: area.x + Math.round((area.width - width) / 2),
+      y: area.y + Math.round((area.height - height) / 2),
+      width,
+      height
+    },
+    scale
+  }
+}
+
 function siteOf(url: string): string {
   try {
     return new URL(url).host || 'This page'
@@ -130,6 +154,10 @@ export class ChatPage extends EventEmitter {
   url = ''
   /** The page's icon, once the page has declared one. */
   favicon?: string
+  /** The size an agent set the page to (set_viewport); it fills the panel while there is none. */
+  viewport?: PageViewport
+  /** The share of that size the panel shows it at, while it has one. */
+  scale = 1
   /**
    * A reopened tab that has not loaded its page yet. Every page is a renderer
    * process, so saved tabs load when they are first used, not all at once.
@@ -254,6 +282,8 @@ export class BuiltinBrowser {
   private activeChat?: string
   /** Where the panel is, in window points; undefined while the panel is closed. */
   private panelBounds?: Electron.Rectangle
+  /** Where pages are laid out: the panel, or where it was last while it is closed. */
+  private pageArea: Electron.Rectangle = DEFAULT_BOUNDS
   /** The panel is open but its page is out of sight for a moment, while the user resizes it. */
   private panelHidden = false
   private waitingForPanel: (() => void)[] = []
@@ -433,7 +463,7 @@ export class BuiltinBrowser {
     })
     // Closed by the page itself (window.close()) or with the rest of the browser.
     contents.once('destroyed', () => this.removeTab(chatId, tab))
-    view.setBounds(parked(this.panelBounds ?? DEFAULT_BOUNDS))
+    view.setBounds(parked(this.pageArea))
     this.window.contentView.addChildView(view)
     browser.tabs.push(tab)
     if (options.activate || !browser.active) browser.active = tab
@@ -658,20 +688,53 @@ export class BuiltinBrowser {
     if (response === 0) await this.clearData()
   }
 
-  /** Put the selected chat's active tab in the panel and park every other tab. */
+  /**
+   * Put the selected chat's active tab in the panel and park every other tab,
+   * each page at the size it has there.
+   */
   private layout(): void {
     for (const [chatId, browser] of this.chats) {
       for (const tab of browser.tabs) {
-        const shown =
-          chatId === this.activeChat && tab === browser.active && !this.panelHidden
-            ? this.panelBounds
-            : undefined
-        tab.shown = Boolean(shown)
-        tab.view.setBounds(shown ?? parked(this.panelBounds ?? tab.view.getBounds()))
+        const { bounds, scale } = placed(tab.viewport, this.pageArea)
+        tab.shown =
+          this.panelBounds !== undefined &&
+          chatId === this.activeChat &&
+          tab === browser.active &&
+          !this.panelHidden
+        tab.view.setBounds(tab.shown ? bounds : parked(bounds))
+        // A page at a set size is scaled anew as the panel changes size.
+        if (tab.viewport && scale !== tab.scale) tab.driver.emulate(tab.viewport, scale)
+        tab.scale = scale
       }
     }
     this.showDialog()
     this.onPageArea?.(this.panelHidden ? undefined : this.panelBounds)
+  }
+
+  /**
+   * Lay a tab's page out at a size (set_viewport), or at the panel's again
+   * (undefined). Settles once the page has it; one turned into a phone's page
+   * or back reloads, as pages read the touch screen and user agent as they load.
+   */
+  async setViewport(
+    chatId: string,
+    tab: ChatPage,
+    viewport: PageViewport | undefined
+  ): Promise<void> {
+    const reload = (tab.viewport?.mobile ?? false) !== (viewport?.mobile ?? false)
+    tab.viewport = viewport
+    tab.scale = placed(viewport, this.pageArea).scale
+    // So the page is laid out once: at its new size before its view changes
+    // to show it, or at its view's size once the view fills the panel again.
+    if (viewport) {
+      tab.driver.emulate(viewport, tab.scale)
+      await tab.driver.emulating.catch(() => undefined)
+    }
+    this.layout()
+    if (!viewport) tab.driver.emulate(undefined)
+    if (chatId === this.activeChat) this.emitState()
+    await tab.driver.emulating
+    if (reload && tab.contents.getURL()) tab.contents.reload()
   }
 
   /** The chat whose browser the panel shows. */
@@ -701,6 +764,7 @@ export class BuiltinBrowser {
       width: Math.round(rect.width * zoom),
       height: Math.round(rect.height * zoom)
     }
+    this.pageArea = this.panelBounds
     if (this.activeChat) this.browserFor(this.activeChat)
     this.layout()
     for (const resolve of this.waitingForPanel.splice(0)) resolve()
@@ -826,6 +890,12 @@ export class BuiltinBrowser {
     if (this.activeChat) this.newTab(this.activeChat)
   }
 
+  /** The page the panel shows fills it again, at whatever size an agent set it to. */
+  async fillPanel(): Promise<void> {
+    const page = this.activePage()
+    if (this.activeChat && page?.viewport) await this.setViewport(this.activeChat, page, undefined)
+  }
+
   /** Minimized or hidden: macOS draws nothing for it, so pages cannot be captured. */
   get windowHidden(): boolean {
     return this.window.isMinimized() || !this.window.isVisible()
@@ -863,7 +933,9 @@ export class BuiltinBrowser {
       return { ...EMPTY_STATE, url: saved?.urls[saved.active] ?? '' }
     }
     const shownUrl = (url: string): string => (url === 'about:blank' ? '' : url)
+    const { viewport, scale } = browser.active!
     return {
+      viewport: viewport && { ...viewport, scale },
       tabs: browser.tabs.map((tab) => ({
         id: tab.id,
         title: tab.contents.getTitle(),

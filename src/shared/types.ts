@@ -553,6 +553,20 @@ export interface BrowserState {
   loading: boolean
   canGoBack: boolean
   canGoForward: boolean
+  /**
+   * The size an agent set the shown tab's page to (set_viewport), and the
+   * fraction of it the panel shows it at (1 when it fits). None while the page
+   * fills the panel.
+   */
+  viewport?: PageViewport & { scale: number }
+}
+
+/** A page laid out at a set size, in CSS pixels, as on a phone (mobile) or another screen. */
+export interface PageViewport {
+  width: number
+  height: number
+  /** A phone: touch screen, phone user agent, and the page's own viewport tag. */
+  mobile: boolean
 }
 
 export interface Rect {
