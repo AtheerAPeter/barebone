@@ -30,6 +30,29 @@ printf "\n  ${BOLD}${NAME}${RESET} ${DIM}· the basics are all you need${RESET}\
 [ "$(uname -s)" = "Darwin" ] || fail "$NAME runs on macOS only."
 [ "$(uname -m)" = "arm64" ] || fail "$NAME needs a Mac with Apple Silicon (M1 or newer)."
 
+work=""
+mount=""
+staging=""
+lock="${TMPDIR:-/tmp}/$NAME-install.lock"
+locked=""
+cleanup() {
+  [ -n "$mount" ] && hdiutil detach "$mount" -quiet >/dev/null 2>&1 || true
+  [ -n "$work" ] && rm -rf "$work"
+  [ -n "$staging" ] && rm -rf "$staging"
+  [ -n "$locked" ] && rm -f "$lock"
+  return 0
+}
+trap cleanup EXIT
+# bash skips the EXIT trap when a signal ends it; exiting runs it.
+trap 'exit 1' HUP INT TERM
+
+# One install at a time. Two running copies of the app (a second profile, say)
+# can each start an update, and their delete and copy steps would interleave
+# into a half-copied app that does not open. shlock clears a lock whose process
+# has died; lockf's file-descriptor form would too, but older macOS lacks it.
+shlock -f "$lock" -p $$ || fail "Another $NAME update is already running."
+locked=1
+
 step "Finding the latest release"
 release=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest") ||
   fail "Could not reach GitHub. Check your connection and try again."
@@ -39,12 +62,6 @@ version=$(printf '%s' "$release" | grep -o '"tag_name": *"[^"]*"' | head -1 | se
 done_ "Found ${version}"
 
 work=$(mktemp -d)
-mount=""
-cleanup() {
-  [ -n "$mount" ] && hdiutil detach "$mount" -quiet >/dev/null 2>&1 || true
-  rm -rf "$work"
-}
-trap cleanup EXIT
 
 step "Downloading"
 curl -fL --progress-bar "$url" -o "$work/$NAME.dmg" || fail "The download failed. Try again."
@@ -61,7 +78,14 @@ if [ ! -w "$target" ]; then
   mkdir -p "$target"
 fi
 
-# The app is quit first: replacing it while it runs leaves the old version
+# The new version is copied beside the old one first, on the same disk, so the
+# swap below is a rename: a copy that fails leaves the old version untouched,
+# and the app is never half there.
+staging=$(mktemp -d "$target/.$NAME-update.XXXXXX")
+ditto "$mount/$APP" "$staging/$APP"
+xattr -dr com.apple.quarantine "$staging/$APP" 2>/dev/null || true
+
+# The app is quit before the swap: replacing it while it runs leaves the old version
 # open, and `open` below would only bring that one forward. Just Harness is
 # quit too, since the new app moves its data folder only once it has quit.
 #
@@ -81,9 +105,13 @@ quit() {
 quit "$NAME"
 quit "$FORMER_NAME"
 
-rm -rf "$target/$APP" "$target/$FORMER_APP"
-ditto "$mount/$APP" "$target/$APP"
-xattr -dr com.apple.quarantine "$target/$APP" 2>/dev/null || true
+rm -rf "$target/$FORMER_APP"
+# The old version goes into the staging folder, which the cleanup removes.
+[ ! -e "$target/$APP" ] || mv "$target/$APP" "$staging/old.app"
+if ! mv "$staging/$APP" "$target/$APP"; then
+  [ ! -e "$staging/old.app" ] || mv "$staging/old.app" "$target/$APP"
+  fail "Could not put the new version in $target. The old one is still there."
+fi
 done_ "Installed to $target"
 
 open "$target/$APP"
