@@ -14,6 +14,7 @@ import { Picker } from './Picker'
 import { EffortPicker } from './EffortPicker'
 import { ModelPicker } from './model-picker/ModelPicker'
 import { CompletionMenu, type CompletionItem } from './CompletionMenu'
+import { addPrompt } from '../../../shared/prompt-history'
 import { LevelMeter } from './LevelMeter'
 import { writePref } from '../lib/prefs'
 import { useVoiceInput, type VoiceState } from '../lib/voice'
@@ -71,6 +72,27 @@ const TAGS: CompletionItem[] = [
   { name: 'browser', description: 'Use the built-in browser (keeps your logins)', kind: 'tag' },
   { name: 'chats', description: 'Split the work into new chats that report back', kind: 'tag' }
 ]
+
+/** Text shorter than this gets no suggestion: too little to tell which prompt is meant. */
+const SUGGEST_FROM = 3
+
+/**
+ * The rest of the line of the newest earlier prompt that starts with the
+ * text, case aside. Only to the line's end, so a long prompt is taken a line
+ * at a time instead of filling the composer.
+ */
+function promptSuggestion(history: string[], text: string): string {
+  if (text.trim().length < SUGGEST_FROM) return ''
+  const typed = text.toLowerCase()
+  for (const prompt of history) {
+    if (prompt.length <= text.length) continue
+    // The prompt's start is cut before lowering, as some letters change length when lowered.
+    if (prompt.slice(0, text.length).toLowerCase() !== typed) continue
+    const line = prompt.slice(text.length).split('\n', 1)[0]
+    if (line) return line
+  }
+  return ''
+}
 
 export function Composer({
   chat,
@@ -154,6 +176,21 @@ export function Composer({
 
   const menuOpen = trigger !== undefined && menuDismissed !== `${caret}:${text}`
 
+  // What the user sent in this project's chats, for completing what they type.
+  const [history, setHistory] = useState<string[]>([])
+  useEffect(() => {
+    let cancelled = false
+    window.api.promptHistory(chat.projectId).then((saved) => {
+      // Anything sent before the history arrived stays on top of it.
+      if (!cancelled) setHistory((sent) => sent.reduceRight(addPrompt, saved))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [chat.projectId])
+  /** Set when the user closes the suggestion with Escape, for the text at that moment. */
+  const [suggestionDismissed, setSuggestionDismissed] = useState<string>()
+
   function choose(item: CompletionItem): void {
     if (!trigger) return
     const inserted = `${item.kind === 'tag' || item.kind === 'file' ? '@' : '/'}${item.name} `
@@ -202,18 +239,44 @@ export function Composer({
    */
   const [expanded, setExpanded] = useState(false)
 
-  // Grow with content up to a limit.
+  /** The rest of an earlier prompt, shown after the caret for Tab to take. */
+  const suggestion = useMemo(
+    () =>
+      !menuOpen && caret === text.length && suggestionDismissed !== text
+        ? promptSuggestion(history, text)
+        : '',
+    [history, text, caret, menuOpen, suggestionDismissed]
+  )
+  /** Draws the suggestion behind the textarea, wrapped as the text is. */
+  const suggestionRef = useRef<HTMLDivElement>(null)
+
+  function acceptSuggestion(): void {
+    const next = text + suggestion
+    setText(next)
+    setCaret(next.length)
+    requestAnimationFrame(() => textareaRef.current?.setSelectionRange(next.length, next.length))
+  }
+
+  // Grow with content, the suggestion included, up to a limit.
   useLayoutEffect(() => {
     const el = textareaRef.current
     if (!el) return
+    const shown = suggestionRef.current
     el.style.height = 'auto'
+    if (shown) shown.style.height = 'auto'
     const style = getComputedStyle(el)
     const oneLine =
       parseFloat(style.lineHeight) + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
-    const wraps = el.scrollHeight > oneLine + 1
+    const content = Math.max(el.scrollHeight, shown?.scrollHeight ?? 0)
+    const wraps = content > oneLine + 1
     setExpanded(el.value !== '' && (expanded || wraps))
-    el.style.height = `${Math.min(el.scrollHeight, 240)}px`
-  }, [text, expanded])
+    const height = `${Math.min(content, 240)}px`
+    el.style.height = height
+    if (shown) {
+      shown.style.height = height
+      shown.scrollTop = el.scrollTop
+    }
+  }, [text, expanded, suggestion])
 
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [dragging, setDragging] = useState(false)
@@ -249,6 +312,7 @@ export function Composer({
   function submit(): void {
     if (!canSend) return
     window.api.send(chat.id, text.trim(), attachments)
+    setHistory((current) => addPrompt(current, text))
     setText('')
     setAttachments([])
     setCaret(0)
@@ -426,10 +490,20 @@ export function Composer({
             )}
           </div>
         )}
+        {suggestion && (
+          <div className="composer-suggestion" ref={suggestionRef} aria-hidden="true">
+            <span className="composer-suggestion-typed">{text}</span>
+            {suggestion}
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           value={text}
           rows={1}
+          aria-description={suggestion ? `Suggestion: ${suggestion}. Tab to accept.` : undefined}
+          onScroll={(e) => {
+            if (suggestionRef.current) suggestionRef.current.scrollTop = e.currentTarget.scrollTop
+          }}
           placeholder={
             chat.waiting
               ? 'Waiting for your answer above'
@@ -468,6 +542,20 @@ export function Composer({
               e.preventDefault()
               setMenuDismissed(`${caret}:${text}`)
               return
+            }
+            if (suggestion && !e.nativeEvent.isComposing) {
+              const plain = !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey
+              if (plain && (e.key === 'Tab' || e.key === 'ArrowRight')) {
+                e.preventDefault()
+                acceptSuggestion()
+                return
+              }
+              if (e.key === 'Escape') {
+                // As with the menu: hiding the suggestion must not also stop the agent.
+                e.preventDefault()
+                setSuggestionDismissed(text)
+                return
+              }
             }
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault()

@@ -631,6 +631,7 @@ function registerIpc(browser: BuiltinBrowser): void {
   ipcMain.handle('browser:state', () => browser.state())
 
   ipcMain.handle('files:list', (_e, projectPath: string) => listProjectFiles(projectPath))
+  ipcMain.handle('prompts:history', (_e, projectId: string) => store.promptHistory(projectId))
   ipcMain.handle('skills:list', (_e, projectPath?: string) => skills.listSkills(projectPath))
   ipcMain.handle('skills:read', (_e, path: string, projectPath?: string) =>
     skills.readSkill(path, projectPath)

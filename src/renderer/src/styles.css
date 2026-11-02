@@ -2583,6 +2583,35 @@ img.project-icon {
   padding-bottom: 8px;
 }
 
+/*
+ * The rest of an earlier prompt, drawn under the textarea in the same box and
+ * type so it wraps as the text does; the typed part is invisible here.
+ */
+.composer-suggestion {
+  grid-area: primary;
+  min-height: 36px;
+  padding: 6px 8px;
+  overflow: hidden;
+  pointer-events: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  color: var(--placeholder);
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.composer.expanded .composer-suggestion {
+  padding-bottom: 8px;
+}
+
+.composer-suggestion-typed {
+  color: transparent;
+}
+
+.composer.listening .composer-suggestion {
+  visibility: hidden;
+}
+
 /* How full the context window is, at the end of the settings row. */
 .context-meter {
   margin-left: auto;

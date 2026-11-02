@@ -10,6 +10,7 @@ import {
   rmSync,
   writeFileSync
 } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   senderChat,
@@ -22,6 +23,7 @@ import {
 import { cleanStoredOutput } from './tool-output'
 import { chatPreview } from './preview'
 import { removeChatImages } from './images'
+import { addPrompt, historyPrompt, PROMPT_HISTORY_LIMIT } from '../shared/prompt-history'
 
 const dataDir = join(app.getPath('userData'), 'data')
 const chatsDir = join(dataDir, 'chats')
@@ -132,6 +134,12 @@ if (emptyChats.length > 0) {
 }
 
 const messages = new Map<string, ChatItem[]>()
+/**
+ * Each project's prompt history (see shared/prompt-history.ts), built on the
+ * first ask and kept up to date as messages are sent. A pending build is kept
+ * too, so asks during it share one read of the chats.
+ */
+const promptHistories = new Map<string, Promise<string[]>>()
 const dirtyChats = new Set<string>()
 let flushTimer: NodeJS.Timeout | undefined
 
@@ -276,6 +284,9 @@ export function updateChat(chatId: string, patch: Partial<Chat>): Chat {
 }
 
 export function removeChat(chatId: string): void {
+  const chat = state.chats.find((c) => c.id === chatId)
+  // Its prompts go with it: the history is built again when next asked for.
+  if (chat) promptHistories.delete(chat.projectId)
   state.chats = state.chats.filter((c) => c.id !== chatId)
   messages.delete(chatId)
   dirtyChats.delete(chatId)
@@ -331,8 +342,12 @@ export function getMessages(chatId: string): ChatItem[] {
 export function upsertItem(chatId: string, item: ChatItem): ChatItem {
   const items = getMessages(chatId)
   const index = items.findIndex((i) => i.id === item.id)
-  if (index === -1) items.push(item)
-  else items[index] = item
+  if (index === -1) {
+    items.push(item)
+    rememberPrompt(chatId, item)
+  } else {
+    items[index] = item
+  }
   dirtyChats.add(chatId)
   scheduleFlush()
   return item
@@ -345,4 +360,66 @@ export function findItem(chatId: string, itemId: string): ChatItem | undefined {
 export function lastItem(chatId: string): ChatItem | undefined {
   const items = getMessages(chatId)
   return items[items.length - 1]
+}
+
+/** What the user sent in the project's chats, newest first, for the composer to complete from. */
+export function promptHistory(projectId: string): Promise<string[]> {
+  let history = promptHistories.get(projectId)
+  if (!history) {
+    history = buildPromptHistory(projectId)
+    promptHistories.set(projectId, history)
+  }
+  return history
+}
+
+/** A message the user typed: not one another chat's agent or a command sent. */
+function typedPrompt(item: ChatItem): string | undefined {
+  return item.kind === 'user' && !item.from ? historyPrompt(item.text) : undefined
+}
+
+/**
+ * Read the prompts from every chat of the project. Chats not open are read
+ * from disk one at a time and not kept, so this holds only the prompts.
+ */
+async function buildPromptHistory(projectId: string): Promise<string[]> {
+  const sent: { prompt: string; at: number; order: number }[] = []
+  for (const chat of state.chats.filter((c) => c.projectId === projectId)) {
+    const items = messages.get(chat.id) ?? (await readStoredMessages(chat.id))
+    for (const item of items) {
+      const prompt = typedPrompt(item)
+      if (!prompt) continue
+      // Messages from before sentAt was saved count from their chat's start, in order.
+      const at = (item.kind === 'user' && item.sentAt) || chat.createdAt
+      sent.push({ prompt, at, order: sent.length })
+    }
+  }
+  sent.sort((a, b) => b.at - a.at || b.order - a.order)
+  const history = new Set<string>()
+  for (const { prompt } of sent) {
+    history.add(prompt)
+    if (history.size === PROMPT_HISTORY_LIMIT) break
+  }
+  return [...history]
+}
+
+/** A chat's saved messages without loading them into the store; none when unreadable. */
+async function readStoredMessages(chatId: string): Promise<ChatItem[]> {
+  try {
+    return JSON.parse(await readFile(join(chatsDir, `${chatId}.json`), 'utf8')) as ChatItem[]
+  } catch {
+    // Missing, or damaged: getMessages sets a damaged file aside when the chat is opened.
+    return []
+  }
+}
+
+/** Put a newly sent message first in its project's history, if that history was built. */
+function rememberPrompt(chatId: string, item: ChatItem): void {
+  const prompt = typedPrompt(item)
+  const chat = prompt && state.chats.find((c) => c.id === chatId)
+  const history = chat && promptHistories.get(chat.projectId)
+  if (!chat || !history) return
+  promptHistories.set(
+    chat.projectId,
+    history.then((prompts) => addPrompt(prompts, prompt))
+  )
 }

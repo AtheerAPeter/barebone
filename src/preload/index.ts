@@ -317,6 +317,9 @@ const api = {
 
   listFiles: (projectPath: string): Promise<string[]> =>
     ipcRenderer.invoke('files:list', projectPath),
+  /** What the user sent in the project's chats, newest first, for the composer to complete. */
+  promptHistory: (projectId: string): Promise<string[]> =>
+    ipcRenderer.invoke('prompts:history', projectId),
 
   skills: {
     list: (projectPath?: string): Promise<Skill[]> =>
