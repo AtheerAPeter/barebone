@@ -6,8 +6,10 @@ import {
   type ProviderApi
 } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
+import { ServerIcon } from './icons'
 import { Picker } from './Picker'
 import { RowMenu } from './RowMenu'
+import { SettingsCard } from './SettingsCard'
 
 const API_NAMES: Record<ProviderApi, string> = {
   chat: 'Chat Completions',
@@ -58,8 +60,7 @@ export function ProvidersCard({ onChange }: { onChange: () => void }): React.JSX
   }
 
   return (
-    <section className="settings-card">
-      <h3>Providers</h3>
+    <SettingsCard icon={<ServerIcon />} tone="indigo" title="Providers">
       <p>
         Add any API that speaks OpenAI Chat Completions, OpenAI Responses or Anthropic Messages. Its
         models show in the model picker under Custom providers, and chats on them run on the
@@ -97,7 +98,7 @@ export function ProvidersCard({ onChange }: { onChange: () => void }): React.JSX
           </button>
         </div>
       )}
-    </section>
+    </SettingsCard>
   )
 }
 

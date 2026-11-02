@@ -56,6 +56,11 @@
   /* Cards: the edits card, the new-skill form, settings. */
   --card: rgba(255, 255, 255, 0.55);
   --card-edge: 0 0 0 1px var(--border), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  /* Settings' sheets: denser glass than a card, a crisp hairline and only a contact shadow. */
+  --sheet: rgba(255, 255, 255, 0.8);
+  --sheet-edge:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 0 0 0.5px rgba(0, 0, 0, 0.16),
+    0 1px 2px rgba(0, 0, 0, 0.05);
   /* Sunken: output, diffs, code. */
   --well: rgba(0, 0, 0, 0.035);
   /* Opaque, for a field that must hide what is under it. */
@@ -173,6 +178,10 @@
 
     --card: rgba(255, 255, 255, 0.05);
     --card-edge: 0 0 0 1px var(--border), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    --sheet: rgba(255, 255, 255, 0.075);
+    --sheet-edge:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12), inset 0 0 0 0.5px rgba(255, 255, 255, 0.1),
+      0 0 0 0.5px rgba(0, 0, 0, 0.6), 0 1px 2px rgba(0, 0, 0, 0.3);
     --well: rgba(0, 0, 0, 0.25);
     --surface: #2a2a2a;
 
@@ -358,6 +367,8 @@ kbd {
 }
 
 .topbar {
+  /* Its parts adapt to its width (see the end of the status chips). */
+  container: topbar / inline-size;
   height: 48px;
   flex-shrink: 0;
   display: flex;
@@ -367,8 +378,6 @@ kbd {
   -webkit-app-region: drag;
 }
 
-  /* Its parts adapt to its width (see the end of the status chips). */
-  container: topbar / inline-size;
 /* With the sidebar hidden, the window buttons sit over the toolbar. */
 .sidebar-hidden .topbar {
   padding-left: 80px;
@@ -430,15 +439,6 @@ kbd {
   height: 10px;
 }
 
-/* Sidebar */
-
-.sidebar {
-  position: relative;
-  width: var(--sidebar-width);
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 0 6px 6px;
 /*
  * The top bar gives way as the chat narrows, so its buttons always fit and the
  * title keeps what room is left: the project name and the chips' words go
@@ -469,6 +469,15 @@ kbd {
   }
 }
 
+/* Sidebar */
+
+.sidebar {
+  position: relative;
+  width: var(--sidebar-width);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 6px 6px;
   border-right: 1px solid var(--border);
 }
 
@@ -3458,8 +3467,13 @@ img.project-icon {
 }
 
 /* The page's corners match PAGE_RADIUS in browser.ts; the glass shows around them. */
+/* A page an agent set to a smaller size than the panel sits in its middle (main/browser.ts). */
 .browser-viewport {
   flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
 }
 
 /* The page's picture while a popup covers it, where the page was; the view itself is parked. */
@@ -3516,13 +3530,8 @@ img.project-icon {
   gap: 4px;
   padding: 0 8px;
 }
-/* A page an agent set to a smaller size than the panel sits in its middle (main/browser.ts). */
 
 .code-branch {
-  min-height: 0;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
   min-width: 0;
   height: 30px;
   display: flex;
@@ -4428,45 +4437,121 @@ img.project-icon {
   min-height: 0;
   overflow-y: auto;
   width: 100%;
-  max-width: 600px;
+  max-width: 660px;
   margin: 0 auto;
-  padding: 28px 22px;
+  padding: 36px 24px 48px;
 }
 
 .settings h2 {
-  margin: 0 0 16px;
-  font-size: 20px;
-  font-weight: 600;
+  margin: 0 0 22px;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
 }
 
+/* A sheet per section (SettingsCard): tile, title and switch on top, the rest under the title. */
 .settings-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 16px 18px;
-  background: var(--card);
-  box-shadow: var(--card-edge);
-  border-radius: var(--radius-lg);
+  gap: 12px;
+  padding: 16px 18px 18px;
+  background: var(--sheet);
+  box-shadow: var(--sheet-edge);
+  border-radius: 14px;
 }
 
 .settings-card + .settings-card {
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
-.settings-card h3 {
+.settings-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-card-head h3 {
+  flex: 1;
+  min-width: 0;
   margin: 0;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* The tile: a white glyph on a solid color, lit along its top edge like glass. */
+.settings-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  color: #ffffff;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--tile) 78%, #ffffff),
+    var(--tile) 60%
+  );
+  border-radius: 8px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 0 0 0.5px rgba(0, 0, 0, 0.18);
+}
+
+.settings-icon svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 2.1;
+}
+
+.tone-indigo {
+  --tile: #5856d6;
+}
+.tone-orange {
+  --tile: #f08a00;
+}
+.tone-pink {
+  --tile: #f2305a;
+}
+.tone-red {
+  --tile: #e5352b;
+}
+.tone-purple {
+  --tile: #a248db;
+}
+.tone-blue {
+  --tile: #0a7cf0;
+}
+.tone-green {
+  --tile: #25a244;
+}
+.tone-teal {
+  --tile: #0098b8;
+}
+.tone-gray {
+  --tile: #7c7c82;
+}
+
+/* Lines up with the title, past the tile. */
+.settings-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-left: 42px;
 }
 
 .settings-card p {
   margin: 0;
   color: var(--text-soft);
+  font-size: 13px;
   line-height: 1.55;
 }
 
 .settings-card code {
   padding: 1px 5px;
+  color: var(--text);
+  font-size: 12px;
   background: var(--code-bg);
   border-radius: var(--radius-sm);
 }
@@ -4476,9 +4561,57 @@ img.project-icon {
   gap: 8px;
 }
 
-.settings-switch {
-  align-self: flex-start;
-  width: 160px;
+.settings-label {
+  color: var(--text);
+  font-weight: 650;
+}
+
+/*
+ * The switch, as macOS 26 draws it: a capsule track filled with the accent when
+ * on, and a white knob that stretches into a lozenge while held.
+ */
+.switch {
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 24px;
+  background: color-mix(in srgb, var(--text) 15%, transparent);
+  border-radius: var(--radius-pill);
+  box-shadow: inset 0 0 0 0.5px var(--border);
+  transition: background var(--fast) ease;
+}
+
+.switch[aria-checked='true'] {
+  background: var(--accent);
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+}
+
+.switch > span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: #ffffff;
+  border-radius: var(--radius-pill);
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.12),
+    0 1px 2px rgba(0, 0, 0, 0.2);
+  transition:
+    left var(--move) var(--spring),
+    width var(--move) var(--spring);
+}
+
+.switch[aria-checked='true'] > span {
+  left: 18px;
+}
+
+.switch:active > span {
+  width: 26px;
+}
+
+.switch[aria-checked='true']:active > span {
+  left: 12px;
 }
 
 /* The voice's download (SpeechCard): a bar, how far it is, and Cancel. */
@@ -4586,7 +4719,7 @@ img.project-icon {
 }
 
 .provider-row-name {
-  font-weight: 500;
+  font-weight: 650;
 }
 
 .provider-row-detail {
@@ -4618,8 +4751,9 @@ img.project-icon {
 }
 
 .provider-field > span {
-  color: var(--text-soft);
-  font-size: 12.5px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .provider-field > input,
@@ -4729,6 +4863,7 @@ button,
 
 .btn:active:not(:disabled),
 .label-btn:active:not(:disabled),
+.viewport-chip:active,
 .panel-tab:active {
   transform: scale(1.05);
 }
@@ -4768,6 +4903,7 @@ button,
 .btn,
 .icon-btn,
 .label-btn,
+.viewport-chip,
 .send-button,
 .panel-tab,
 .segmented button,
@@ -4789,6 +4925,7 @@ button,
 .btn::after,
 .icon-btn::after,
 .label-btn::after,
+.viewport-chip::after,
 .send-button::after,
 .panel-tab::after,
 .segmented button::after,
@@ -4824,6 +4961,7 @@ button,
 .btn:active:not(:disabled)::after,
 .icon-btn:active:not(:disabled)::after,
 .label-btn:active:not(:disabled)::after,
+.viewport-chip:active::after,
 .send-button:active:not(:disabled)::after,
 .panel-tab:active::after,
 .segmented button:active::after,
@@ -4892,7 +5030,6 @@ button,
  * little behind it, so it reads as one sheet leaving.
  */
 .sidebar {
-.viewport-chip:active,
   transition:
     margin-left var(--move) var(--ease),
     visibility 0s linear 0s;
@@ -4932,7 +5069,6 @@ button,
 /* A title the agent just gave the chat. */
 .topbar-name.changed {
   animation: appear var(--move) var(--ease) both;
-.viewport-chip,
 }
 
 .status-chip,
@@ -4954,7 +5090,6 @@ button,
   transform-origin: top left;
   animation-name: pop-down;
 }
-.viewport-chip::after,
 
 .menu {
   transform-origin: top right;
@@ -4990,7 +5125,6 @@ button,
   transform-origin: top center;
   animation: pop-down var(--move) var(--ease) both;
 }
-.viewport-chip:active::after,
 
 @keyframes fade-in {
   from {

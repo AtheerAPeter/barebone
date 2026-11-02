@@ -266,3 +266,39 @@ export const PauseIcon = (p: IconProps): React.JSX.Element => (
     <rect x="14" y="5" width="4" height="14" rx="1.2" />
   </Icon>
 )
+export const ServerIcon = (p: IconProps): React.JSX.Element => (
+  <Icon {...p}>
+    <rect x="4" y="4" width="16" height="7" rx="2" />
+    <rect x="4" y="13" width="16" height="7" rx="2" />
+    <path d="M8 7.5h.01M8 16.5h.01" />
+  </Icon>
+)
+export const TextIcon = (p: IconProps): React.JSX.Element => (
+  <Icon {...p}>
+    <path d="M5 6h14M5 10h14M5 14h14M5 18h8" />
+  </Icon>
+)
+export const VideoIcon = (p: IconProps): React.JSX.Element => (
+  <Icon {...p}>
+    <rect x="3" y="6" width="13" height="12" rx="2" />
+    <path d="m16 10.5 5-3v9l-5-3" />
+  </Icon>
+)
+export const RouteIcon = (p: IconProps): React.JSX.Element => (
+  <Icon {...p}>
+    <circle cx="6" cy="18" r="2.5" />
+    <circle cx="18" cy="6" r="2.5" />
+    <path d="M8.5 18H15a3.5 3.5 0 0 0 0-7H9a3.5 3.5 0 0 1 0-7h6.5" />
+  </Icon>
+)
+export const SpeakerIcon = (p: IconProps): React.JSX.Element => (
+  <Icon {...p}>
+    <path d="M4 9.5h3.5L12 5v14l-4.5-4.5H4z" />
+    <path d="M15.5 9a4.5 4.5 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11" />
+  </Icon>
+)
+export const DownloadIcon = (p: IconProps): React.JSX.Element => (
+  <Icon {...p}>
+    <path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14" />
+  </Icon>
+)

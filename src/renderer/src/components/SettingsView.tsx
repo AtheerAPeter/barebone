@@ -1,8 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { SpeechStatus } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
 import { useUpdateInstall } from '../lib/update'
+import {
+  DownloadIcon,
+  MicIcon,
+  PencilIcon,
+  RouteIcon,
+  SearchIcon,
+  SpeakerIcon,
+  TextIcon,
+  VideoIcon
+} from './icons'
 import { ProvidersCard } from './ProvidersCard'
+import { SettingsCard, Switch, type SettingsTone } from './SettingsCard'
 
 /**
  * `instructions`: the saved custom instructions.
@@ -35,8 +46,7 @@ export function SettingsView({
       <AnnotationsCard on={annotations} />
       <RecordingCard on={recording} />
       <CodeToursCard on={codeTours} />
-      <section className="settings-card">
-        <h3>Web search</h3>
+      <SettingsCard icon={<SearchIcon />} tone="blue" title="Web search">
         <p>
           Chats on the app&apos;s own agent (Custom providers, OpenCode API, Cline API and Command
           Code API) search the web with Exa, as opencode does. Searches work without a key on
@@ -44,9 +54,8 @@ export function SettingsView({
           use your Exa account.
         </p>
         <KeyForm label="Exa API key" saved={window.api.exa} />
-      </section>
-      <section className="settings-card">
-        <h3>Voice input</h3>
+      </SettingsCard>
+      <SettingsCard icon={<MicIcon />} tone="green" title="Voice input">
         <p>
           Hold the microphone button in the composer, or the right ⌘ key, while you speak. When you
           let go, Whisper on Groq writes out what you said in the language you spoke, such as
@@ -55,7 +64,7 @@ export function SettingsView({
           <code>console.groq.com</code>.
         </p>
         <KeyForm label="Groq API key" saved={window.api.voice} />
-      </section>
+      </SettingsCard>
       <SpeechCard on={speech} />
       <UpdatesCard />
     </div>
@@ -144,8 +153,7 @@ function InstructionsCard({ saved }: { saved: string }): React.JSX.Element {
   }
 
   return (
-    <section className="settings-card">
-      <h3>Custom instructions</h3>
+    <SettingsCard icon={<TextIcon />} tone="orange" title="Custom instructions">
       <p>
         Added to the system prompt of every new chat on the app&apos;s own agent (Custom providers,
         OpenCode API, Cline API and Command Code API) and of the subagents it starts, before the
@@ -173,19 +181,25 @@ function InstructionsCard({ saved }: { saved: string }): React.JSX.Element {
         </div>
       </form>
       {error && <div className="msg-error">{error}</div>}
-    </section>
+    </SettingsCard>
   )
 }
 
-/** An Off/On switch for a setting main keeps, with what went wrong saving it. */
-function OnOffSwitch({
-  label,
+/** A card whose switch turns a setting main keeps on or off, with what went wrong saving it. */
+function ToggleCard({
+  icon,
+  tone,
+  title,
   on,
-  save
+  save,
+  children
 }: {
-  label: string
+  icon: ReactNode
+  tone: SettingsTone
+  title: string
   on: boolean
   save: (on: boolean) => Promise<void>
+  children: ReactNode
 }): React.JSX.Element {
   const [error, setError] = useState<string>()
 
@@ -199,25 +213,28 @@ function OnOffSwitch({
   }
 
   return (
-    <>
-      <div className="segmented settings-switch" role="group" aria-label={label}>
-        <button type="button" className={on ? '' : 'on'} onClick={() => set(false)}>
-          Off
-        </button>
-        <button type="button" className={on ? 'on' : ''} onClick={() => set(true)}>
-          On
-        </button>
-      </div>
+    <SettingsCard
+      icon={icon}
+      tone={tone}
+      title={title}
+      action={<Switch label={title} on={on} onChange={set} />}
+    >
+      {children}
       {error && <div className="msg-error">{error}</div>}
-    </>
+    </SettingsCard>
   )
 }
 
 /** Whether agents get the browser tools that draw on pages, and the skill that teaches with them. */
 function AnnotationsCard({ on }: { on: boolean }): React.JSX.Element {
   return (
-    <section className="settings-card">
-      <h3>Drawing on pages</h3>
+    <ToggleCard
+      icon={<PencilIcon />}
+      tone="pink"
+      title="Drawing on pages"
+      on={on}
+      save={window.api.setAnnotations}
+    >
       <p>
         Gives every agent browser tools that draw on the page in the browser panel (boxes and arrows
         with labels, a pointer, and a caption card) and wait for your clicks. Agents use them to
@@ -225,16 +242,20 @@ function AnnotationsCard({ on }: { on: boolean }): React.JSX.Element {
         Turned off, the tools and the skill stay out of the chats&apos; context. A change applies to
         chats started after it.
       </p>
-      <OnOffSwitch label="Drawing on pages" on={on} save={window.api.setAnnotations} />
-    </section>
+    </ToggleCard>
   )
 }
 
 /** Whether agents get the browser tools that record a tab as a video. */
 function RecordingCard({ on }: { on: boolean }): React.JSX.Element {
   return (
-    <section className="settings-card">
-      <h3>Recording videos</h3>
+    <ToggleCard
+      icon={<VideoIcon />}
+      tone="red"
+      title="Recording videos"
+      on={on}
+      save={window.api.setRecording}
+    >
       <p>
         Gives every agent browser tools that record a tab of the browser panel as an MP4 video, for
         when you ask for a demo or a walkthrough. The video shows the page as you see it, with what
@@ -242,16 +263,20 @@ function RecordingCard({ on }: { on: boolean }): React.JSX.Element {
         signed in to your accounts, so what a page shows is in the video. A change applies to chats
         started after it.
       </p>
-      <OnOffSwitch label="Recording videos" on={on} save={window.api.setRecording} />
-    </section>
+    </ToggleCard>
   )
 }
 
 /** Whether agents get the walkthrough tool, which walks the user through code in the code panel. */
 function CodeToursCard({ on }: { on: boolean }): React.JSX.Element {
   return (
-    <section className="settings-card">
-      <h3>Code walkthroughs</h3>
+    <ToggleCard
+      icon={<RouteIcon />}
+      tone="purple"
+      title="Code walkthroughs"
+      on={on}
+      save={window.api.setCodeTours}
+    >
       <p>
         Gives every agent a tool that walks you through code in the code panel: how a feature works,
         where data goes, or what your uncommitted changes do. The agent plans the whole route, and
@@ -261,8 +286,7 @@ function CodeToursCard({ on }: { on: boolean }): React.JSX.Element {
         the chats&apos; context; source control in the panel works either way. A change applies to
         chats started after it.
       </p>
-      <OnOffSwitch label="Code walkthroughs" on={on} save={window.api.setCodeTours} />
-    </section>
+    </ToggleCard>
   )
 }
 
@@ -310,29 +334,23 @@ function SpeechCard({ on }: { on: boolean }): React.JSX.Element {
   }
 
   return (
-    <section className="settings-card">
-      <h3>Spoken messages</h3>
+    <SettingsCard
+      icon={<SpeakerIcon />}
+      tone="teal"
+      title="Spoken messages"
+      action={
+        <Switch
+          label="Spoken messages"
+          on={on}
+          onChange={(value) => run(() => window.api.speech.set(value))}
+        />
+      }
+    >
       <p>
         Agents can say things out loud, such as when they need you or finish a long task, in a
         natural voice that runs on this Mac: Arabic, English, German and 28 more languages. The
         voice (Supertonic 3) is downloaded once{status ? `, ${megabytes(status.total)}` : ''}.
       </p>
-      <div className="segmented settings-switch" role="group" aria-label="Spoken messages">
-        <button
-          type="button"
-          className={on ? '' : 'on'}
-          onClick={() => run(() => window.api.speech.set(false))}
-        >
-          Off
-        </button>
-        <button
-          type="button"
-          className={on ? 'on' : ''}
-          onClick={() => run(() => window.api.speech.set(true))}
-        >
-          On
-        </button>
-      </div>
       {status?.state === 'downloading' && (
         <div className="speech-download">
           <div className="speech-progress">
@@ -373,7 +391,7 @@ function SpeechCard({ on }: { on: boolean }): React.JSX.Element {
       )}
       {status?.state === 'ready' && (
         <div className="settings-row speech-ready">
-          <span>Hear it:</span>
+          <span className="settings-label">Hear it</span>
           {SAMPLES.map((sample) => (
             <button
               key={sample.language}
@@ -395,7 +413,7 @@ function SpeechCard({ on }: { on: boolean }): React.JSX.Element {
         </div>
       )}
       {error && <div className="msg-error">{error}</div>}
-    </section>
+    </SettingsCard>
   )
 }
 
@@ -428,8 +446,7 @@ function UpdatesCard(): React.JSX.Element {
   }
 
   return (
-    <section className="settings-card">
-      <h3>Updates</h3>
+    <SettingsCard icon={<DownloadIcon />} tone="gray" title="Updates">
       <p>
         {newer
           ? `Version ${newer} is out. Updating quits Barebone, installs it and opens it again.`
@@ -458,6 +475,6 @@ function UpdatesCard(): React.JSX.Element {
         </button>
       </div>
       {(error ?? update.error) && <div className="msg-error">{error ?? update.error}</div>}
-    </section>
+    </SettingsCard>
   )
 }
