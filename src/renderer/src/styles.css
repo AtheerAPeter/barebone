@@ -17,17 +17,25 @@
 :root {
   /* Text on the accent is white; --accent-text is the shade readable as text. */
   --accent: #2f6fed;
+  /* Filled controls darken a step on hover; opacity would wash the label out. */
+  --accent-hover: #245fdc;
   --accent-text: #1f56c9;
   --accent-soft: rgba(47, 111, 237, 0.12);
   --accent-ring: rgba(47, 111, 237, 0.25);
-  /* The halo around a focused field. */
-  --focus-ring: rgba(0, 0, 0, 0.06);
+  /*
+   * Focus: a halo for fields and a ring for what the keyboard lands on. Both
+   * are accent-tinted and clear the 3:1 a focus indicator needs, where a veil
+   * of black went unseen on glass.
+   */
+  --focus-ring: rgba(47, 111, 237, 0.16);
+  --focus: var(--accent-text);
   --on-accent: #ffffff;
 
   --text: #0d0d0d;
   --text-soft: #5d5d5d;
-  --text-muted: #8f8f8f;
-  --placeholder: #8f8f8f;
+  /* 4.6:1 on white: quiet, but still readable at 12–13px. */
+  --text-muted: #737373;
+  --placeholder: #737373;
   --border: rgba(0, 0, 0, 0.1);
   --border-strong: rgba(0, 0, 0, 0.2);
   --danger: #d92d20;
@@ -114,7 +122,8 @@
   --strip: rgba(255, 255, 255, 0.55);
   --strip-edge: 0 0 0 1px var(--border), inset 0 1px 0 rgba(255, 255, 255, 0.7);
   --ask-bg: rgba(255, 255, 255, 0.72);
-  --ask-glow: 0 0 0 1px rgba(47, 111, 237, 0.5), 0 8px 24px -10px rgba(47, 111, 237, 0.3);
+  /* Inset, so the ring survives the group's clipping while the card animates open. */
+  --ask-glow: inset 0 0 0 1px rgba(47, 111, 237, 0.45), 0 8px 24px -10px rgba(47, 111, 237, 0.3);
 
   /* The user's messages: pills of blue-tinted glass. */
   --bubble: rgba(47, 111, 237, 0.16);
@@ -147,10 +156,12 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --accent: #3c66bf;
+    --accent-hover: #4a75cf;
     --accent-text: #8ab0ff;
     --accent-soft: rgba(60, 102, 191, 0.2);
     --accent-ring: rgba(60, 102, 191, 0.35);
-    --focus-ring: rgba(255, 255, 255, 0.08);
+    --focus-ring: rgba(138, 176, 255, 0.2);
+    --focus: var(--accent-text);
 
     --text: #ededed;
     --text-soft: #afafaf;
@@ -218,11 +229,36 @@
     --strip: rgba(255, 255, 255, 0.05);
     --strip-edge: 0 0 0 1px var(--border), inset 0 1px 0 rgba(255, 255, 255, 0.06);
     --ask-bg: rgba(255, 255, 255, 0.07);
-    --ask-glow: 0 0 0 1px rgba(60, 102, 191, 0.6);
+    --ask-glow: inset 0 0 0 1px rgba(138, 176, 255, 0.4), 0 8px 24px -10px rgba(0, 0, 0, 0.5);
 
     --bubble: rgba(60, 102, 191, 0.6);
     --bubble-text: #ffffff;
     color-scheme: dark;
+  }
+}
+
+/*
+ * macOS's Increase contrast setting (Settings → Accessibility → Display). The
+ * same layout, with quieter type pulled up and hairlines made to read as lines.
+ */
+@media (prefers-contrast: more) {
+  :root {
+    --text-soft: #3c3c3c;
+    --text-muted: #545454;
+    --placeholder: #545454;
+    --border: rgba(0, 0, 0, 0.24);
+    --border-strong: rgba(0, 0, 0, 0.45);
+    --focus-ring: rgba(47, 111, 237, 0.3);
+  }
+}
+
+@media (prefers-contrast: more) and (prefers-color-scheme: dark) {
+  :root {
+    --text-soft: #d4d4d4;
+    --text-muted: #b8b8b8;
+    --placeholder: #b8b8b8;
+    --border: rgba(255, 255, 255, 0.24);
+    --border-strong: rgba(255, 255, 255, 0.45);
   }
 }
 
@@ -256,10 +292,19 @@ button {
   cursor: default;
 }
 
-/* Keyboard focus: a neutral ring, so it never reads as a status color. */
-button:focus-visible {
-  outline: 2px solid var(--border-strong);
+/*
+ * Keyboard focus: one accent ring for every control the keyboard can reach,
+ * drawn just outside it so it stays clear on glass, fills and color. Text
+ * fields keep their own halo (see :focus below); this never means status.
+ */
+:where(button, a, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
+}
+
+/* Text picked with the mouse or the keyboard reads as the accent, not the OS blue. */
+::selection {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
 }
 
 input,
@@ -342,7 +387,11 @@ kbd {
   }
 }
 
-/* Layout: three regions edge to edge, divided by hairlines */
+/*
+ * Layout: three regions edge to edge, as in a macOS split view. Adjacent panes
+ * are flush and tell each other apart by material alone — the sidebar keeps
+ * the window's glass, the chat tints it — with no rule or shadow between them.
+ */
 
 .app {
   display: flex;
@@ -392,7 +441,8 @@ kbd {
   min-width: 0;
   padding: 0 6px;
   font-size: 16px;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: -0.015em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -478,7 +528,6 @@ kbd {
   display: flex;
   flex-direction: column;
   padding: 0 6px 6px;
-  border-right: 1px solid var(--border);
 }
 
 /* The sidebar's right edge: dragged, it resizes the sidebar. */
@@ -571,6 +620,8 @@ kbd {
   gap: 10px;
   height: 36px;
   padding: 0 10px;
+  font-weight: 500;
+  letter-spacing: -0.006em;
   text-align: left;
   border-radius: var(--radius);
 }
@@ -605,12 +656,16 @@ kbd {
   gap: 6px;
   width: 100%;
   padding: 16px 10px 6px;
-  color: var(--text-muted);
+  color: var(--text-soft);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.006em;
   text-align: left;
 }
 
 .side-label b {
-  font-weight: 400;
+  color: var(--text-muted);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
@@ -732,6 +787,8 @@ kbd {
 }
 
 .profile-name {
+  font-weight: 600;
+  letter-spacing: -0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -863,7 +920,7 @@ img.project-icon {
 }
 
 .chat-row.lead .chat-title {
-  font-weight: 500;
+  font-weight: 600;
 }
 
 /* How many of the chats it started are working, of all of them. */
@@ -1008,7 +1065,8 @@ img.project-icon {
 
 .chat-row.card .chat-title {
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: -0.012em;
 }
 
 .card-foot .agent-logo {
@@ -1130,13 +1188,26 @@ img.project-icon {
   border-radius: var(--radius);
 }
 
-/* Along the top of the window they sit in glass circles, as in macOS 26's toolbars. */
+/*
+ * The toolbar's buttons, and the theme toggle beside the profile, are glyphs
+ * first, as in macOS toolbars: a faint veil at rest keeps them legible over a
+ * wallpaper, and the full glass circle and its rim arrive only under the
+ * pointer, on focus, or when on.
+ */
 .sidebar-top .icon-btn,
 .topbar .icon-btn,
-.panel-toolbar .icon-btn {
-  background: var(--glass);
-  box-shadow: var(--glass-rim);
+.panel-toolbar .icon-btn,
+.profile-row .icon-btn {
+  background: color-mix(in srgb, var(--glass) 45%, transparent);
   border-radius: 50%;
+}
+
+.sidebar-top .icon-btn:is(:hover, :focus-visible, .on),
+.topbar .icon-btn:is(:hover, :focus-visible, .on),
+.panel-toolbar .icon-btn:is(:hover, :focus-visible, .on),
+.profile-row .icon-btn:is(:hover, :focus-visible, .on) {
+  background: var(--glass-strong);
+  box-shadow: var(--glass-rim);
 }
 
 .icon-btn.small {
@@ -1210,8 +1281,7 @@ img.project-icon {
 }
 
 .btn.primary:hover:not(:disabled) {
-  background: var(--accent);
-  opacity: 0.88;
+  background: var(--accent-hover);
 }
 
 .btn:disabled {
@@ -1271,7 +1341,8 @@ img.project-icon {
   margin: 8px 0 0;
   color: var(--text);
   font-size: 24px;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: -0.015em;
 }
 
 .welcome p {
@@ -1337,8 +1408,8 @@ img.project-icon {
   margin: 0;
   color: var(--text);
   font-size: 28px;
-  font-weight: 400;
-  letter-spacing: -0.01em;
+  font-weight: 600;
+  letter-spacing: -0.025em;
 }
 
 /* The user's message: a pill on the right, set apart from the turn before. */
@@ -2020,12 +2091,22 @@ img.project-icon {
   margin-top: 4px;
 }
 
+/* Prose breaks lines more evenly than a greedy wrap: no two-word last lines. */
+.markdown :is(p, li) {
+  text-wrap: pretty;
+}
+
+.markdown :is(h1, h2, h3) {
+  text-wrap: balance;
+}
+
 .markdown h1,
 .markdown h2,
 .markdown h3 {
   margin: 24px 0 10px;
-  font-weight: 600;
-  line-height: 1.4;
+  font-weight: 650;
+  letter-spacing: -0.012em;
+  line-height: 1.35;
 }
 
 .markdown h1 {
@@ -2049,13 +2130,47 @@ img.project-icon {
   text-decoration-color: var(--accent);
   text-decoration-thickness: 1.5px;
   text-underline-offset: 3px;
+  border-radius: 2px;
+  transition:
+    color var(--fast) ease,
+    text-decoration-color var(--fast) ease;
+}
+
+.markdown a:hover {
+  color: var(--accent-text);
+  text-decoration-color: currentColor;
+}
+
+/* A quote hangs off an accent hairline; a rule is a hairline with room. */
+.markdown blockquote {
+  margin: 0 0 14px;
+  padding: 2px 0 2px 14px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-soft);
+}
+
+.markdown hr {
+  margin: 22px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.markdown img {
+  max-width: 100%;
+  border-radius: var(--radius);
+}
+
+.markdown del {
+  color: var(--text-muted);
 }
 
 .markdown code {
-  padding: 2px 5px;
+  padding: 2px 6px;
   background: var(--code-bg);
   font-size: 0.875em;
   border-radius: var(--radius-sm);
+  /* A long path or identifier wraps instead of running out of the bubble. */
+  overflow-wrap: anywhere;
 }
 
 .markdown pre {
@@ -2064,6 +2179,7 @@ img.project-icon {
   box-shadow: inset 0 0 0 1px var(--border);
   overflow-x: auto;
   line-height: 1.6;
+  tab-size: 2;
   border-radius: var(--radius-lg);
 }
 
@@ -2085,12 +2201,20 @@ img.project-icon {
 
 .markdown th {
   font-weight: 600;
+  text-align: left;
+  /* A quiet header band separates the labels from the values without a glyph. */
+  background: var(--fill);
+}
+
+.markdown tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--fill) 45%, transparent);
 }
 
 .markdown th,
 .markdown td {
   border: 1px solid var(--border);
-  padding: 6px 10px;
+  padding: 7px 12px;
+  vertical-align: top;
   /* Cells wrap normally; the table scrolls when it is still too wide. */
   overflow-wrap: normal;
   min-width: 6ch;
@@ -2289,6 +2413,20 @@ img.project-icon {
     box-shadow 0.2s,
     transform var(--flex) var(--spring);
   border-radius: var(--radius-xl);
+}
+
+/*
+ * Writing focuses the whole pill, as in ChatGPT: a quiet accent halo around
+ * the glass rather than a ring inside it. The caret takes the accent too.
+ */
+.composer:focus-within {
+  box-shadow:
+    var(--composer-edge),
+    0 0 0 3px var(--focus-ring);
+}
+
+.composer textarea {
+  caret-color: var(--accent);
 }
 
 .composer.expanded {
@@ -2685,7 +2823,7 @@ img.project-icon {
 }
 
 .send-button:hover:not(:disabled) {
-  opacity: 0.88;
+  background: var(--accent-hover);
 }
 
 /* Blue even before there is something to send, as ChatGPT's button is; dimmed until then. */
@@ -4275,7 +4413,8 @@ img.project-icon {
 .skills-header h2 {
   margin: 0;
   font-size: 16px;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: -0.015em;
 }
 
 .section-label {
@@ -4436,10 +4575,16 @@ img.project-icon {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Scrolls like the sidebar: the track is never drawn, the cards are the page. */
+  scrollbar-width: none;
   width: 100%;
   max-width: 660px;
   margin: 0 auto;
   padding: 36px 24px 48px;
+}
+
+.settings::-webkit-scrollbar {
+  display: none;
 }
 
 .settings h2 {

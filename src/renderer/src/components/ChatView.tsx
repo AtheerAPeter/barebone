@@ -405,6 +405,7 @@ function AnswerActions({ text }: { text: string }): React.JSX.Element {
       <button
         className="icon-btn"
         title={copied ? 'Copied' : 'Copy'}
+        aria-label={copied ? 'Copied' : 'Copy answer'}
         onClick={async () => {
           await navigator.clipboard.writeText(text)
           setCopied(true)

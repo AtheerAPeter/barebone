@@ -1,7 +1,54 @@
-import type { SVGProps } from 'react'
+import type { ComponentType, SVGProps } from 'react'
+import {
+  IconAlignLeft,
+  IconArrowBackUp,
+  IconArrowUp,
+  IconArrowsExchange,
+  IconBook,
+  IconCheck,
+  IconChevronDown,
+  IconChevronLeft,
+  IconChevronRight,
+  IconClock,
+  IconCopy,
+  IconDeviceMobile,
+  IconDotsVertical,
+  IconDownload,
+  IconFile,
+  IconFileDiff,
+  IconFolder,
+  IconFolderPlus,
+  IconGauge,
+  IconGitBranch,
+  IconLayoutSidebar,
+  IconLock,
+  IconMessage,
+  IconMicrophone,
+  IconMinus,
+  IconMoon,
+  IconPencil,
+  IconPlayerPause,
+  IconPlayerPlay,
+  IconPlus,
+  IconRefresh,
+  IconRoute,
+  IconSearch,
+  IconServer,
+  IconShield,
+  IconSquareFilled,
+  IconSun,
+  IconTerminal2,
+  IconTool,
+  IconTrash,
+  IconVideo,
+  IconVolume,
+  IconWorld,
+  IconX
+} from '@tabler/icons-react'
 
 type IconProps = SVGProps<SVGSVGElement>
 
+/** The glyphs Tabler has no match for (the orb, the chat tree), on the same grid. */
 function Icon({ children, ...props }: IconProps): React.JSX.Element {
   return (
     <svg
@@ -21,116 +68,40 @@ function Icon({ children, ...props }: IconProps): React.JSX.Element {
   )
 }
 
-export const PlusIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M12 5v14M5 12h14" />
-  </Icon>
-)
-export const FolderIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-  </Icon>
-)
-export const ChevronIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="m9 6 6 6-6 6" />
-  </Icon>
-)
-export const CloseIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M18 6 6 18M6 6l12 12" />
-  </Icon>
-)
-export const GlobeIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <circle cx="12" cy="12" r="9" />
-    <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
-  </Icon>
-)
-export const BackIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="m15 18-6-6 6-6" />
-  </Icon>
-)
-export const ForwardIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="m9 18 6-6-6-6" />
-  </Icon>
-)
-export const ReloadIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" />
-  </Icon>
-)
-export const SendIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M12 19V5M5 12l7-7 7 7" />
-  </Icon>
-)
-export const StopIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <rect x="7" y="7" width="10" height="10" rx="1" fill="currentColor" stroke="none" />
-  </Icon>
-)
-export const MicIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <rect x="9" y="3" width="6" height="11" rx="3" />
-    <path d="M19 11a7 7 0 0 1-14 0M12 18v3" />
-  </Icon>
-)
-export const BookIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z" />
-    <path d="M4 19V5M8 7h7" />
-  </Icon>
-)
-export const TrashIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" />
-  </Icon>
-)
-export const TerminalIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
-    <path d="m8 10 2.5 2.5L8 15M13 15h3" />
-  </Icon>
-)
-export const PencilIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z" />
-    <path d="m13.5 6.5 4 4" />
-  </Icon>
-)
-export const WrenchIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M19.45 7.39A3.5 3.5 0 1 1 16.61 4.55" />
-    <path d="M13.53 10.47 5 19" />
-  </Icon>
-)
-export const DiffIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <rect x="4" y="4" width="16" height="16" rx="2" />
-    <path d="M12 7.5v6M9 10.5h6M9 16.5h6" />
-  </Icon>
-)
-export const GaugeIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M4.5 17a8.5 8.5 0 1 1 15 0" />
-    <path d="m12 14 3.5-4" />
-  </Icon>
-)
-export const ShieldIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M12 3 5 6v6c0 4.2 3 7.6 7 9 4-1.4 7-4.8 7-9V6z" />
-    <path d="m9 12 2 2 4-4" />
-  </Icon>
-)
-export const SidebarIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <rect x="3" y="4" width="18" height="16" rx="2" />
-    <path d="M9 4v16" />
-  </Icon>
-)
+/**
+ * Tabler draws on the same 24-unit grid the interface was drawn on, so its
+ * glyphs drop in at 16px. Pinning the 1.8 stroke here keeps them the same
+ * weight as the few hand-drawn marks beside them; call sites can still pass
+ * their own size (pick chevrons, the 28px settings tiles) and className.
+ */
+type TablerProps = SVGProps<SVGSVGElement> & { size?: number | string; stroke?: number | string }
+
+function fromTabler(Source: ComponentType<TablerProps>): (p: IconProps) => React.JSX.Element {
+  const Wrapped = (p: IconProps): React.JSX.Element => <Source size={16} stroke="1.8" {...p} />
+  Wrapped.displayName = Source.displayName ?? 'TablerIcon'
+  return Wrapped
+}
+
+export const PlusIcon = fromTabler(IconPlus)
+export const FolderIcon = fromTabler(IconFolder)
+export const ChevronIcon = fromTabler(IconChevronRight)
+export const CloseIcon = fromTabler(IconX)
+export const GlobeIcon = fromTabler(IconWorld)
+export const BackIcon = fromTabler(IconChevronLeft)
+export const ForwardIcon = fromTabler(IconChevronRight)
+export const ReloadIcon = fromTabler(IconRefresh)
+export const SendIcon = fromTabler(IconArrowUp)
+export const StopIcon = fromTabler(IconSquareFilled)
+export const MicIcon = fromTabler(IconMicrophone)
+export const BookIcon = fromTabler(IconBook)
+export const TrashIcon = fromTabler(IconTrash)
+export const TerminalIcon = fromTabler(IconTerminal2)
+export const PencilIcon = fromTabler(IconPencil)
+export const WrenchIcon = fromTabler(IconTool)
+export const DiffIcon = fromTabler(IconFileDiff)
+export const GaugeIcon = fromTabler(IconGauge)
+export const ShieldIcon = fromTabler(IconShield)
+export const SidebarIcon = fromTabler(IconLayoutSidebar)
 /** A window with a dot in its corner: the chat folded into the agent orb over the browser. */
 export const OrbIcon = (p: IconProps): React.JSX.Element => (
   <Icon {...p}>
@@ -138,86 +109,28 @@ export const OrbIcon = (p: IconProps): React.JSX.Element => (
     <circle cx="8" cy="15" r="2" fill="currentColor" stroke="none" />
   </Icon>
 )
-export const SunIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <circle cx="12" cy="12" r="4" />
-    <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-  </Icon>
-)
-export const MoonIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" />
-  </Icon>
-)
-export const FileIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M6 3h8l4 4v14H6z" />
-    <path d="M14 3v4h4" />
-  </Icon>
-)
-export const LockIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <rect x="5" y="11" width="14" height="9" rx="1.5" />
-    <path d="M8 11V8a4 4 0 0 1 8 0v3" />
-  </Icon>
-)
-/** Two overlapping pages: copy. */
-export const CopyIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <rect x="9" y="9" width="11" height="11" rx="2" />
-    <path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" />
-  </Icon>
-)
-export const SearchIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <circle cx="11" cy="11" r="6.5" />
-    <path d="m20 20-4.2-4.2" />
-  </Icon>
-)
-export const ChatIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
-  </Icon>
-)
-/** A pen over a page: start a new chat. */
+export const SunIcon = fromTabler(IconSun)
+export const MoonIcon = fromTabler(IconMoon)
+export const FileIcon = fromTabler(IconFile)
+export const LockIcon = fromTabler(IconLock)
+export const CopyIcon = fromTabler(IconCopy)
+export const SearchIcon = fromTabler(IconSearch)
+export const ChatIcon = fromTabler(IconMessage)
+/** A pen over a page: start a new chat. Kept hand-drawn: Tabler's file-pencil reads as a document, not a new chat. */
 export const ComposeIcon = (p: IconProps): React.JSX.Element => (
   <Icon {...p}>
     <path d="M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6" />
     <path d="M18.4 3.6a2 2 0 0 1 2.9 2.9L12.5 15.3 9 16l.7-3.5z" />
   </Icon>
 )
-export const FolderPlusIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-    <path d="M12 10.5v5M9.5 13h5" />
-  </Icon>
-)
+export const FolderPlusIcon = fromTabler(IconFolderPlus)
 /** The chevron after a picker's value, as in ChatGPT's "Instant ⌄". */
-export const ChevronDownIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="m6 9 6 6 6-6" />
-  </Icon>
-)
-export const CheckIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="m5 12.5 4.5 4.5L19 7.5" />
-  </Icon>
-)
+export const ChevronDownIcon = fromTabler(IconChevronDown)
+export const CheckIcon = fromTabler(IconCheck)
 /** Vertical three dots: a row's options menu. */
-export const MoreIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <circle cx="12" cy="5.5" r="1.4" fill="currentColor" stroke="none" />
-    <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
-    <circle cx="12" cy="18.5" r="1.4" fill="currentColor" stroke="none" />
-  </Icon>
-)
-export const ClockIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <circle cx="12" cy="12" r="8.5" />
-    <path d="M12 7.5V12l3 2" />
-  </Icon>
-)
-/** A chat that started other chats: one node over the ones it leads. */
+export const MoreIcon = fromTabler(IconDotsVertical)
+export const ClockIcon = fromTabler(IconClock)
+/** A chat with the chats it started under it. */
 export const LeadIcon = (p: IconProps): React.JSX.Element => (
   <Icon {...p}>
     <rect x="9" y="3" width="6" height="5" rx="1" />
@@ -228,83 +141,16 @@ export const LeadIcon = (p: IconProps): React.JSX.Element => (
   </Icon>
 )
 /** Git's branch: source control and the branch picker. */
-export const BranchIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <circle cx="6" cy="5.5" r="2.5" />
-    <circle cx="6" cy="18.5" r="2.5" />
-    <circle cx="18" cy="7.5" r="2.5" />
-    <path d="M6 8v8M18 10c0 4-6 3.5-11 7" />
-  </Icon>
-)
-export const MinusIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M5 12h14" />
-  </Icon>
-)
-/** An arrow turning back: discard changes. */
-export const DiscardIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M9 14 4 9l5-5" />
-    <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
-  </Icon>
-)
-/** Two arrows in a circle: pull and push. */
-export const SyncIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M20 12a8 8 0 0 0-14-5.3L4 9M4 4v5h5" />
-    <path d="M4 12a8 8 0 0 0 14 5.3l2-2.3M20 20v-5h-5" />
-  </Icon>
-)
-export const PlayIcon = (p: IconProps): React.JSX.Element => (
-  <Icon fill="currentColor" stroke="none" {...p}>
-    <path d="M8 5.6v12.8a1 1 0 0 0 1.5.86l10.6-6.4a1 1 0 0 0 0-1.72L9.5 4.74A1 1 0 0 0 8 5.6z" />
-  </Icon>
-)
-export const PauseIcon = (p: IconProps): React.JSX.Element => (
-  <Icon fill="currentColor" stroke="none" {...p}>
-    <rect x="6" y="5" width="4" height="14" rx="1.2" />
-    <rect x="14" y="5" width="4" height="14" rx="1.2" />
-  </Icon>
-)
-export const ServerIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <rect x="4" y="4" width="16" height="7" rx="2" />
-    <rect x="4" y="13" width="16" height="7" rx="2" />
-    <path d="M8 7.5h.01M8 16.5h.01" />
-  </Icon>
-)
-export const TextIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M5 6h14M5 10h14M5 14h14M5 18h8" />
-  </Icon>
-)
-export const VideoIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <rect x="3" y="6" width="13" height="12" rx="2" />
-    <path d="m16 10.5 5-3v9l-5-3" />
-  </Icon>
-)
-export const RouteIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <circle cx="6" cy="18" r="2.5" />
-    <circle cx="18" cy="6" r="2.5" />
-    <path d="M8.5 18H15a3.5 3.5 0 0 0 0-7H9a3.5 3.5 0 0 1 0-7h6.5" />
-  </Icon>
-)
-export const SpeakerIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M4 9.5h3.5L12 5v14l-4.5-4.5H4z" />
-    <path d="M15.5 9a4.5 4.5 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11" />
-  </Icon>
-)
-export const DownloadIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14" />
-  </Icon>
-)
-export const PhoneIcon = (p: IconProps): React.JSX.Element => (
-  <Icon {...p}>
-    <rect x="6.5" y="2.5" width="11" height="19" rx="2.5" />
-    <path d="M11 18.5h2" />
-  </Icon>
-)
+export const BranchIcon = fromTabler(IconGitBranch)
+export const MinusIcon = fromTabler(IconMinus)
+export const DiscardIcon = fromTabler(IconArrowBackUp)
+export const SyncIcon = fromTabler(IconArrowsExchange)
+export const PlayIcon = fromTabler(IconPlayerPlay)
+export const PauseIcon = fromTabler(IconPlayerPause)
+export const ServerIcon = fromTabler(IconServer)
+export const TextIcon = fromTabler(IconAlignLeft)
+export const VideoIcon = fromTabler(IconVideo)
+export const RouteIcon = fromTabler(IconRoute)
+export const SpeakerIcon = fromTabler(IconVolume)
+export const DownloadIcon = fromTabler(IconDownload)
+export const PhoneIcon = fromTabler(IconDeviceMobile)
