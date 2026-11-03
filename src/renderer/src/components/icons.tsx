@@ -302,3 +302,9 @@ export const DownloadIcon = (p: IconProps): React.JSX.Element => (
     <path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14" />
   </Icon>
 )
+export const PhoneIcon = (p: IconProps): React.JSX.Element => (
+  <Icon {...p}>
+    <rect x="6.5" y="2.5" width="11" height="19" rx="2.5" />
+    <path d="M11 18.5h2" />
+  </Icon>
+)

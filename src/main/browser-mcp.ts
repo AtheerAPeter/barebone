@@ -23,6 +23,12 @@ import {
   type ChatsApi,
   type SpeechApi
 } from './chats-mcp'
+import type { DeviceManager } from './devices'
+import {
+  buildDevicesServer,
+  SERVER_NAME as DEVICES_SERVER,
+  type DevicesRouting
+} from './devices-mcp'
 import { withTimeout, type Modifier } from './page-driver'
 import { COLORS, type Color, type Shape, type Target } from './page-overlay'
 import type { PageRecorder } from './recording'
@@ -1568,7 +1574,8 @@ export async function startBrowserMcp(
   chats: ChatsApi,
   speech: SpeechApi,
   recorder: PageRecorder,
-  walkthroughs: WalkthroughApi
+  walkthroughs: WalkthroughApi,
+  devices: { manager: DeviceManager; routing: DevicesRouting }
 ): Promise<BrowserMcpEndpoint> {
   provideSpeech(speech)
   const saved = readSaved()
@@ -1578,17 +1585,21 @@ export async function startBrowserMcp(
       res.writeHead(401).end()
       return
     }
-    // "/mcp" is shared; "/mcp/<chat id>" is one chat's browser; "/chats" is the chats' server.
+    // "/mcp" is shared; "/mcp/<chat id>" is one chat's browser; "/chats" is the chats' server;
+    // "/devices" the device tools', while Settings has them on.
     const match = req.url?.match(/^\/mcp(?:\/([\w-]+))?\/?$/)
     const forChats = /^\/chats\/?$/.test(req.url ?? '')
-    if (req.method !== 'POST' || (!match && !forChats)) {
+    const forDevices = /^\/devices\/?$/.test(req.url ?? '') && getState().mobile === true
+    if (req.method !== 'POST' || (!match && !forChats && !forDevices)) {
       res.writeHead(req.method !== 'POST' ? 405 : 404).end()
       return
     }
     // Stateless mode: a fresh server and transport per request.
     const server = forChats
       ? await buildChatsServer(chats)
-      : await buildServer(browser, routing, recorder, walkthroughs, match![1])
+      : forDevices
+        ? await buildDevicesServer(devices.manager, devices.routing)
+        : await buildServer(browser, routing, recorder, walkthroughs, match![1])
     const { StreamableHTTPServerTransport } =
       await import('@modelcontextprotocol/sdk/server/streamableHttp.js')
     const transport = new StreamableHTTPServerTransport({
@@ -1603,7 +1614,10 @@ export async function startBrowserMcp(
       await server.connect(transport)
       await transport.handleRequest(req, res, await readBody(req))
     } catch (error) {
-      console.error(`${forChats ? 'chats' : 'browser'} MCP request failed:`, error)
+      console.error(
+        `${forChats ? 'chats' : forDevices ? 'devices' : 'browser'} MCP request failed:`,
+        error
+      )
       if (!res.headersSent) res.writeHead(500).end()
     }
   })
@@ -1653,6 +1667,23 @@ export function chatsMcpServer(): AcpMcpServer {
   return {
     type: 'http',
     name: CHATS_SERVER,
+    url: endpoint.url,
+    headers: [{ name: 'Authorization', value: `Bearer ${endpoint.token}` }]
+  }
+}
+
+/** Where the device tools' server listens: next to the browser's, with the same token. */
+export function devicesMcpEndpoint(): BrowserMcpEndpoint {
+  const endpoint = browserMcpEndpoint()
+  return { url: new URL('/devices', endpoint.url).href, token: endpoint.token }
+}
+
+/** The device tools' MCP server entry passed in ACP sessions, while Settings has them on. */
+export function devicesMcpServer(): AcpMcpServer {
+  const endpoint = devicesMcpEndpoint()
+  return {
+    type: 'http',
+    name: DEVICES_SERVER,
     url: endpoint.url,
     headers: [{ name: 'Authorization', value: `Bearer ${endpoint.token}` }]
   }

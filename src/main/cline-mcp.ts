@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app } from 'electron'
@@ -97,6 +97,26 @@ export async function registerWithCline(name: string, endpoint: BrowserMcpEndpoi
     endpoint.url
   ])
   remember(file, record)
+}
+
+/**
+ * Take back a server the app added (one Settings turned off), unless cline's
+ * entry points elsewhere now, which is then not the app's to remove.
+ */
+export async function unregisterFromCline(
+  name: string,
+  endpoint: BrowserMcpEndpoint
+): Promise<void> {
+  const file = recordFile(name)
+  const entry = clineEntry(name)
+  if (
+    typeof entry === 'object' &&
+    entry.url === endpoint.url &&
+    entry.authorization === `Bearer ${endpoint.token}`
+  ) {
+    await run(['mcp', 'remove', name])
+  }
+  rmSync(file, { force: true })
 }
 
 /** Note the registration. It holds the browser token, so only the user may read it. */

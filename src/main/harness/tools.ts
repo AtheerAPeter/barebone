@@ -9,10 +9,12 @@ import {
   browserId,
   browserMcpEndpoint,
   chatsMcpEndpoint,
+  devicesMcpEndpoint,
   SERVER_NAME as BROWSER_SERVER,
   type BrowserMcpEndpoint
 } from '../browser-mcp'
 import { chatKey, SERVER_NAME as CHATS_SERVER, speechOffered } from '../chats-mcp'
+import { SERVER_NAME as DEVICES_SERVER } from '../devices-mcp'
 import { exaKey } from '../exa-key'
 import { getState } from '../store'
 import { loadShellPath } from '../shell-env'
@@ -653,6 +655,20 @@ export const chatTools = appServerTools({
   // The speak tool comes and goes with Settings and the voice's download.
   variant: speechOffered,
   paths: (name, args) => (name === 'speak' ? stringsIn(args.path) : [])
+})
+
+/**
+ * The tools that drive simulators, emulators and phones, while Settings has
+ * them on; the chat's own ID filled in the same way, for the tools that take it.
+ */
+export const deviceTools = appServerTools({
+  endpoint: devicesMcpEndpoint,
+  chatArg: 'chat_id',
+  chatValue: browserId,
+  server: DEVICES_SERVER,
+  kind: 'other',
+  paths: (name, args) =>
+    name === 'app' ? stringsIn(args.path) : name === 'metro' ? stringsIn(args.cwd) : []
 })
 
 async function connectAppServer(server: AppServer): Promise<Tool[]> {

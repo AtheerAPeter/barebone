@@ -1,11 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import type { SpeechStatus } from '../../../shared/types'
+import type { MobileToolCheck, SpeechStatus } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
 import { useUpdateInstall } from '../lib/update'
 import {
   DownloadIcon,
   MicIcon,
   PencilIcon,
+  PhoneIcon,
   RouteIcon,
   SearchIcon,
   SpeakerIcon,
@@ -20,6 +21,7 @@ import { SettingsCard, Switch, type SettingsTone } from './SettingsCard'
  * `annotations`: whether agents get the browser tools that draw on pages.
  * `recording`: whether agents get the browser tools that record a tab as a video.
  * `codeTours`: whether agents get the walkthrough tool, which plays in the code panel.
+ * `mobile`: whether agents get the device tools, for mobile apps.
  * `speech`: whether agents may speak out loud (the speak tool).
  * `onProvidersChange`: a provider was added, changed or removed.
  */
@@ -28,6 +30,7 @@ export function SettingsView({
   annotations,
   recording,
   codeTours,
+  mobile,
   speech,
   onProvidersChange
 }: {
@@ -35,6 +38,7 @@ export function SettingsView({
   annotations: boolean
   recording: boolean
   codeTours: boolean
+  mobile: boolean
   speech: boolean
   onProvidersChange: () => void
 }): React.JSX.Element {
@@ -46,6 +50,7 @@ export function SettingsView({
       <AnnotationsCard on={annotations} />
       <RecordingCard on={recording} />
       <CodeToursCard on={codeTours} />
+      <MobileCard on={mobile} />
       <SettingsCard icon={<SearchIcon />} tone="blue" title="Web search">
         <p>
           Chats on the app&apos;s own agent (Custom providers, OpenCode API, Cline API and Command
@@ -286,6 +291,53 @@ function CodeToursCard({ on }: { on: boolean }): React.JSX.Element {
         the chats&apos; context; source control in the panel works either way. A change applies to
         chats started after it.
       </p>
+    </ToggleCard>
+  )
+}
+
+/**
+ * Whether agents get the device tools, for mobile apps,
+ * and which of the tools they use are installed.
+ */
+function MobileCard({ on }: { on: boolean }): React.JSX.Element {
+  const [checks, setChecks] = useState<MobileToolCheck[]>()
+
+  useEffect(() => {
+    if (on) window.api.devices.checks().then(setChecks)
+  }, [on])
+
+  return (
+    <ToggleCard
+      icon={<PhoneIcon />}
+      tone="gray"
+      title="Mobile apps"
+      on={on}
+      save={window.api.setMobile}
+    >
+      <p>
+        Gives every agent tools that run and test mobile apps on the iOS simulators and Android
+        emulators and phones on this computer: reading the screen, tapping, swiping and typing,
+        opening links and apps, device settings, the apps&apos; logs and crashes, and Metro for
+        React Native and Expo. You watch and use the devices in the Simulator app and the
+        emulator&apos;s own window; the tools work only while an agent uses them. Turned off, the
+        tools stay out of the chats&apos; context. A change applies to chats started after it.
+      </p>
+      {on && checks && (
+        <ul className="mobile-checks">
+          {checks.map((check) => (
+            <li key={check.name} className={check.found ? 'found' : 'missing'}>
+              <strong>{check.name}</strong>{' '}
+              {check.found ? (
+                <>is installed, for {check.use}.</>
+              ) : (
+                <>
+                  is missing, needed for {check.use}. <code>{check.install}</code>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </ToggleCard>
   )
 }

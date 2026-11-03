@@ -20,11 +20,19 @@ files:
   # so the copies their packages bring, 600 MB of them, stay out.
   - '!node_modules/@openai/codex{,-*}/**'
   - '!node_modules/@anthropic-ai/claude-agent-sdk-*/**'
+  # iOS simulators' input and accessibility trees (main/device-ios.ts) use only
+  # serve-sim's native module, not its server, sources or helpers, nor the
+  # packages they use.
+  - '!node_modules/serve-sim/{Sources,Tests,scripts,src}/**'
+  - '!node_modules/serve-sim/dist/{simax,simcam,simduo}/**'
+  - '!node_modules/serve-sim/dist/*.{js,cjs}'
+  - '!node_modules/{sonner,inspect-webkit}/**'
 asarUnpack:
   - resources/**
   # Native code is loaded from real files, not from inside the asar.
   - node_modules/onnxruntime-node/bin/**
   - node_modules/electron-liquid-glass/prebuilds/**
+  - node_modules/serve-sim/dist/native/**
 # The app updates itself with the script users install it with (main/updates.ts).
 extraResources:
   - from: install.sh

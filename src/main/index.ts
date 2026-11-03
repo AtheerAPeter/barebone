@@ -28,9 +28,16 @@ import type {
 import * as store from './store'
 import { AgentManager } from './agents'
 import { BuiltinBrowser } from './browser'
-import { chatsMcpEndpoint, SERVER_NAME as BROWSER_SERVER, startBrowserMcp } from './browser-mcp'
+import {
+  chatsMcpEndpoint,
+  devicesMcpEndpoint,
+  SERVER_NAME as BROWSER_SERVER,
+  startBrowserMcp
+} from './browser-mcp'
 import { SERVER_NAME as CHATS_SERVER } from './chats-mcp'
-import { registerWithCline } from './cline-mcp'
+import { registerWithCline, unregisterFromCline } from './cline-mcp'
+import { DeviceManager } from './devices'
+import { SERVER_NAME as DEVICES_SERVER } from './devices-mcp'
 import { exaKeyHint, setExaKey } from './exa-key'
 import { microphoneAccess, setVoiceKey, transcribe, voiceKeyHint } from './voice'
 import {
@@ -272,6 +279,26 @@ function setCodeOpen(chatId: string, open: boolean): void {
   if (!store.getState().chats.some((c) => c.id === chatId)) return
   store.updateChat(chatId, open ? { codeOpen: true, browserOpen: false } : { codeOpen: false })
   send('state:changed', store.getState())
+}
+
+/** The simulators, emulators and phones, for the device tools. */
+const devices = new DeviceManager()
+
+/** The device tools, for mobile apps: Settings turns them on and off. */
+function registerDevicesIpc(): void {
+  ipcMain.handle('mobile:set', (_e, on: boolean) => {
+    store.setMobile(on)
+    send('state:changed', store.getState())
+    // Cline keeps servers in its own settings: add the device tools there, or take them out.
+    void agents.status('cline').then(({ available }) => {
+      if (!available) return
+      const change = on ? registerWithCline : unregisterFromCline
+      return change(DEVICES_SERVER, devicesMcpEndpoint()).catch((error) =>
+        console.error(`Could not update ${DEVICES_SERVER} in cline:`, error.message)
+      )
+    })
+  })
+  ipcMain.handle('devices:checks', () => devices.checks())
 }
 
 /** The folder of a chat's project. */
@@ -708,6 +735,7 @@ app.whenReady().then(async () => {
   )
   registerIpc(browser)
   registerGitIpc()
+  registerDevicesIpc()
   // On by default: the voice downloads in the background the first time.
   if (store.speechOn()) void speech.fetchModel()
   watchForUpdates((version) => send('update:available', version))
@@ -740,6 +768,16 @@ app.whenReady().then(async () => {
         send('walk:start', chatId, walk)
         walks.start(chatId, walk, language, pace)
       }
+    },
+    {
+      manager: devices,
+      routing: {
+        chatFor: (id) =>
+          (id ? store.getState().chats.find((c) => c.id.startsWith(id))?.id : undefined) ??
+          agents.latestActiveChat(),
+        projectPath: projectPathOf,
+        allowCommand: (chatId, title, command) => agents.allowCommand(chatId, title, { command })
+      }
     }
   )
   // Only when cline is installed; failures are logged and the app works without it.
@@ -748,7 +786,9 @@ app.whenReady().then(async () => {
     if (!available) return
     for (const [name, at] of [
       [BROWSER_SERVER, endpoint],
-      [CHATS_SERVER, chatsMcpEndpoint()]
+      [CHATS_SERVER, chatsMcpEndpoint()],
+      // The device tools only while Settings has them on.
+      ...(store.getState().mobile ? [[DEVICES_SERVER, devicesMcpEndpoint()] as const] : [])
     ] as const) {
       await registerWithCline(name, at).catch((error) =>
         console.error(`Could not register ${name} with cline:`, error.message)
@@ -771,6 +811,8 @@ app.on('before-quit', (event) => {
   // Before the tabs close, so videos end as stopped, not as cut off.
   const recorded = recorder?.stopAll()
   browser?.closeAll()
+  // The devices keep running, as they do when started from Xcode or Android Studio.
+  devices.stopAll()
   speech.dispose()
   // Waited for up to a limit: one that never settles (an MCP server that never
   // answers) would otherwise keep the app open, and the updater replaces it.

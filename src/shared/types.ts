@@ -277,6 +277,35 @@ export interface AppState {
   codeTours?: boolean
   /** False when the user turned off speech: the speak tool, which says a message out loud (main/speech). On when missing. */
   speech?: boolean
+  /** Whether agents get the device tools, for mobile apps (main/devices.ts). Off when missing. */
+  mobile?: boolean
+}
+
+export type DevicePlatform = 'ios' | 'android'
+
+/** An iOS simulator, an Android emulator or a plugged-in Android phone (main/devices.ts). */
+export interface MobileDevice {
+  /** The simulator's UDID, the Android device's adb serial, or an emulator's AVD name while it is off. */
+  id: string
+  platform: DevicePlatform
+  name: string
+  /** Like "iOS 26.5" or "Android 16"; empty while not known. */
+  os: string
+  booted: boolean
+  /** A real phone, not a simulator or emulator. */
+  physical?: boolean
+}
+
+export type DeviceButton = 'home' | 'back' | 'app-switch' | 'lock' | 'volume-up' | 'volume-down'
+
+/** A command-line tool the device tools use, and whether it is on this Mac. */
+export interface MobileToolCheck {
+  name: string
+  found: boolean
+  /** What it is needed for. */
+  use: string
+  /** How to get it, when it is missing. */
+  install: string
 }
 
 /** The voice agents speak with (main/speech): its model on this Mac, and its download. */

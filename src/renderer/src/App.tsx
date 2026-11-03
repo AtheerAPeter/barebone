@@ -295,6 +295,7 @@ export default function App(): React.JSX.Element {
             annotations={state.annotations === true}
             recording={state.recording === true}
             codeTours={state.codeTours === true}
+            mobile={state.mobile === true}
             speech={state.speech !== false}
             onProvidersChange={() => readStatus('custom-api')}
           />

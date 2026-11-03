@@ -9,6 +9,7 @@ import type { AgentCommand, AgentOption, ChatItem, ModelSource } from '../../sha
 import * as store from '../store'
 import { BROWSER_GUIDANCE } from '../browser-mcp'
 import { CHATS_GUIDANCE } from '../chats-mcp'
+import { DEVICES_GUIDANCE } from '../devices-mcp'
 import { listSkills } from '../skills'
 import { formatRaw, limitOutput } from '../tool-output'
 import { saveImages } from '../images'
@@ -38,7 +39,15 @@ import {
   summaryTurn
 } from './compaction'
 import type { Provider, Source } from './provider'
-import { browserTools, chatTools, CORE_TOOLS, runTool, WEB_SEARCH, type Tool } from './tools'
+import {
+  browserTools,
+  chatTools,
+  CORE_TOOLS,
+  deviceTools,
+  runTool,
+  WEB_SEARCH,
+  type Tool
+} from './tools'
 import {
   isServerTool,
   isTrusted,
@@ -254,6 +263,12 @@ How to communicate:
       `<chats>\nstart_chat, send_message and list_chats work with the other chats of this project. ${CHATS_GUIDANCE}\n</chats>`,
       `<saved_chats>\n${store.savedChatsNote(chatId)}\n</saved_chats>`
     ]
+    // The device tools only while Settings has them on.
+    if (store.getState().mobile) {
+      sections.push(
+        `<devices>\nscreen, tap, swipe, type, press, wait_for, app, settings, logs and metro drive the iOS simulators and Android emulators and phones on this computer. ${DEVICES_GUIDANCE}\n</devices>`
+      )
+    }
     // Set in Settings for every chat; the project's own instructions after them are more specific.
     const own = store.getState().instructions
     if (own) sections.push(`<user_instructions>\n${own}\n</user_instructions>`)
@@ -606,6 +621,7 @@ How to communicate:
       WEB_SEARCH,
       ...(await this.appTools('browser', browserTools)),
       ...(await this.appTools('chat', chatTools)),
+      ...(store.getState().mobile ? await this.appTools('device', deviceTools) : []),
       ...(await this.serverTools(chatId, session, signal))
     ]
   }

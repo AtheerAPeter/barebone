@@ -32,8 +32,11 @@ import {
   BROWSER_GUIDANCE,
   chatsMcpEndpoint,
   chatsMcpServer,
+  devicesMcpEndpoint,
+  devicesMcpServer,
   SERVER_NAME as BROWSER_SERVER
 } from './browser-mcp'
+import { SERVER_NAME as DEVICES_SERVER } from './devices-mcp'
 import {
   chatKey,
   CHATS_GUIDANCE,
@@ -318,7 +321,9 @@ async function agentEnv(agent: AgentId): Promise<{ env: NodeJS.ProcessEnv; mcpIn
       (
         [
           [BROWSER_SERVER, browserMcpEndpoint()],
-          [CHATS_SERVER, chatsMcpEndpoint()]
+          [CHATS_SERVER, chatsMcpEndpoint()],
+          // The device tools only while Settings has them on.
+          ...(store.getState().mobile ? [[DEVICES_SERVER, devicesMcpEndpoint()] as const] : [])
         ] as const
       ).map(([name, endpoint]) => [
         name,
@@ -807,8 +812,15 @@ class AgentProcess implements AgentBackend {
     // all its sessions, so a per-chat address would be taken over by whichever
     // chat opened last. Chats are told their chat ID instead.
     // Opencode 2 has them in its config already (see agentEnv).
+    // The device tools only while Settings has them on.
     const mcpServers =
-      this.takesHttpMcp() && !this.mcpInConfig ? [browserMcpServer(), chatsMcpServer()] : []
+      this.takesHttpMcp() && !this.mcpInConfig
+        ? [
+            browserMcpServer(),
+            chatsMcpServer(),
+            ...(store.getState().mobile ? [devicesMcpServer()] : [])
+          ]
+        : []
 
     let sessionId: string
     let configOptions: acp.SessionConfigOption[] | null | undefined
@@ -1918,7 +1930,10 @@ export class AgentManager implements ChatsApi {
    * for the chat tools, which proves who calls.
    */
   private withChatId(chatId: string, text: string): string {
-    return `${text}\n\n(Your Barebone chat ID is "${browserId(chatId)}". Pass it as the "browser" argument in every ${BROWSER_SERVER} tool call. For anything done in a browser, use the ${BROWSER_SERVER} tools, the browser panel in the app: never start Chrome, Safari or a headless browser yourself, or drive one with Playwright or Puppeteer, unless the user names that browser. Pass your private key "${chatKey(chatId)}" as "chat" in every ${CHATS_SERVER} tool call, and never put it in a message.)`
+    const devices = store.getState().mobile
+      ? ` Pass it as "chat_id" to the ${DEVICES_SERVER} tools that take it; for anything done on an iOS simulator or Android emulator or phone, use the ${DEVICES_SERVER} tools.`
+      : ''
+    return `${text}\n\n(Your Barebone chat ID is "${browserId(chatId)}". Pass it as the "browser" argument in every ${BROWSER_SERVER} tool call. For anything done in a browser, use the ${BROWSER_SERVER} tools, the browser panel in the app: never start Chrome, Safari or a headless browser yourself, or drive one with Playwright or Puppeteer, unless the user names that browser.${devices} Pass your private key "${chatKey(chatId)}" as "chat" in every ${CHATS_SERVER} tool call, and never put it in a message.)`
   }
 
   /**
@@ -2324,22 +2339,10 @@ export class AgentManager implements ChatsApi {
   async runInBackground(caller: string, command: string, timeout?: number): Promise<Running> {
     const chat = this.caller(caller)
     if (!command.trim()) throw new Error('"command" is empty.')
-    if (!isHarnessAgent(chat.agent)) {
-      const response = await requestPermission(
-        this.events,
-        this.permissions,
-        chat.id,
-        {
-          toolCallId: crypto.randomUUID(),
-          title: `Run in the background: ${command}`,
-          kind: 'execute',
-          rawInput: { command, ...(timeout !== undefined ? { timeout } : {}) }
-        },
-        BACKGROUND_OPTIONS
-      )
-      const option = response.outcome.outcome === 'selected' ? response.outcome.optionId : undefined
-      if (option !== 'allow') throw new Error('Not started: the user did not allow the command.')
-    }
+    await this.allowCommand(chat.id, `Run in the background: ${command}`, {
+      command,
+      ...(timeout !== undefined ? { timeout } : {})
+    })
     const cwd = store.getProject(chat.projectId).path
     const running = await background.startBackground(chat.id, command, cwd, timeout, (finished) => {
       this.showBackground(chat.id)
@@ -2352,6 +2355,25 @@ export class AgentManager implements ChatsApi {
     })
     this.showBackground(chat.id)
     return running
+  }
+
+  /**
+   * Ask the user before an app tool runs a command for a chat (run_in_background,
+   * starting Metro). The app's own agents asked about the call already, as about
+   * every tool call; the others' own rules let MCP tools run unasked, so the app
+   * asks here, as for a shell command. Throws when the user says no.
+   */
+  async allowCommand(chatId: string, title: string, rawInput: { command: string }): Promise<void> {
+    if (isHarnessAgent(store.getChat(chatId).agent)) return
+    const response = await requestPermission(
+      this.events,
+      this.permissions,
+      chatId,
+      { toolCallId: crypto.randomUUID(), title, kind: 'execute', rawInput },
+      BACKGROUND_OPTIONS
+    )
+    const option = response.outcome.outcome === 'selected' ? response.outcome.optionId : undefined
+    if (option !== 'allow') throw new Error('Not started: the user did not allow the command.')
   }
 
   listBackground(caller: string): { commands: Running[]; timer?: Timer } {

@@ -5337,3 +5337,31 @@ button,
   align-items: center;
   gap: 5px;
 }
+
+/* Which tools the device tools need, in Settings (SettingsView.tsx). */
+.mobile-checks {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+}
+
+.mobile-checks li {
+  padding: 3px 0;
+}
+
+.mobile-checks li.found::before {
+  content: '✓ ';
+  color: var(--accent);
+}
+
+.mobile-checks li.missing::before {
+  content: '! ';
+  color: var(--danger);
+}
+
+.mobile-checks code {
+  padding: 1px 5px;
+  background: var(--code-bg);
+  border-radius: var(--radius-sm);
+}

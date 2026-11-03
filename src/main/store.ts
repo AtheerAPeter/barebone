@@ -205,6 +205,12 @@ export function setRecording(on: boolean): void {
   scheduleFlush()
 }
 
+/** Turn the device tools, for mobile apps, on or off. */
+export function setMobile(on: boolean): void {
+  state.mobile = on || undefined
+  scheduleFlush()
+}
+
 /** Speech is on unless the user turned it off. */
 export function setSpeech(on: boolean): void {
   state.speech = on ? undefined : false

@@ -16,6 +16,7 @@ import type {
   CustomProviderCheck,
   CustomProviderInput,
   FormAnswers,
+  MobileToolCheck,
   GitBranch,
   GitChange,
   GitStatus,
@@ -68,6 +69,8 @@ const api = {
   setRecording: (on: boolean): Promise<void> => ipcRenderer.invoke('recording:set', on),
   /** Give agents the walkthrough tool, which plays in the code panel, or take it away. */
   setCodeTours: (on: boolean): Promise<void> => ipcRenderer.invoke('codeTours:set', on),
+  /** Give agents the device tools, for mobile apps, or take them away. */
+  setMobile: (on: boolean): Promise<void> => ipcRenderer.invoke('mobile:set', on),
 
   /** Videos of browser tabs agents record, made here (main/recording.ts). */
   recording: {
@@ -265,6 +268,12 @@ const api = {
     /** Open or close the browser panel in a chat. */
     setOpen: (chatId: string, open: boolean): Promise<void> =>
       ipcRenderer.invoke('browser:setOpen', chatId, open)
+  },
+
+  /** The device tools, for mobile apps (main/devices.ts). */
+  devices: {
+    /** The tools the devices need, and which are installed. */
+    checks: (): Promise<MobileToolCheck[]> => ipcRenderer.invoke('devices:checks')
   },
 
   /** The code panel, in the browser panel's place: source control and walkthroughs. */
