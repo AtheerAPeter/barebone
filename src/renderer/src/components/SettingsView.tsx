@@ -138,7 +138,7 @@ function KeyForm({
   )
 }
 
-/** The user's own instructions, added to the system prompt of the app's own agent's new chats. */
+/** The user's own instructions, given to every agent's new chats. */
 function InstructionsCard({ saved }: { saved: string }): React.JSX.Element {
   const [text, setText] = useState(saved)
   const [saving, setSaving] = useState(false)
@@ -160,10 +160,11 @@ function InstructionsCard({ saved }: { saved: string }): React.JSX.Element {
   return (
     <SettingsCard icon={<TextIcon />} tone="orange" title="Custom instructions">
       <p>
-        Added to the system prompt of every new chat on the app&apos;s own agent (Custom providers,
-        OpenCode API, Cline API and Command Code API) and of the subagents it starts, before the
-        project&apos;s <code>AGENTS.md</code> or <code>CLAUDE.md</code>. A chat keeps the
-        instructions it started with, so a change applies to chats started after it.
+        Given to every new chat, on every agent. Claude Code and Codex get them in their system
+        prompt, after their own; the app&apos;s own agent before the project&apos;s{' '}
+        <code>AGENTS.md</code> or <code>CLAUDE.md</code>, and its subagents too. Agents that take no
+        system prompt read them with the chat&apos;s first message. A chat keeps the instructions it
+        started with, so a change applies to chats started after it.
       </p>
       <form
         className="settings-instructions"

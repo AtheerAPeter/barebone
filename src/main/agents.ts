@@ -488,6 +488,20 @@ const BUILD_MODE: Record<AcpAgent, Record<string, string>> = {
   claude: { mode: 'acceptEdits' }
 }
 
+/** The user's instructions from Settings, tagged as the app's own agent has them in its system prompt. */
+const userInstructions = (text: string): string =>
+  `<user_instructions>\n${text}\n</user_instructions>`
+
+/** The user's instructions as a system prompt after the agent's own (ACP's append mode). */
+const appendedPrompt = (text: string): acp.SystemPrompt => ({
+  mode: 'append',
+  content: [{ type: 'text', text: userInstructions(text) }]
+})
+
+/** The user's instructions with a session's first prompt, for an agent that takes no system prompt. */
+const instructionsNote = (text: string): string =>
+  `(The user's own instructions for every chat, set in Barebone's settings. Follow them throughout this chat.)\n${userInstructions(text)}`
+
 /** What the manager needs from an agent: a CLI's ACP process, or the built-in harness. */
 interface AgentBackend {
   readonly agent: AgentId
@@ -555,6 +569,11 @@ class AgentProcess implements AgentBackend {
    * them before the session/new response tells us which chat the session is for.
    */
   private commands = new Map<string, AgentCommand[]>()
+  /**
+   * The user's instructions for new sessions of an agent that takes no system
+   * prompt, by ACP session id: they go with the session's first prompt instead.
+   */
+  private firstPromptInstructions = new Map<string, string>()
   /** Stops a prompt still waiting for its session, per chat; see prompt(). */
   private stopBeforeSend = new Map<string, () => void>()
   /** The notice reporting provider retries in the current turn, per chat. */
@@ -746,6 +765,14 @@ class AgentProcess implements AgentBackend {
     return this.initResult?.agentCapabilities?.mcpCapabilities?.http === true
   }
 
+  /**
+   * Whether this agent takes a system prompt of the client's own on its
+   * sessions (Claude Code, Codex): `{}` advertises the append mode used here.
+   */
+  private takesSystemPrompt(): boolean {
+    return this.initResult?.agentCapabilities?.sessionCapabilities?.systemPrompt != null
+  }
+
   getOptions(chatId: string): AgentOption[] | undefined {
     return this.options.get(chatId)
   }
@@ -834,16 +861,24 @@ class AgentProcess implements AgentBackend {
       sessionId = previousSessionId
       configOptions = loaded.configOptions
     } else {
+      // The user's instructions from Settings, as they are now: the session keeps them.
+      const own = store.getState().instructions
+      const systemPrompt = own && this.takesSystemPrompt() ? own : undefined
       const created = await connection.agent.request(
         methods.agent.session.new,
-        { cwd, mcpServers },
+        {
+          cwd,
+          mcpServers,
+          ...(systemPrompt ? { systemPrompt: appendedPrompt(systemPrompt) } : {})
+        },
         requestOptions
       )
       signal.throwIfAborted()
       sessionId = created.sessionId
       configOptions = created.configOptions
+      if (own && !systemPrompt) this.firstPromptInstructions.set(sessionId, own)
       // A new session starts with an empty context.
-      store.updateChat(chatId, { sessionId, context: undefined })
+      store.updateChat(chatId, { sessionId, context: undefined, instructions: systemPrompt })
       this.events.stateChanged()
       if (previousSessionId && store.getMessages(chatId).some((i) => i.kind === 'user')) {
         this.emit(chatId, {
@@ -901,10 +936,14 @@ class AgentProcess implements AgentBackend {
     const { methods, RequestError } = await loadSdk()
     this.sessionChats.set(sessionId, chatId)
     this.loadingSessions.add(sessionId)
+    // The same system prompt the session was created with, as ACP asks.
+    const { instructions } = store.getChat(chatId)
+    const systemPrompt =
+      instructions && this.takesSystemPrompt() ? appendedPrompt(instructions) : undefined
     try {
       return await connection.agent.request(
         methods.agent.session.load,
-        { sessionId, cwd, mcpServers },
+        { sessionId, cwd, mcpServers, ...(systemPrompt ? { systemPrompt } : {}) },
         { cancellationSignal: signal }
       )
     } catch (error) {
@@ -1075,9 +1114,18 @@ class AgentProcess implements AgentBackend {
       this.turns.set(chatId, turn)
       // The turn's own clock: silence from now on is the agent's silence.
       this.activity.set(chatId, Date.now())
+      // An agent without a system prompt of ours reads the instructions in its session's first prompt.
+      const instructions = this.firstPromptInstructions.get(sessionId)
+      this.firstPromptInstructions.delete(sessionId)
       const pending = connection.agent.request(methods.agent.session.prompt, {
         sessionId,
-        prompt: [{ type: 'text', text }, ...attachments]
+        prompt: [
+          {
+            type: 'text',
+            text: instructions ? `${text}\n\n${instructionsNote(instructions)}` : text
+          },
+          ...attachments
+        ]
       })
       const watchdog = setInterval(() => this.stopIfStalled(chatId, turn), STALL_CHECK_MS)
       // A turn ends by the agent's response, its exit, or the stall watchdog;
@@ -1799,6 +1847,7 @@ export class AgentManager implements ChatsApi {
       agent,
       settings,
       sessionId: undefined,
+      instructions: undefined,
       context: undefined,
       ...(started ? { handoff: chat.handoff ?? from } : {})
     })

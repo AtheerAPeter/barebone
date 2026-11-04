@@ -174,6 +174,12 @@ export interface Chat {
   handoff?: AgentId
   /** ACP session id, set once the first prompt has been sent. */
   sessionId?: string
+  /**
+   * The user's instructions from Settings that the chat's ACP session was
+   * created with as its system prompt, sent again whenever the session is
+   * loaded so it keeps them. Unset when the session has none.
+   */
+  instructions?: string
   /** Selected values for the agent's session options, keyed by option id (model, mode, ...). */
   settings: Record<string, string>
   running: boolean
@@ -267,7 +273,7 @@ export interface AppState {
   chats: Chat[]
   /** Appearance; 'system' follows macOS. Missing in state saved by older versions. */
   theme?: Theme
-  /** The user's own instructions, added to the system prompt of the app's own agent's new chats. */
+  /** The user's own instructions, given to every agent's new chats (see Chat.instructions). */
   instructions?: string
   /** Whether agents get the browser tools that draw on pages, and the browser-tutorial skill. Off when missing. */
   annotations?: boolean
