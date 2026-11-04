@@ -23,6 +23,13 @@
   --accent-soft: rgba(47, 111, 237, 0.12);
   --accent-ring: rgba(47, 111, 237, 0.25);
   /*
+   * A chat's topic icon is drawn in the chat's own hue (TopicIcon.tsx) at this
+   * lightness and chroma, the same for every hue (OKLCH), so no chat's icon
+   * reads louder or fainter than another's.
+   */
+  --topic-l: 0.56;
+  --topic-c: 0.16;
+  /*
    * Focus: a halo for fields and a ring for what the keyboard lands on. Both
    * are accent-tinted and clear the 3:1 a focus indicator needs, where a veil
    * of black went unseen on glass.
@@ -160,6 +167,8 @@
     --accent-text: #8ab0ff;
     --accent-soft: rgba(60, 102, 191, 0.2);
     --accent-ring: rgba(60, 102, 191, 0.35);
+    --topic-l: 0.74;
+    --topic-c: 0.14;
     --focus-ring: rgba(138, 176, 255, 0.2);
     --focus: var(--accent-text);
 
@@ -243,6 +252,7 @@
  */
 @media (prefers-contrast: more) {
   :root {
+    --topic-l: 0.46;
     --text-soft: #3c3c3c;
     --text-muted: #545454;
     --placeholder: #545454;
@@ -254,6 +264,7 @@
 
 @media (prefers-contrast: more) and (prefers-color-scheme: dark) {
   :root {
+    --topic-l: 0.82;
     --text-soft: #d4d4d4;
     --text-muted: #b8b8b8;
     --placeholder: #b8b8b8;
@@ -451,6 +462,13 @@ kbd {
 .crumb {
   color: var(--text-muted);
   font-weight: 400;
+}
+
+/* The open chat's topic icon, in the line of its title. */
+.topbar-title .topic-icon {
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: -3px;
 }
 
 .status-chip {
@@ -993,6 +1011,17 @@ img.project-icon {
   gap: 6px;
   min-width: 0;
   height: 28px;
+}
+
+/* A chat's topic icon, in the chat's own hue (TopicIcon.tsx). */
+.topic-icon {
+  flex-shrink: 0;
+  color: oklch(var(--topic-l) var(--topic-c) var(--topic-hue, 250));
+}
+
+/* In a project's folder, the topic icon leads the row, where the icon column is. */
+.chat-row > .topic-icon {
+  justify-self: center;
 }
 
 .chat-title {

@@ -26,7 +26,7 @@ import type {
   Theme
 } from '../shared/types'
 import * as store from './store'
-import { AgentManager } from './agents'
+import { AgentManager, refreshTopic } from './agents'
 import { BuiltinBrowser } from './browser'
 import {
   chatsMcpEndpoint,
@@ -577,6 +577,7 @@ function registerIpc(browser: BuiltinBrowser): void {
     if (!trimmed) return
     store.updateChat(chatId, { title: trimmed, renamed: true })
     send('state:changed', store.getState())
+    refreshTopic(chatId, () => send('state:changed', store.getState()))
   })
   ipcMain.handle('chat:pin', (_e, chatId: string, pinned: boolean) => {
     store.updateChat(chatId, { pinned: pinned || undefined })
@@ -734,6 +735,11 @@ app.whenReady().then(async () => {
     (chatId) => store.getState().chats.find((chat) => chat.id === chatId)?.running === true
   )
   registerIpc(browser)
+  // Chats from before topic icons get theirs, after the window is up.
+  void store.matchMissingTopics().then(
+    (changed) => changed && send('state:changed', store.getState()),
+    (error) => console.error('Could not match topic icons for earlier chats:', error)
+  )
   registerGitIpc()
   registerDevicesIpc()
   // On by default: the voice downloads in the background the first time.

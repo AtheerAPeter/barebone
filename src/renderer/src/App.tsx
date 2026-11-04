@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AGENTS, type AgentStatus, type AgentId, type AppState } from '../../shared/types'
 import { Sidebar } from './components/Sidebar'
+import { TopicIcon } from './components/TopicIcon'
 import { ChatView } from './components/ChatView'
 import { SkillsView } from './components/SkillsView'
 import { SettingsView } from './components/SettingsView'
@@ -216,6 +217,7 @@ export default function App(): React.JSX.Element {
             {project && (view === 'skills' || (view === 'chat' && chat)) && (
               <span className="crumb">{project.name} / </span>
             )}
+            {view === 'chat' && chat && <TopicIcon chat={chat} size={17} />}
             <TopbarName
               id={view === 'chat' ? chat?.id : view}
               text={

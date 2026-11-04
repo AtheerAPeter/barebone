@@ -171,13 +171,15 @@ export function ChatView({
       folded
         ? {
             chatId: chat.id,
+            icon: chat.icon,
+            hue: chat.hue,
             status: chat.waiting ? 'waiting' : chat.running ? 'working' : 'idle',
             lines: orbLines(items),
             ...(voice === 'idle' ? {} : { voice }),
             ...(speaking ? { speaking } : {})
           }
         : null,
-    [folded, chat.id, chat.running, chat.waiting, items, voice, speaking]
+    [folded, chat.id, chat.icon, chat.hue, chat.running, chat.waiting, items, voice, speaking]
   )
   useEffect(() => window.api.orb.update(orb), [orb])
   useEffect(() => () => window.api.orb.update(null), [])

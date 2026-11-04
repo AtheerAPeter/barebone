@@ -30,7 +30,10 @@ export default defineConfig({
         // Key names, codes and key codes of a US keyboard, for typing as key presses.
         'playwright-keyboard-layout': resolve(
           'node_modules/playwright-core/lib/server/usKeyboardLayout.js'
-        )
+        ),
+        // Tabler's icon names, categories and tags, to match a chat's topic to an
+        // icon (main/topic-icon.ts). The package exports only its SVG files.
+        'tabler-icons-meta': resolve('node_modules/@tabler/icons/icons.json')
       }
     }
   },
@@ -54,7 +57,10 @@ export default defineConfig({
   renderer: {
     resolve: {
       alias: {
-        '@renderer': resolve('src/renderer/src')
+        '@renderer': resolve('src/renderer/src'),
+        // Every Tabler outline icon's SVG elements, to draw a chat's topic icon by
+        // name (components/TopicIcon.tsx). The package exports only its SVG files.
+        'tabler-icon-nodes': resolve('node_modules/@tabler/icons/tabler-nodes-outline.json')
       }
     },
     plugins: [react()],

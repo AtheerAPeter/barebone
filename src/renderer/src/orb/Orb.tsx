@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { OrbCorner, OrbLine, OrbState } from '../../../shared/types'
 import { ChatIcon, SendIcon, StopIcon } from '../components/icons'
+import { TopicIcon } from '../components/TopicIcon'
 
 /**
  * The agent orb, over the browser page while the chat is folded away (see
@@ -150,7 +151,8 @@ export function Orb(): React.JSX.Element | null {
           }
         }}
       >
-        <ChatIcon width={19} height={19} />
+        {/* The chat's own icon, so the orb says which chat is working on the page. */}
+        {state.icon ? <TopicIcon chat={state} size={19} /> : <ChatIcon width={19} height={19} />}
       </button>
       {!dragging && (
         <div className="orb-column" style={{ maxWidth: maxWidth - ORB_ROOM }}>
