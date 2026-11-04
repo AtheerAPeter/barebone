@@ -95,6 +95,8 @@ const agents = new AgentManager(
       // A chat that stopped running may no longer need its browser page, and
       // no longer controls a tab.
       browser?.prune()
+      // A meeting's chat that finished its turn hears what was said meanwhile.
+      meetings?.turnEnded()
       browser?.endControl()
       // A chat's turn began or ended: its recording pauses while the agent thinks.
       recorder?.refresh()
