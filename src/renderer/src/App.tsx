@@ -355,6 +355,8 @@ export default function App(): React.JSX.Element {
       )}
       {browserOpen && (
         <BrowserPanel
+          chatId={chat?.id}
+          meetingChoice={state.meeting}
           width={browserWidth}
           onResize={setBrowserWidth}
           onClose={() => toggleBrowser(chat?.id, false)}

@@ -42,6 +42,8 @@ export default defineConfig({
           // Imports nothing but `electron`, so it builds to one file: a sandboxed
           // preload cannot load other files.
           page: resolve('src/preload/page.ts'),
+          // The AI's microphone and ears in a meeting's tab (main/meeting.ts).
+          meeting: resolve('src/preload/meeting.ts'),
           // The agent orb's page, sandboxed too.
           orb: resolve('src/preload/orb.ts')
         },

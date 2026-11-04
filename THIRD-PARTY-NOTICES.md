@@ -1,6 +1,6 @@
 # Third-party notices
 
-Barebone includes code from the projects below. Playwright, ZCode, codex-acp, claude-agent-acp and serve-sim are under the Apache License, Version 2.0, whose text is at the end; ONNX Runtime, electron-liquid-glass, LobeHub Icons and Tabler Icons are under the MIT License, given with each. The Supertonic 3 voice model is not part of the app: it is downloaded when speech is on, under its own license.
+Barebone includes code from the projects below. Playwright, ZCode, codex-acp, claude-agent-acp, serve-sim and sentencepiece-js are under the Apache License, Version 2.0, whose text is at the end; ONNX Runtime, electron-liquid-glass, LobeHub Icons, Tabler Icons and Moonshine Voice are under the MIT License, given with each. The Supertonic 3, Pocket TTS and Moonshine models are not part of the app: they are downloaded when speech is on or when the AI first joins a meeting in a language, each under its own license.
 
 ## Playwright
 
@@ -113,6 +113,42 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 ## Supertonic 3
 
 Spoken messages use the Supertonic 3 voice model by Supertone, with its M3 voice: https://huggingface.co/Supertone/supertonic-3. The app does not include it; it downloads the model from Hugging Face when speech is on, and runs it on the user's computer. The model is licensed under the BigScience Open RAIL-M License, whose use restrictions apply to what it is used for, among them impersonating people without their consent and passing off generated speech as a person's: https://huggingface.co/Supertone/supertonic-3/blob/main/LICENSE. How the app runs it (`src/main/speech/supertonic.ts`) is ported from the supertonic Python package 1.3.1, under the MIT License: https://github.com/supertone-inc/supertonic-py
+
+## Moonshine Voice
+
+The AI hears meetings (`src/main/meeting.ts`) with Moonshine's streaming speech-to-text, run on the user's computer by `native/listen`, which is built with the `moonshine-swift` 0.1.5 package and its library, and ships in the app. https://github.com/moonshine-ai/moonshine. The models are not part of the app: it downloads them from Moonshine's servers the first time a meeting is in a language. Every streaming model, in every language, is under the MIT License, as Moonshine's LICENSE says.
+
+```
+MIT License
+
+Copyright (c) 2025 Useful Sensors, Inc. (dba Moonshine AI)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Pocket TTS
+
+In meetings in English, German and Spanish, the AI speaks with Kyutai's Pocket TTS, with the voices charles, juergen and lola: https://huggingface.co/kyutai/pocket-tts-without-voice-cloning. The app does not include it; it downloads the model, exported to ONNX by lineofflight (https://huggingface.co/lineofflight/pocket-tts-onnx), and the voices from Kyutai, the first time a meeting is in one of those languages. The weights are Kyutai's, under the Creative Commons Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0/); Kyutai's terms forbid using it to clone or impersonate a voice without consent. How the app runs it (`src/main/speech/pocket.ts`) is ported from `pocket_tts_onnx.py` in KevinAHM's pocket-tts-onnx, under the same license: https://huggingface.co/KevinAHM/pocket-tts-onnx
+
+## sentencepiece-js
+
+Pocket's text is split into tokens with `@sctg/sentencepiece-js` 1.3.3, a WebAssembly build of Google's SentencePiece, bundled into the app. https://github.com/sctg-development/sentencepiece-js
 
 ## Apache License, Version 2.0
 

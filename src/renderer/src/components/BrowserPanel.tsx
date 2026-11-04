@@ -1,5 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { BrowserState, BrowserTab } from '../../../shared/types'
+import {
+  MEETING_LANGUAGES,
+  type AppState,
+  type BrowserState,
+  type BrowserTab,
+  type MeetingLanguage,
+  type MeetingState
+} from '../../../shared/types'
 import { onOverlays, overlaysCover } from '../lib/overlays'
 import { dragDivider } from '../lib/side-panel'
 import {
@@ -13,6 +20,10 @@ import {
 } from './icons'
 
 interface BrowserPanelProps {
+  /** The chat whose browser this is. */
+  chatId?: string
+  /** The language and name the AI last joined a meeting with. */
+  meetingChoice?: AppState['meeting']
   width: number
   onResize: (width: number) => void
   onClose: () => void
@@ -30,6 +41,8 @@ interface BrowserPanelProps {
  * component draws the toolbar and reports where the view should sit.
  */
 export function BrowserPanel({
+  chatId,
+  meetingChoice,
   width,
   onResize,
   onClose,
@@ -54,6 +67,12 @@ export function BrowserPanel({
   useEffect(() => {
     window.api.browser.getState().then(setState)
     return window.api.browser.onState(setState)
+  }, [])
+
+  const [meeting, setMeeting] = useState<MeetingState | null>(null)
+  useEffect(() => {
+    window.api.meeting.getState().then(setMeeting)
+    return window.api.meeting.onState(setMeeting)
   }, [])
 
   // Where the page sits, for as long as the panel is open.
@@ -210,6 +229,15 @@ export function BrowserPanel({
           <CloseIcon />
         </button>
       </div>
+      {chatId && state?.activeTab && (
+        <MeetingBar
+          chatId={chatId}
+          tabId={state.activeTab}
+          url={state.url}
+          meeting={meeting}
+          choice={meetingChoice}
+        />
+      )}
       <div className="browser-viewport" ref={viewportRef}>
         {still && (
           <img
@@ -232,6 +260,119 @@ export function BrowserPanel({
         )}
       </div>
     </aside>
+  )
+}
+
+/** Whether an address is a Google Meet page, where the AI can join the call. */
+function isMeet(url: string): boolean {
+  try {
+    return new URL(url).hostname === 'meet.google.com'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Under the toolbar on a Google Meet page: let the chat's agent join the call
+ * (main/meeting.ts), with the name it answers to and the call's language;
+ * then how far it is getting ready, and once it is in, a way to take it out.
+ */
+function MeetingBar({
+  chatId,
+  tabId,
+  url,
+  meeting,
+  choice
+}: {
+  chatId: string
+  tabId: string
+  url: string
+  meeting: MeetingState | null
+  choice?: AppState['meeting']
+}): React.JSX.Element | null {
+  const [name, setName] = useState(choice?.name ?? 'Assistant')
+  const [language, setLanguage] = useState<MeetingLanguage>(choice?.language ?? 'en')
+  const [error, setError] = useState<string>()
+  const [joining, setJoining] = useState(false)
+
+  if (meeting?.chatId === chatId && meeting.tabId === tabId) {
+    const { download } = meeting
+    return (
+      <div className="meeting-bar">
+        <span className={`meeting-dot${meeting.status === 'live' ? ' live' : ''}`} />
+        <span className="meeting-text">
+          {meeting.status === 'live'
+            ? `The AI is in this call. It answers to "${meeting.name}".`
+            : download
+              ? `Getting the AI ready: ${Math.round(download.received / 1e6)} of ${Math.round(download.total / 1e6)} MB of speech models, the first time only.`
+              : 'Getting the AI ready…'}
+        </span>
+        <button className="btn" onClick={() => window.api.meeting.leave(chatId)}>
+          {meeting.status === 'live' ? 'Leave' : 'Cancel'}
+        </button>
+      </div>
+    )
+  }
+  if (!isMeet(url)) return null
+  if (meeting) {
+    return (
+      <div className="meeting-bar">
+        <span className="meeting-text">
+          The AI is in a meeting {meeting.chatId === chatId ? 'in another tab' : 'in another chat'}.
+          It joins one call at a time.
+        </span>
+      </div>
+    )
+  }
+
+  async function join(): Promise<void> {
+    setError(undefined)
+    setJoining(true)
+    try {
+      await window.api.meeting.join(chatId, tabId, language, name)
+    } catch (e) {
+      // Electron puts its own words in front of the reason.
+      setError(
+        (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+      )
+    } finally {
+      setJoining(false)
+    }
+  }
+
+  return (
+    <form
+      className="meeting-bar"
+      onSubmit={(e) => {
+        e.preventDefault()
+        void join()
+      }}
+    >
+      <span className="meeting-text">Let the AI join as</span>
+      <input
+        className="meeting-name"
+        value={name}
+        spellCheck={false}
+        aria-label="The name the AI answers to"
+        onChange={(e) => setName(e.target.value)}
+      />
+      <select
+        className="meeting-language"
+        value={language}
+        aria-label="The language of the call"
+        onChange={(e) => setLanguage(e.target.value as MeetingLanguage)}
+      >
+        {MEETING_LANGUAGES.map((l) => (
+          <option key={l.code} value={l.code}>
+            {l.label}
+          </option>
+        ))}
+      </select>
+      <button className="btn primary" type="submit" disabled={joining || !name.trim()}>
+        Join
+      </button>
+      {error && <span className="meeting-error">{error}</span>}
+    </form>
   )
 }
 

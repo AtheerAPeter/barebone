@@ -1641,7 +1641,7 @@ function lastAnswer(chatId: string): string | undefined {
 /**
  * Messages from other chats, commands and timers a chat got since the user
  * last wrote in it. Turns the agent started itself do not count: the app did
- * not send them.
+ * not send them. Nor does a meeting's: the user put the chat in it.
  */
 function fromChatsSinceUser(chatId: string): number {
   const items = store.getMessages(chatId)
@@ -1650,7 +1650,7 @@ function fromChatsSinceUser(chatId: string): number {
     const item = items[i]
     if (item.kind !== 'user') continue
     if (!item.from) break
-    if (item.from.kind !== 'self') count++
+    if (item.from.kind !== 'self' && item.from.kind !== 'meeting') count++
   }
   return count
 }
@@ -2546,6 +2546,28 @@ export class AgentManager implements ChatsApi {
       return
     }
     this.inbox.set(chatId, [...queued, { id: crypto.randomUUID(), text, attachments: [], from }])
+  }
+
+  /**
+   * What was said in the meeting the chat is in (meeting.ts): a new turn when
+   * the chat is idle, else it joins the running one at its next step, as
+   * `wake` does. It is not held to MAX_FROM_CHATS: the user put the chat in
+   * the meeting, and what is said there keeps coming.
+   */
+  fromMeeting(
+    chatId: string,
+    text: string,
+    attachments: Attachment[],
+    why: Extract<ChatSender, { kind: 'meeting' }>['why']
+  ): void {
+    if (!store.getState().chats.some((c) => c.id === chatId)) return
+    const from: ChatSender = { kind: 'meeting', why }
+    if (!store.getChat(chatId).running) {
+      void this.send(chatId, text, attachments, from)
+      return
+    }
+    const queued = this.inbox.get(chatId) ?? []
+    this.inbox.set(chatId, [...queued, { id: crypto.randomUUID(), text, attachments, from }])
   }
 
   /**

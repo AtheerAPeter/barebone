@@ -109,6 +109,15 @@ export interface ChatsApi {
 export interface SpeechApi {
   /** Whether speech is on and the voice is on this Mac; the tools offer it only then. */
   on(): boolean
+  /**
+   * Whether the speak tool is listed: speech is on in Settings. Unlike the
+   * rest, it is listed before its voice is on this Mac, because agents' CLIs
+   * keep the tools their session started with: a session begun while the
+   * voice downloaded would otherwise never speak, not even in a meeting
+   * (meeting.ts) joined later, which brings its own voice. Called without
+   * a voice, it says why it cannot speak.
+   */
+  listed(): boolean
   /** Say a message out loud, after what plays already; throws why it cannot be said. */
   speak(chatId: string, text: string, language: Language, pace?: number): Spoken
   /** Say a message into a new WAV file; resolves with its length in seconds once written. */
@@ -124,7 +133,12 @@ export function provideSpeech(api: SpeechApi): void {
   speech = api
 }
 
-/** Whether the chat servers offer the speak tool now, and show_step its `say`. */
+/** Whether the chat servers list the speak tool (see SpeechApi.listed). */
+export function speakListed(): boolean {
+  return speech?.listed() === true
+}
+
+/** Whether the chat servers offer show_step's `say` and the voice in walkthroughs and videos. */
 export function speechOffered(): boolean {
   return speech?.on() === true
 }
@@ -413,7 +427,7 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
       )
   )
 
-  if (speech && speechOffered()) {
+  if (speech && speakListed()) {
     const voice = speech
     server.registerTool(
       'speak',

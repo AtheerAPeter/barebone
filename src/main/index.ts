@@ -23,6 +23,7 @@ import type {
   Project,
   Rect,
   SkillScope,
+  MeetingLanguage,
   Theme
 } from '../shared/types'
 import * as store from './store'
@@ -49,6 +50,7 @@ import {
 import { installMenu } from './menu'
 import { AgentOrb } from './orb'
 import { PageRecorder } from './recording'
+import { Meetings } from './meeting'
 import { Speech } from './speech'
 import type { Language } from './speech/supertonic'
 import { loadShellPath } from './shell-env'
@@ -68,6 +70,8 @@ let speech: Speech
 let recorder: PageRecorder | undefined
 /** Plays agents' code walkthroughs, with the voice; made with the voice. */
 let walks: WalkPlayer
+/** The chat's agent in a Google Meet call; made with the window. */
+let meetings: Meetings | undefined
 /** Set once the app is quitting: closing the window then really closes it. */
 let quitting = false
 /** How long quitting waits for the agents and the browser to stop. */
@@ -91,6 +95,8 @@ const agents = new AgentManager(
       // A chat that stopped running may no longer need its browser page, and
       // no longer controls a tab.
       browser?.prune()
+      // A meeting's chat that finished its turn hears what was said meanwhile.
+      meetings?.turnEnded()
       browser?.endControl()
       // A chat's turn began or ended: its recording pauses while the agent thinks.
       recorder?.refresh()
@@ -550,6 +556,7 @@ function registerIpc(browser: BuiltinBrowser): void {
   )
 
   ipcMain.handle('chat:delete', async (_e, chatId: string) => {
+    meetings?.forget(chatId)
     await agents.deleteChat(chatId)
     browser.closeChat(chatId)
     walks.forget(chatId)
@@ -559,6 +566,8 @@ function registerIpc(browser: BuiltinBrowser): void {
   ipcMain.handle('chat:leave', async (_e, chatId: string) => {
     const chat = store.getState().chats.find((c) => c.id === chatId)
     if (!chat || chat.running || chat.draft || store.getMessages(chatId).length > 0) return
+    // A chat getting ready for a meeting has nothing in it yet, and is in use.
+    if (meetings?.state()?.chatId === chatId) return
     await agents.deleteChat(chatId)
     browser.closeChat(chatId)
     walks.forget(chatId)
@@ -592,9 +601,14 @@ function registerIpc(browser: BuiltinBrowser): void {
   ipcMain.handle('chat:open', (_e, chatId: string) => agents.open(chatId))
 
   // Fire and forget: progress arrives through chat:item and state:changed events.
-  ipcMain.handle('chat:send', (_e, chatId: string, text: string, attachments?: Attachment[]) => {
-    void agents.send(chatId, text, attachments)
-  })
+  ipcMain.handle(
+    'chat:send',
+    async (_e, chatId: string, text: string, attachments?: Attachment[]) => {
+      // In a meeting, what was said there goes first, so the agent reads them in order.
+      await meetings?.beforeUserMessage(chatId)
+      void agents.send(chatId, text, attachments)
+    }
+  )
   ipcMain.handle('files:pick', async (): Promise<Attachment[]> => {
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ['openFile', 'multiSelections'],
@@ -656,6 +670,13 @@ function registerIpc(browser: BuiltinBrowser): void {
   ipcMain.handle('browser:fillPanel', () => browser.fillPanel())
   ipcMain.on('browser:menu', (_e, x: number, y: number) => browser.showMenu(x, y))
   ipcMain.handle('browser:state', () => browser.state())
+  ipcMain.handle(
+    'meeting:join',
+    (_e, chatId: string, tabId: string, language: MeetingLanguage, name: string) =>
+      meetings?.join(chatId, tabId, language, name)
+  )
+  ipcMain.handle('meeting:leave', (_e, chatId: string) => meetings?.leave(chatId))
+  ipcMain.handle('meeting:state', () => meetings?.state() ?? null)
 
   ipcMain.handle('files:list', (_e, projectPath: string) => listProjectFiles(projectPath))
   ipcMain.handle('prompts:history', (_e, projectId: string) => store.promptHistory(projectId))
@@ -717,8 +738,12 @@ app.whenReady().then(async () => {
   installMenu((command) => send('menu', command), nativeTheme.themeSource, setTheme)
   speech = new Speech({
     status: (status) => send('speech:status', status),
-    audio: (audio) => send('speech:audio', audio),
-    stop: (which) => send('speech:stop', which)
+    // What the chat in a meeting says goes into the call; the rest plays in the window.
+    audio: (audio) => meetings?.play(audio) || send('speech:audio', audio),
+    stop: (which) => {
+      meetings?.stop(which)
+      send('speech:stop', which)
+    }
   })
   // A walkthrough speaks only while the voice is on and on this Mac, as the speak tool does.
   walks = new WalkPlayer(
@@ -729,6 +754,18 @@ app.whenReady().then(async () => {
     (chatId, at) => send('walk:at', chatId, at)
   )
   browser = createWindow()
+  meetings = new Meetings({
+    browser,
+    agents,
+    speech,
+    state: (state) => send('meeting:state', state),
+    notice: (chatId, text) =>
+      send(
+        'chat:item',
+        chatId,
+        store.upsertItem(chatId, { kind: 'notice', id: crypto.randomUUID(), text })
+      )
+  })
   recorder = new PageRecorder(
     mainWindow.webContents,
     (chatId) => store.getState().chats.find((chat) => chat.id === chatId)?.running === true
@@ -749,6 +786,7 @@ app.whenReady().then(async () => {
     {
       // Offered once the voice is on this Mac, so an agent never speaks into a missing one.
       on: () => store.speechOn() && speech.status().state === 'ready',
+      listed: () => store.speechOn(),
       speak: (chatId, text, language, pace) => {
         const spoken = speech.speak(chatId, text, language, pace)
         // What the chat says is in its video: it records from just before the voice to its end.
@@ -810,6 +848,7 @@ app.on('before-quit', (event) => {
   }
   // Before the tabs close, so videos end as stopped, not as cut off.
   const recorded = recorder?.stopAll()
+  meetings?.dispose()
   browser?.closeAll()
   // The devices keep running, as they do when started from Xcode or Android Studio.
   devices.stopAll()

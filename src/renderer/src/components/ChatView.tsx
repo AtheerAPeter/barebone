@@ -7,6 +7,7 @@ import type {
   Chat,
   ChatBackground,
   ChatItem,
+  ChatSender,
   FormAnswers,
   FormField,
   OrbLine,
@@ -530,7 +531,9 @@ const Item = memo(function Item({
                       ? `${item.from.title} ended its turn`
                       : item.from.kind === 'self'
                         ? `${agentLabel(item.from.agent)} went on by itself`
-                        : `From ${item.from.title}`}
+                        : item.from.kind === 'meeting'
+                          ? MEETING_SENDER[item.from.why]
+                          : `From ${item.from.title}`}
               </div>
             )}
             {item.text}
@@ -634,6 +637,15 @@ const Item = memo(function Item({
 })
 
 const agentLabel = (agent: AgentId): string => AGENTS.find((a) => a.id === agent)?.label ?? agent
+
+/** Over a message from the meeting the chat is in (main/meeting.ts), why it came. */
+const MEETING_SENDER: Record<Extract<ChatSender, { kind: 'meeting' }>['why'], string> = {
+  joined: 'Joining the meeting',
+  named: 'From the meeting: its name was said',
+  user: 'From the meeting',
+  left: 'You took it out of the meeting',
+  ended: 'The meeting ended'
+}
 
 type FormItem = Extract<ChatItem, { kind: 'form' }>
 

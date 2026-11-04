@@ -20,6 +20,8 @@ import type {
   GitBranch,
   GitChange,
   GitStatus,
+  MeetingLanguage,
+  MeetingState,
   OrbState,
   Project,
   RecordingRequest,
@@ -274,6 +276,16 @@ const api = {
   devices: {
     /** The tools the devices need, and which are installed. */
     checks: (): Promise<MobileToolCheck[]> => ipcRenderer.invoke('devices:checks')
+  },
+
+  /** The chat's agent in a Google Meet call open in one of its tabs (main/meeting.ts). */
+  meeting: {
+    /** Let the agent join; rejects with why it cannot. */
+    join: (chatId: string, tabId: string, language: MeetingLanguage, name: string): Promise<void> =>
+      ipcRenderer.invoke('meeting:join', chatId, tabId, language, name),
+    leave: (chatId: string): Promise<void> => ipcRenderer.invoke('meeting:leave', chatId),
+    getState: (): Promise<MeetingState | null> => ipcRenderer.invoke('meeting:state'),
+    onState: (listener: (state: MeetingState | null) => void) => on('meeting:state', listener)
   },
 
   /** The code panel, in the browser panel's place: source control and walkthroughs. */

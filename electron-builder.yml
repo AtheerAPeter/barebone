@@ -7,6 +7,8 @@ files:
   # Agent worktrees and settings, which would otherwise be packed whole.
   - '!.claude/**'
   - '!src/*'
+  # Swift sources and their build; the helper itself ships in extraResources.
+  - '!native/**'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
@@ -37,6 +39,9 @@ asarUnpack:
 extraResources:
   - from: install.sh
     to: install.sh
+  # The meeting's speech-to-text (main/meeting.ts), built by `npm run build:listen`.
+  - from: native/listen/.build/release/barebone-listen
+    to: barebone-listen
 win:
   executableName: barebone
 nsis:

@@ -279,6 +279,8 @@ export interface AppState {
   speech?: boolean
   /** Whether agents get the device tools, for mobile apps (main/devices.ts). Off when missing. */
   mobile?: boolean
+  /** What the last meeting the AI joined was in, and the name it answered to (main/meeting.ts). */
+  meeting?: { language: MeetingLanguage; name: string }
 }
 
 export type DevicePlatform = 'ios' | 'android'
@@ -308,6 +310,37 @@ export interface MobileToolCheck {
   install: string
 }
 
+/**
+ * Languages a meeting can be in: those Moonshine transcribes as it streams
+ * (main/meeting-models.ts) that a voice can speak. Pocket speaks English,
+ * German and Spanish; Supertonic the rest.
+ */
+export const MEETING_LANGUAGES = [
+  { code: 'en', label: 'English' },
+  { code: 'de', label: 'German' },
+  { code: 'es', label: 'Spanish' },
+  { code: 'ar', label: 'Arabic' },
+  { code: 'ja', label: 'Japanese' },
+  { code: 'vi', label: 'Vietnamese' }
+] as const
+export type MeetingLanguage = (typeof MEETING_LANGUAGES)[number]['code']
+
+/**
+ * The meeting the AI is in, one at a time (main/meeting.ts): getting its
+ * models ready, then in the call, listening.
+ */
+export interface MeetingState {
+  chatId: string
+  /** The browser tab of the call. */
+  tabId: string
+  language: MeetingLanguage
+  /** The name it answers to. */
+  name: string
+  status: 'preparing' | 'live'
+  /** While its models download, the first time a language is used. */
+  download?: { received: number; total: number }
+}
+
 /** The voice agents speak with (main/speech): its model on this Mac, and its download. */
 export type SpeechStatus =
   | { state: 'missing'; total: number }
@@ -317,7 +350,11 @@ export type SpeechStatus =
 
 /** A piece of a spoken message, as the window plays it. */
 export interface SpokenAudio {
-  /** The message it belongs to; a message comes in pieces of whole sentences. */
+  /**
+   * The message it belongs to. A message comes in pieces: whole sentences from
+   * Supertonic, a few 80 ms frames each from Pocket (a meeting's voice), whose
+   * last piece may be empty.
+   */
   id: string
   /** The chat that spoke; none for the sample played from Settings. */
   chatId?: string
@@ -408,9 +445,10 @@ export interface AgentStatus {
  * chat's agent, with the title it had then (saved before senders had a kind,
  * so the kind may be missing); a command the chat ran in the background,
  * reporting that it ended; the timer the chat set; the app, reporting that
- * a chat this one started ended its turn without reporting back; or the agent
+ * a chat this one started ended its turn without reporting back; the agent
  * itself, which went on working between turns (Claude Code does when work it
- * left running in the background ends).
+ * left running in the background ends); or the meeting the chat is in, with
+ * what was said since it last heard (main/meeting.ts).
  */
 export type ChatSender =
   | { kind?: 'chat'; chatId: string; title: string }
@@ -418,6 +456,7 @@ export type ChatSender =
   | { kind: 'timer'; note: string }
   | { kind: 'ended'; chatId: string; title: string }
   | { kind: 'self'; agent: AgentId }
+  | { kind: 'meeting'; why: 'joined' | 'named' | 'user' | 'left' | 'ended' }
 
 /** The chat a message came from, when another chat sent it. */
 export function senderChat(from: ChatSender | undefined): string | undefined {
