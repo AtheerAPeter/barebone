@@ -81,6 +81,8 @@ import adapterEnv from '../../resources/adapter-env.cjs?asset&asarUnpack'
 /** Agents run as a CLI over ACP; the app's own harness agents are not. */
 type AcpAgent = Exclude<AgentId, HarnessAgentId>
 
+type ToolItem = Extract<ChatItem, { kind: 'tool' }>
+
 /** The provider APIs the app's own harness runs on. */
 const PROVIDERS: Provider[] = [commandCode, openCode, cline, custom]
 
@@ -194,6 +196,22 @@ interface ClaudeMeta {
     /** A subagent's report, when it handed it back with SubagentHandback. */
     handbackReport?: { text?: string }
   }
+}
+
+/**
+ * A subagent that runs as a session of its own: Claude Code announces it with
+ * `subagent_update` in the session that launched it (ACP's subagents RFD).
+ */
+interface Subagent {
+  chatId: string
+  /** The chat's own session, which this subagent or one of its parents was launched from. */
+  root: string
+  /** The subagent line it is shown as, the one of the subagent that launched it, if any. */
+  parentId?: string
+  /** Whether it is at work, so the end of the chat's turn does not mark it interrupted. */
+  working: boolean
+  /** Whether it may be stopped on its own: the `cancel` capability it was announced with. */
+  cancellable: boolean
 }
 
 function claudeMeta(meta: Record<string, unknown> | null | undefined): ClaudeMeta | undefined {
@@ -505,15 +523,26 @@ const BUILD_MODE: Record<AcpAgent, Record<string, string>> = {
 const userInstructions = (text: string): string =>
   `<user_instructions>\n${text}\n</user_instructions>`
 
-/** The user's instructions as a system prompt after the agent's own (ACP's append mode). */
-const appendedPrompt = (text: string): acp.SystemPrompt => ({
-  mode: 'append',
-  content: [{ type: 'text', text: userInstructions(text) }]
-})
-
 /** The user's instructions with a session's first prompt, for an agent that takes no system prompt. */
 const instructionsNote = (text: string): string =>
   `(The user's own instructions for every chat, set in Barebone's settings. Follow them throughout this chat.)\n${userInstructions(text)}`
+
+/**
+ * Every chat is told its ID, which picks its own browser, so parallel chats
+ * never share a page, and names it to the other chats; and its private key
+ * for the chat tools, which proves who calls.
+ */
+function chatIdNote(chatId: string): string {
+  const devices = store.getState().mobile
+    ? ` Pass it as "chat_id" to the ${DEVICES_SERVER} tools that take it; for anything done on an iOS simulator or Android emulator or phone, use the ${DEVICES_SERVER} tools.`
+    : ''
+  return `Your Barebone chat ID is "${browserId(chatId)}". Pass it as the "browser" argument in every ${BROWSER_SERVER} tool call. For anything done in a browser, use the ${BROWSER_SERVER} tools, the browser panel in the app: never start Chrome, Safari or a headless browser yourself, or drive one with Playwright or Puppeteer, unless the user names that browser.${devices} Pass your private key "${chatKey(chatId)}" as "chat" in every ${CHATS_SERVER} tool call, and never put it in a message.`
+}
+
+/** What a chat's ACP agent is told about Barebone: where chats are saved, and its ID. */
+function chatNotes(chatId: string): string {
+  return `${store.savedChatsNote(chatId)}\n\n${chatIdNote(chatId)}`
+}
 
 /** What the manager needs from an agent: a CLI's ACP process, or the built-in harness. */
 interface AgentBackend {
@@ -524,13 +553,24 @@ interface AgentBackend {
   listModels(cwd: string): Promise<ModelSource[]>
   applyOption(chatId: string, optionId: string, value: string): Promise<void>
   release(chatId: string): Promise<void>
+  /**
+   * `notes` go after the text unless the agent has them already (see
+   * hasChatNotes). The app's own agents are given none: they know the chat.
+   */
   prompt(
     chatId: string,
     text: string,
-    attachments?: acp.ContentBlock[]
+    attachments?: acp.ContentBlock[],
+    notes?: string[]
   ): Promise<acp.PromptResponse>
+  /** Whether the chat's live session has its notes in its system prompt, so messages leave them out. */
+  hasChatNotes?(chatId: string): boolean
+  /** Whether the agent reported a compaction in the chat's turn, which it then forgets. */
+  takeCompaction?(chatId: string): boolean
   endTurn(chatId: string, outcome: TurnOutcome): void
   cancel(chatId: string): Promise<void>
+  /** Stop one subagent's work, the chat's turn going on (see AgentProcess.subagents). */
+  cancelSubagent?(chatId: string, id: string): Promise<void>
   explain(error: unknown): Promise<unknown>
   /** The turn is alive (a permission was answered); agents without a turn watchdog leave it out. */
   touchActivity?(chatId: string): void
@@ -611,6 +651,16 @@ class AgentProcess implements AgentBackend {
   private backgroundWork = new Set<string>()
   /** Reports Claude Code's subagents handed back, by their Agent call, until that call ends. */
   private reports = new Map<string, string>()
+  /**
+   * The subagents running as sessions of their own (ACP's subagents RFD), by
+   * session id. The chat shows each as a subagent line whose id is its session
+   * id, with its calls under it.
+   */
+  private subagents = new Map<string, Subagent>()
+  /** Sessions opened with the chat's notes in their system prompt (see sessionSetup). */
+  private notedSessions = new Set<string>()
+  /** Chats whose compaction the agent reported in the current turn, so the app does not report it again. */
+  private compacted = new Set<string>()
 
   constructor(
     readonly agent: AcpAgent,
@@ -698,10 +748,24 @@ class AgentProcess implements AgentBackend {
 
     const initResult = await connection.agent.request(methods.agent.initialize, {
       protocolVersion: PROTOCOL_VERSION,
-      // Forms the agent asks the user to fill in (Claude Code's AskUserQuestion,
-      // which it leaves out for a client without them, and MCP servers'
-      // questions), and pages to open (an MCP server's sign-in). See forms.ts.
-      clientCapabilities: { elicitation: { form: {}, url: {} } },
+      clientCapabilities: {
+        // Forms the agent asks the user to fill in (Claude Code's AskUserQuestion,
+        // which it leaves out for a client without them, and MCP servers'
+        // questions), and pages to open (an MCP server's sign-in). See forms.ts.
+        elicitation: { form: {}, url: {} },
+        session: {
+          // Warnings and notes about the session, which Claude Code otherwise
+          // writes into its answer as bold text.
+          notices: {},
+          // A compaction as its own report rather than a made-up tool call.
+          compaction: {},
+          // On/off options (Fast mode, Ultracode) as switches.
+          configOptions: { boolean: {} }
+        },
+        // Each subagent as its own session, with its work state and a stop of
+        // its own (see onSubagent).
+        subagents: {}
+      },
       clientInfo: { name: 'barebone', version: app.getVersion() }
     })
     if (this.run !== run) throw new Error(`${this.agent} was restarted.`)
@@ -722,7 +786,8 @@ class AgentProcess implements AgentBackend {
       this.activePrompts > 0 ||
       this.opening.size > 0 ||
       this.ownTurns.size > 0 ||
-      this.backgroundWork.size > 0
+      this.backgroundWork.size > 0 ||
+      [...this.subagents.values()].some((s) => s.working)
     if (busy()) return
     this.idleTimer = setTimeout(() => {
       if (!busy()) this.stop()
@@ -742,6 +807,18 @@ class AgentProcess implements AgentBackend {
     this.stoppingOwn.clear()
     this.backgroundWork.clear()
     this.reports.clear()
+    this.notedSessions.clear()
+    this.compacted.clear()
+    // Subagents still at work (in the background) ended with the process.
+    for (const [sessionId, subagent] of this.subagents) {
+      this.sessionChats.delete(sessionId)
+      if (!subagent.working) continue
+      const item = store.findItem(subagent.chatId, sessionId)
+      if (item?.kind === 'tool') {
+        this.emit(subagent.chatId, { ...item, status: 'interrupted', cancellable: undefined })
+      }
+    }
+    this.subagents.clear()
     for (const [id, pending] of this.permissions) {
       if (this.owns(pending.chatId)) {
         this.permissions.delete(id)
@@ -866,8 +943,10 @@ class AgentProcess implements AgentBackend {
     let configOptions: acp.SessionConfigOption[] | null | undefined
     // `chat` is the live store record, so its sessionId changes below; keep the one it had.
     const previousSessionId = chat.sessionId
+    // A loaded session gets the same system prompt it was created with, as ACP asks.
+    let setup = this.sessionSetup(chatId, chat.instructions)
     const loaded = previousSessionId
-      ? await this.loadSession(chatId, previousSessionId, cwd, mcpServers, signal)
+      ? await this.loadSession(chatId, previousSessionId, cwd, mcpServers, setup, signal)
       : undefined
     signal.throwIfAborted()
     if (previousSessionId && loaded) {
@@ -877,13 +956,10 @@ class AgentProcess implements AgentBackend {
       // The user's instructions from Settings, as they are now: the session keeps them.
       const own = store.getState().instructions
       const systemPrompt = own && this.takesSystemPrompt() ? own : undefined
+      setup = this.sessionSetup(chatId, systemPrompt)
       const created = await connection.agent.request(
         methods.agent.session.new,
-        {
-          cwd,
-          mcpServers,
-          ...(systemPrompt ? { systemPrompt: appendedPrompt(systemPrompt) } : {})
-        },
+        { cwd, mcpServers, ...setup },
         requestOptions
       )
       signal.throwIfAborted()
@@ -903,6 +979,8 @@ class AgentProcess implements AgentBackend {
     }
     this.sessionChats.set(sessionId, chatId)
     this.liveSessions.add(sessionId)
+    if (setup.systemPrompt) this.notedSessions.add(sessionId)
+    else this.notedSessions.delete(sessionId)
 
     // Re-apply the saved selection. Options can depend on each other (cline's model
     // list depends on its provider), so apply them in the agent's order and
@@ -921,7 +999,7 @@ class AgentProcess implements AgentBackend {
       if (!option.values.some((v) => v.value === value)) continue
       const response = await connection.agent.request(
         methods.agent.session.setConfigOption,
-        { sessionId, configId: option.id, value },
+        { sessionId, configId: option.id, ...configValue(option, value) },
         requestOptions
       )
       signal.throwIfAborted()
@@ -930,6 +1008,39 @@ class AgentProcess implements AgentBackend {
     }
     this.setOptions(chatId, configOptions)
     return sessionId
+  }
+
+  /**
+   * What a chat's session/new and session/load carry besides its folder and
+   * MCP servers. An agent that takes a system prompt gets one after its own:
+   * the user's instructions the session keeps (see Chat.instructions), then
+   * the chat's notes, told there once instead of with every message (see
+   * prompt), so they stay when it compacts the conversation. Claude Code is
+   * told not to predict the user's next message: it spends a request on that
+   * after every turn, and sends the prediction to JetBrains AIR only.
+   */
+  private sessionSetup(
+    chatId: string,
+    instructions: string | undefined
+  ): Pick<acp.NewSessionRequest, 'systemPrompt' | '_meta'> {
+    const text = [...(instructions ? [userInstructions(instructions)] : []), chatNotes(chatId)]
+    return {
+      ...(this.takesSystemPrompt()
+        ? { systemPrompt: { mode: 'append', content: [{ type: 'text', text: text.join('\n\n') }] } }
+        : {}),
+      ...(this.agent === 'claude'
+        ? { _meta: { claudeCode: { options: { promptSuggestions: false } } } }
+        : {})
+    }
+  }
+
+  hasChatNotes(chatId: string): boolean {
+    const sessionId = store.getChat(chatId).sessionId
+    return this.isLive(sessionId) && this.notedSessions.has(sessionId)
+  }
+
+  takeCompaction(chatId: string): boolean {
+    return this.compacted.delete(chatId)
   }
 
   /**
@@ -942,6 +1053,7 @@ class AgentProcess implements AgentBackend {
     sessionId: string,
     cwd: string,
     mcpServers: acp.McpServer[],
+    setup: Pick<acp.LoadSessionRequest, 'systemPrompt' | '_meta'>,
     signal: AbortSignal
   ): Promise<acp.LoadSessionResponse | undefined> {
     if (!this.initResult?.agentCapabilities?.loadSession) return undefined
@@ -949,14 +1061,10 @@ class AgentProcess implements AgentBackend {
     const { methods, RequestError } = await loadSdk()
     this.sessionChats.set(sessionId, chatId)
     this.loadingSessions.add(sessionId)
-    // The same system prompt the session was created with, as ACP asks.
-    const { instructions } = store.getChat(chatId)
-    const systemPrompt =
-      instructions && this.takesSystemPrompt() ? appendedPrompt(instructions) : undefined
     try {
       return await connection.agent.request(
         methods.agent.session.load,
-        { sessionId, cwd, mcpServers, ...(systemPrompt ? { systemPrompt } : {}) },
+        { sessionId, cwd, mcpServers, ...setup },
         { cancellationSignal: signal }
       )
     } catch (error) {
@@ -1058,10 +1166,11 @@ class AgentProcess implements AgentBackend {
     const sessionId = await this.ensureSession(chatId)
     const connection = await this.connect()
     const { methods } = await loadSdk()
+    const option = this.options.get(chatId)?.find((o) => o.id === optionId)
     const response = await connection.agent.request(methods.agent.session.setConfigOption, {
       sessionId,
       configId: optionId,
-      value
+      ...configValue(option, value)
     })
     this.setOptions(chatId, response.configOptions)
     this.scheduleIdleStop()
@@ -1083,9 +1192,15 @@ class AgentProcess implements AgentBackend {
     const wasLive = this.isLive(sessionId)
     this.liveSessions.delete(sessionId)
     this.sessionChats.delete(sessionId)
+    this.notedSessions.delete(sessionId)
     this.commands.delete(sessionId)
-    // Closing the session ends the work it left in the background.
+    // Closing the session ends the work it left in the background, its subagents' too.
     this.backgroundWork.delete(chatId)
+    for (const [id, subagent] of this.subagents) {
+      if (subagent.root !== sessionId) continue
+      this.subagents.delete(id)
+      this.sessionChats.delete(id)
+    }
     this.scheduleIdleStop()
     if (empty && caps?.delete) {
       await connection.agent.request(methods.agent.session.delete, { sessionId })
@@ -1101,12 +1216,14 @@ class AgentProcess implements AgentBackend {
   async prompt(
     chatId: string,
     text: string,
-    attachments: acp.ContentBlock[] = []
+    attachments: acp.ContentBlock[] = [],
+    notes: string[] = []
   ): Promise<acp.PromptResponse> {
     this.activePrompts++
     clearTimeout(this.idleTimer)
     this.retryNotices.delete(chatId)
     this.stoppingOwn.delete(chatId)
+    this.compacted.delete(chatId)
     const turn = Symbol(chatId)
     let stopped = false
     const stop = new Promise<undefined>((resolve) =>
@@ -1127,15 +1244,20 @@ class AgentProcess implements AgentBackend {
       this.turns.set(chatId, turn)
       // The turn's own clock: silence from now on is the agent's silence.
       this.activity.set(chatId, Date.now())
-      // An agent without a system prompt of ours reads the instructions in its session's first prompt.
+      // An agent without a system prompt of ours reads the instructions in its
+      // session's first prompt, and the notes with every message. Known only
+      // now that the session is open.
       const instructions = this.firstPromptInstructions.get(sessionId)
       this.firstPromptInstructions.delete(sessionId)
+      const said = this.notedSessions.has(sessionId) ? [] : notes.map((note) => `(${note})`)
       const pending = connection.agent.request(methods.agent.session.prompt, {
         sessionId,
         prompt: [
           {
             type: 'text',
-            text: instructions ? `${text}\n\n${instructionsNote(instructions)}` : text
+            text: [text, ...(instructions ? [instructionsNote(instructions)] : []), ...said].join(
+              '\n\n'
+            )
           },
           ...attachments
         ]
@@ -1216,7 +1338,9 @@ class AgentProcess implements AgentBackend {
   endTurn(chatId: string, outcome: TurnOutcome): void {
     for (const item of store.getMessages(chatId)) {
       if (item.kind === 'tool' && (item.status === 'pending' || item.status === 'in_progress')) {
-        this.emit(chatId, { ...item, status: 'interrupted' })
+        // A subagent working in the background goes on, with its calls.
+        if (this.inWorkingSubagent(chatId, item)) continue
+        this.emit(chatId, { ...item, status: 'interrupted', cancellable: undefined })
       }
     }
     const notice = this.retryNotices.get(chatId)
@@ -1228,6 +1352,31 @@ class AgentProcess implements AgentBackend {
         text: `The provider failed: ${notice.message} ${RETRY_OUTCOMES[outcome]}`
       })
     }
+  }
+
+  /** Whether a chat item is a subagent still at work, or one of the calls under one. */
+  private inWorkingSubagent(chatId: string, item: ChatItem): boolean {
+    for (
+      let at: ChatItem | undefined = item;
+      at?.kind === 'tool';
+      at = at.parentId ? store.findItem(chatId, at.parentId) : undefined
+    ) {
+      if (this.subagents.get(at.id)?.working) return true
+    }
+    return false
+  }
+
+  /**
+   * Stop one subagent, by its line (its session id): session/cancel on its
+   * session stops its current work and not the chat's turn. It then reports
+   * itself idle, which ends its line (see onSubagent).
+   */
+  async cancelSubagent(chatId: string, id: string): Promise<void> {
+    const subagent = this.subagents.get(id)
+    const connection = this.connection
+    if (!connection || subagent?.chatId !== chatId || !subagent.working) return
+    const { methods } = await loadSdk()
+    await connection.agent.notify(methods.agent.session.cancel, { sessionId: id })
   }
 
   async cancel(chatId: string): Promise<void> {
@@ -1352,6 +1501,9 @@ class AgentProcess implements AgentBackend {
     const chatId = this.sessionChats.get(params.sessionId)
     // Any message from the agent, even one that is dropped, says it is alive.
     if (chatId) this.touchActivity(chatId)
+    // A subagent's own session: its commands and the like are not the chat's.
+    const subagent = this.subagents.get(params.sessionId)
+    if (subagent) return this.onSubagentUpdate(subagent, params)
     if (params.update.sessionUpdate === 'available_commands_update') {
       const listed = params.update.availableCommands.map((c) => ({
         name: c.name,
@@ -1365,8 +1517,14 @@ class AgentProcess implements AgentBackend {
       if (chatId) this.events.commands(chatId, commands)
       return
     }
-    if (this.loadingSessions.has(params.sessionId)) return
     if (!chatId) return
+    if (this.loadingSessions.has(params.sessionId)) {
+      // A replay names the chat's subagents, whose sessions may report again.
+      if (params.update.sessionUpdate === 'subagent_update') {
+        this.onSubagent(chatId, params.sessionId, params.update, true)
+      }
+      return
+    }
     const update = params.update
     const claude = claudeMeta(update._meta)
     // Claude Code streams its subagents' text into the session as if the agent
@@ -1406,64 +1564,16 @@ class AgentProcess implements AgentBackend {
         return
       }
       case 'tool_call':
-      case 'tool_call_update': {
-        const existing = store.findItem(chatId, update.toolCallId)
-        const base: Extract<ChatItem, { kind: 'tool' }> =
-          existing?.kind === 'tool'
-            ? existing
-            : { kind: 'tool', id: update.toolCallId, title: 'Tool call', status: 'pending' }
-        // A Claude Code subagent: its line, with its calls under it (parentId)
-        // and the report it handed back as its output.
-        const subagent = claude?.toolName !== undefined && SUBAGENT_TOOLS.has(claude.toolName)
-        const report = claude?.toolResponse?.handbackReport?.text
-        if (subagent && report) this.reports.set(update.toolCallId, report)
-        const content = formatToolContent(update.content) ?? formatRaw(update.rawOutput)
-        const text =
-          this.reports.get(update.toolCallId) ??
-          (subagent ? content?.replace(TOOLS_USED, '') : content)
-        const output = text === undefined ? undefined : limitOutput(text)
-        // opencode sends images as content, Cline inside the MCP result it passes as rawOutput.
-        const images = saveImages(chatId, [
-          ...contentImages(update.content),
-          ...imagesIn(update.rawOutput)
-        ])
-        // Work Claude Code moved to the background runs in its process (see backgroundWork).
-        const task =
-          claude?.toolResponse?.backgroundTaskId ??
-          (claude?.toolName === 'Monitor' ? claude.toolResponse?.taskId : undefined)
-        if (task) this.backgroundWork.add(chatId)
-        this.emit(chatId, {
-          ...base,
-          // The adapter leaves out a subagent's unchanged input, and with it its type.
-          title: subagent
-            ? update.rawInput !== undefined
-              ? subagentTitle(update.rawInput, update.title ?? base.title)
-              : base.title
-            : (update.title ?? base.title),
-          toolKind: subagent ? 'agent' : (update.kind ?? base.toolKind),
-          status: (update.status as ToolStatus | undefined) ?? base.status,
-          input: formatRaw(update.rawInput) ?? base.input,
-          output: output ?? base.output,
-          ...(images.length ? { images } : {}),
-          ...(claude?.parentToolUseId ? { parentId: claude.parentToolUseId } : {})
-        })
-        if (update.status === 'completed' || update.status === 'failed') {
-          this.reports.delete(update.toolCallId)
-        }
-        // A finished call is a point the turn can be cut at without losing work,
-        // once no other call of it (agents run some side by side) is still going.
-        if (
-          (update.status === 'completed' || update.status === 'failed') &&
-          !store
-            .getMessages(chatId)
-            .some(
-              (i) => i.kind === 'tool' && (i.status === 'pending' || i.status === 'in_progress')
-            )
-        ) {
-          this.onStepDone(chatId)
-        }
-        return
-      }
+      case 'tool_call_update':
+        return this.onToolCall(chatId, update)
+      case 'subagent_update':
+        return this.onSubagent(chatId, params.sessionId, update, false)
+      case 'session_message':
+        return this.onSessionMessage(chatId, update)
+      case 'notice':
+        return this.onNotice(chatId, update)
+      case 'compaction_update':
+        return this.onCompaction(chatId, update)
       case 'plan': {
         const existing = store.getMessages(chatId).findLast((i) => i.kind === 'plan')
         this.emit(chatId, {
@@ -1513,6 +1623,241 @@ class AgentProcess implements AgentBackend {
         return
     }
   }
+
+  /**
+   * A tool call, or a change to one. `subagentId` is the subagent whose own
+   * session made it (see onSubagentUpdate): it is shown under that
+   * subagent's line.
+   */
+  private onToolCall(
+    chatId: string,
+    update: Extract<acp.SessionUpdate, { sessionUpdate: 'tool_call' | 'tool_call_update' }>,
+    subagentId?: string
+  ): void {
+    const claude = claudeMeta(update._meta)
+    const existing = store.findItem(chatId, update.toolCallId)
+    const base: ToolItem =
+      existing?.kind === 'tool'
+        ? existing
+        : { kind: 'tool', id: update.toolCallId, title: 'Tool call', status: 'pending' }
+    // A Claude Code subagent that is not a session of its own: its line, with
+    // its calls under it (parentId) and the report it handed back as its output.
+    const subagent = claude?.toolName !== undefined && SUBAGENT_TOOLS.has(claude.toolName)
+    const report = claude?.toolResponse?.handbackReport?.text
+    if (subagent && report) this.reports.set(update.toolCallId, report)
+    const content = formatToolContent(update.content) ?? formatRaw(update.rawOutput)
+    const text =
+      this.reports.get(update.toolCallId) ?? (subagent ? content?.replace(TOOLS_USED, '') : content)
+    const output = text === undefined ? undefined : limitOutput(text)
+    // opencode sends images as content, Cline inside the MCP result it passes as rawOutput.
+    const images = saveImages(chatId, [
+      ...contentImages(update.content),
+      ...imagesIn(update.rawOutput)
+    ])
+    // Work Claude Code moved to the background runs in its process (see backgroundWork).
+    const task =
+      claude?.toolResponse?.backgroundTaskId ??
+      (claude?.toolName === 'Monitor' ? claude.toolResponse?.taskId : undefined)
+    if (task) this.backgroundWork.add(chatId)
+    const parentId = subagentId ?? claude?.parentToolUseId
+    this.emit(chatId, {
+      ...base,
+      // The adapter leaves out a subagent's unchanged input, and with it its type.
+      title: subagent
+        ? update.rawInput !== undefined
+          ? subagentTitle(update.rawInput, update.title ?? base.title)
+          : base.title
+        : (update.title ?? base.title),
+      toolKind: subagent ? 'agent' : (update.kind ?? base.toolKind),
+      status: (update.status as ToolStatus | undefined) ?? base.status,
+      input: formatRaw(update.rawInput) ?? base.input,
+      output: output ?? base.output,
+      ...(images.length ? { images } : {}),
+      ...(parentId ? { parentId } : {})
+    })
+    if (update.status === 'completed' || update.status === 'failed') {
+      this.reports.delete(update.toolCallId)
+      // A step of the chat's own turn, not of a subagent's work.
+      if (!subagentId) this.afterStep(chatId)
+    }
+  }
+
+  /**
+   * A step of the chat's turn ended. That is a point the turn can be cut at
+   * without losing work, once no other call of it (agents run some side by
+   * side) is still going. Subagents at work do not hold it: Claude Code takes
+   * a message steered into the turn when it gets to it.
+   */
+  private afterStep(chatId: string): void {
+    const going = store
+      .getMessages(chatId)
+      .some(
+        (i) =>
+          i.kind === 'tool' &&
+          (i.status === 'pending' || i.status === 'in_progress') &&
+          !this.inWorkingSubagent(chatId, i)
+      )
+    if (!going) this.onStepDone(chatId)
+  }
+
+  /**
+   * What a subagent's own session reports: its calls go under its line, the
+   * subagents it starts get lines under it, and its notices show as the
+   * chat's. Its text, todo list, usage and options are its own, not the
+   * chat's: its report reaches the chat as a session message.
+   */
+  private onSubagentUpdate(subagent: Subagent, params: acp.SessionNotification): void {
+    const { update, sessionId } = params
+    // A replay of the chat's session replays its subagents' sessions too.
+    const replayed = this.loadingSessions.has(subagent.root)
+    if (update.sessionUpdate === 'subagent_update') {
+      return this.onSubagent(subagent.chatId, sessionId, update, replayed)
+    }
+    if (replayed) return
+    switch (update.sessionUpdate) {
+      case 'tool_call':
+      case 'tool_call_update':
+        return this.onToolCall(subagent.chatId, update, sessionId)
+      case 'session_message':
+        return this.onSessionMessage(subagent.chatId, update)
+      case 'notice':
+        return this.onNotice(subagent.chatId, update)
+      default:
+        return
+    }
+  }
+
+  /**
+   * A subagent's `subagent_update`, sent in the session that launched it: the
+   * first announces it, the later ones its work state. It is shown as a
+   * subagent line whose id is its session id, under the line of the subagent
+   * that launched it, if one did. A replay only makes its session known
+   * again, for what it reports later: its line is in the chat already.
+   */
+  private onSubagent(
+    chatId: string,
+    sessionId: string,
+    update: acp.SubagentUpdate,
+    replayed: boolean
+  ): void {
+    const id = update.sessionId
+    const launcher = this.subagents.get(sessionId)
+    const known = this.subagents.get(id)
+    const state = update.state?.state
+    const working =
+      state === undefined
+        ? (known?.working ?? false)
+        : state === 'running' || state === 'requires_action'
+    const subagent: Subagent = {
+      chatId,
+      root: launcher?.root ?? sessionId,
+      ...(launcher ? { parentId: sessionId } : {}),
+      working,
+      cancellable: update.capabilities
+        ? !!update.capabilities.cancel
+        : (known?.cancellable ?? false)
+    }
+    this.subagents.set(id, subagent)
+    this.sessionChats.set(id, chatId)
+    // A subagent at work keeps the process; once none is, it may stop when idle.
+    this.scheduleIdleStop()
+    if (replayed) return
+
+    const existing = store.findItem(chatId, id)
+    const base: ToolItem =
+      existing?.kind === 'tool'
+        ? existing
+        : {
+            kind: 'tool',
+            id,
+            title: 'Subagent',
+            toolKind: 'agent',
+            status: 'in_progress',
+            ...(subagent.parentId ? { parentId: subagent.parentId } : {})
+          }
+    const end = update.state ? subagentEnd(update.state) : undefined
+    this.emit(chatId, {
+      ...base,
+      // As the chat shows subagents: "type: what it does".
+      title: update.title
+        ? update.description
+          ? `${update.description}: ${update.title}`
+          : update.title
+        : base.title,
+      status: working ? 'in_progress' : (end?.status ?? base.status),
+      ...(end?.error && !base.output ? { output: end.error } : {}),
+      cancellable: working && subagent.cancellable ? true : undefined
+    })
+    // A subagent the chat's turn waited on ended: a step of the turn.
+    if (end && !subagent.parentId) this.afterStep(chatId)
+  }
+
+  /**
+   * A message between a session and its subagent: the task the subagent was
+   * given, the input of its line, or the report it gave back, its output.
+   * Both arrive in the session that launched it; its own session has the task
+   * too, and the messages that resumed it.
+   */
+  private onSessionMessage(chatId: string, message: acp.SessionMessage): void {
+    const text = (message.content ?? [])
+      .flatMap((block) => (block.type === 'text' ? [block.text] : []))
+      .join('\n\n')
+    if (!text) return
+    const to = message.recipientSessionId
+      ? this.subagents.get(message.recipientSessionId)
+      : undefined
+    const from = message.senderSessionId ? this.subagents.get(message.senderSessionId) : undefined
+    const id = from ? message.senderSessionId : to ? message.recipientSessionId : undefined
+    const item = id ? store.findItem(chatId, id) : undefined
+    if (item?.kind !== 'tool') return
+    // Its report, the last one when it was resumed, without the list of tools
+    // Claude Code puts first for the model; or the task it was first given.
+    if (from) this.emit(chatId, { ...item, output: limitOutput(text.replace(TOOLS_USED, '')) })
+    else if (!item.input) this.emit(chatId, { ...item, input: text })
+  }
+
+  /**
+   * A notice from the agent, such as Claude Code's model fallback or an MCP
+   * server that failed to start: the app's own note in the chat, apart from
+   * the agent's answer.
+   */
+  private onNotice(chatId: string, notice: acp.Notice): void {
+    const text = notice.description ? `${notice.title}: ${notice.description}` : notice.title
+    this.emit(chatId, {
+      kind: notice.severity === 'error' ? 'error' : 'notice',
+      id: crypto.randomUUID(),
+      text
+    })
+  }
+
+  /** A compaction of the conversation, as one notice that follows it to its end. */
+  private onCompaction(chatId: string, update: acp.CompactionUpdate): void {
+    const texts: Record<string, string> = {
+      in_progress: 'Compacting the conversation…',
+      completed: 'Compacted the conversation into a summary, freeing up context.',
+      cancelled: 'Stopped compacting the conversation.',
+      failed: `Could not compact the conversation, so it goes on uncompacted.${update.error ? ` ${update.error}` : ''}`
+    }
+    const text = texts[update.status]
+    if (!text) return
+    this.compacted.add(chatId)
+    this.emit(chatId, { kind: 'notice', id: `compaction-${update.compactionId}`, text })
+  }
+}
+
+/** How a subagent's line ends, by why its work ended; undefined while it works. */
+function subagentEnd(state: acp.StateUpdate): { status: ToolStatus; error?: string } | undefined {
+  if (state.state === 'running' || state.state === 'requires_action') return undefined
+  // No longer observable (Claude Code lost track of it).
+  if (state.state !== 'idle') return { status: 'interrupted' }
+  const { stopReason, error } = state as {
+    stopReason?: string | null
+    error?: { message?: string } | null
+  }
+  if (stopReason === 'error') return { status: 'failed', error: error?.message }
+  // Without a reason, its work ended unseen: Claude Code exited or restarted it.
+  if (stopReason === 'cancelled' || !stopReason) return { status: 'interrupted' }
+  return { status: 'completed' }
 }
 
 /**
@@ -1571,8 +1916,36 @@ function diffLines(oldText: string, newText: string): string {
   ].join('\n')
 }
 
+/** The values of an on/off option, as the app keeps every option's value: a string. */
+const BOOLEAN_VALUES = [
+  { value: 'true', name: 'On' },
+  { value: 'false', name: 'Off' }
+]
+
+/** A value for session/set_config_option, typed as the option is: on/off options take a boolean. */
+function configValue(
+  option: AgentOption | undefined,
+  value: string
+): { type: 'boolean'; value: boolean } | { value: string } {
+  return option?.type === 'boolean' ? { type: 'boolean', value: value === 'true' } : { value }
+}
+
 function normalizeOptions(configOptions: acp.SessionConfigOption[]): AgentOption[] {
   return configOptions.flatMap((option): AgentOption[] => {
+    // On/off options (Claude Code's and Codex's Fast mode, Claude Code's Ultracode).
+    if (option.type === 'boolean') {
+      return [
+        {
+          id: option.id,
+          name: option.name,
+          description: option.description ?? undefined,
+          type: 'boolean',
+          category: option.category ?? option.id,
+          currentValue: String(option.currentValue),
+          values: BOOLEAN_VALUES
+        }
+      ]
+    }
     if (option.type !== 'select') return []
     const values = option.options.flatMap((entry) => ('group' in entry ? entry.options : [entry]))
     return [
@@ -1988,18 +2361,6 @@ export class AgentManager implements ChatsApi {
   }
 
   /**
-   * Every chat is told its ID, which picks its own browser, so parallel chats
-   * never share a page, and names it to the other chats; and its private key
-   * for the chat tools, which proves who calls.
-   */
-  private withChatId(chatId: string, text: string): string {
-    const devices = store.getState().mobile
-      ? ` Pass it as "chat_id" to the ${DEVICES_SERVER} tools that take it; for anything done on an iOS simulator or Android emulator or phone, use the ${DEVICES_SERVER} tools.`
-      : ''
-    return `${text}\n\n(Your Barebone chat ID is "${browserId(chatId)}". Pass it as the "browser" argument in every ${BROWSER_SERVER} tool call. For anything done in a browser, use the ${BROWSER_SERVER} tools, the browser panel in the app: never start Chrome, Safari or a headless browser yourself, or drive one with Playwright or Puppeteer, unless the user names that browser.${devices} Pass your private key "${chatKey(chatId)}" as "chat" in every ${CHATS_SERVER} tool call, and never put it in a message.)`
-  }
-
-  /**
    * Send a message from the user, or, with `from`, from another chat's agent.
    * The user's message to a working chat waits for it (see wait). `steers`
    * when it ends a turn early to steer it (see steerAfterStep).
@@ -2059,17 +2420,20 @@ export class AgentManager implements ChatsApi {
       // taken in one go. The app's own agents take them at their first step.
       const joined = compact || isHarnessAgent(chat.agent) ? [] : await this.steer(chatId, steers)
       const parts = [first, ...joined]
-      const response = await this.processFor(chatId).prompt(
+      const backend = this.processFor(chatId)
+      const response = await backend.prompt(
         chatId,
         parts.map((p) => p.prompt).join('\n\n'),
-        parts.flatMap((p) => p.blocks)
+        parts.flatMap((p) => p.blocks),
+        [...new Set(parts.flatMap((p) => p.notes))]
       )
       const steered = this.steering.delete(chatId)
       outcome = response.stopReason !== 'cancelled' ? 'done' : steered ? 'steered' : 'stopped'
       // The new agent has been told where the conversation is; a failed send tells it again.
       if (store.getChat(chatId).handoff) store.updateChat(chatId, { handoff: undefined })
       // opencode reports nothing while it compacts, so say when it is done.
-      if (compact && response.stopReason === 'end_turn') {
+      // Claude Code reports its compaction itself (see onCompaction).
+      if (compact && response.stopReason === 'end_turn' && !backend.takeCompaction?.(chatId)) {
         this.events.item(
           chatId,
           store.upsertItem(chatId, {
@@ -2180,7 +2544,10 @@ export class AgentManager implements ChatsApi {
     this.finishTurn(chatId, userItem, outcome, failure)
   }
 
-  /** What the agent is sent for a message: the text as it reads it, and the files with it. */
+  /**
+   * What the agent is sent for a message: the text as it reads it, the files
+   * with it, and the notes it is told about the chat (see AgentBackend.prompt).
+   */
   private async promptFor(
     chatId: string,
     text: string,
@@ -2188,7 +2555,7 @@ export class AgentManager implements ChatsApi {
     from: ChatSender | undefined,
     first: boolean,
     steers: boolean
-  ): Promise<{ prompt: string; blocks: acp.ContentBlock[] }> {
+  ): Promise<{ prompt: string; blocks: acp.ContentBlock[]; notes: string[] }> {
     const { agent, handoff } = store.getChat(chatId)
     let prompt = from
       ? from.kind === undefined || from.kind === 'chat'
@@ -2200,18 +2567,21 @@ export class AgentManager implements ChatsApi {
       const label = AGENTS.find((a) => a.id === handoff)?.label ?? handoff
       prompt = `${prompt}\n\n(The user switched this chat to you from ${label}, so you do not have the conversation so far. Before you answer, read it in ${store.chatFile(chatId)}: the user's messages, the answers and the tool calls, up to this message. Continue from where it left off.)`
     }
-    // The harness has where chats are saved in its system prompt already.
-    if (!isHarnessAgent(agent) && (first || handoff)) {
-      prompt = `${prompt}\n\n(${store.savedChatsNote(chatId)})`
-    }
-    // The harness passes each chat's ID to the tools itself.
-    if (!isHarnessAgent(agent)) prompt = this.withChatId(chatId, prompt)
+    // What ACP agents are told about Barebone (see chatNotes): where chats are
+    // saved, at the start and after a handoff, and the chat's ID, every time
+    // (it would be lost when the agent compacts the conversation). An agent
+    // with them in its system prompt is not told again (see prompt). The
+    // harness has both already: where chats are saved in its system prompt,
+    // and it passes the chat's ID to the tools itself.
+    const notes = isHarnessAgent(agent)
+      ? []
+      : [...(first || handoff ? [store.savedChatsNote(chatId)] : []), chatIdNote(chatId)]
     let blocks = [...this.fileLinks(chatId, text), ...(await attachmentBlocks(attachments))]
     if (TEXT_ONLY_PROMPTS.has(agent)) {
       prompt = await withFilePaths(prompt, attachments)
       blocks = []
     }
-    return { prompt, blocks }
+    return { prompt, blocks, notes }
   }
 
   /**
@@ -2465,6 +2835,11 @@ export class AgentManager implements ChatsApi {
     await background.stopCommand(chatId, pid).finally(() => this.showBackground(chatId))
   }
 
+  /** The user stops one of the chat's subagents, by its line; the chat's turn goes on. */
+  stopSubagent(chatId: string, id: string): Promise<void> {
+    return this.processFor(chatId).cancelSubagent?.(chatId, id) ?? Promise.resolve()
+  }
+
   /**
    * Show what the chat has going in the background (see Chat.background), so
    * a chat waiting between turns to be woken does not look done.
@@ -2653,7 +3028,7 @@ export class AgentManager implements ChatsApi {
     chatId: string,
     steers = true,
     inject?: (prompt: acp.ContentBlock[]) => Promise<boolean>
-  ): Promise<{ prompt: string; blocks: acp.ContentBlock[] }[]> {
+  ): Promise<{ prompt: string; blocks: acp.ContentBlock[]; notes: string[] }[]> {
     const queued = this.inbox.get(chatId)
     if (!queued) return []
     const compact = queued.findIndex((m) => !m.from && COMPACT.test(m.text.trim()))
@@ -2667,8 +3042,12 @@ export class AgentManager implements ChatsApi {
       messages.map((m) => this.promptFor(chatId, m.text, m.attachments, m.from, false, steers))
     )
     if (inject) {
+      // The turn runs, so its session is open: it is known whether it has the notes.
+      const notes = this.processFor(chatId).hasChatNotes?.(chatId)
+        ? []
+        : [...new Set(parts.flatMap((p) => p.notes))].map((note) => `(${note})`)
       const joined = await inject([
-        { type: 'text', text: parts.map((p) => p.prompt).join('\n\n') },
+        { type: 'text', text: [...parts.map((p) => p.prompt), ...notes].join('\n\n') },
         ...parts.flatMap((p) => p.blocks)
       ]).catch((error: unknown) => {
         console.error(`[${store.getChat(chatId).agent}] steering failed:`, error)

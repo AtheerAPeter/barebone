@@ -219,6 +219,9 @@ const api = {
   /** Stop one of the chat's background commands; it does not wake the chat. */
   stopCommand: (chatId: string, pid: number): Promise<void> =>
     ipcRenderer.invoke('chat:stopCommand', chatId, pid),
+  /** Stop one of the chat's subagents, by its line; the chat's turn goes on. */
+  stopSubagent: (chatId: string, id: string): Promise<void> =>
+    ipcRenderer.invoke('chat:stopSubagent', chatId, id),
   /** Clear the chat's timer. */
   clearTimer: (chatId: string): Promise<void> => ipcRenderer.invoke('chat:clearTimer', chatId),
   /** Set the permission mode: both settings in one call, so they never apply half-changed. */

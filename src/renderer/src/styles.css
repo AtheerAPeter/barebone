@@ -1797,8 +1797,22 @@ img.project-icon {
 }
 
 .activity.open > .act-line .chevron,
+.activity.open > .act-row > .act-line .chevron,
 .call.open > .call-line .chevron {
   transform: rotate(90deg);
+}
+
+/* A subagent's line, with a Stop beside it while it can be stopped on its own. */
+.act-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.act-row > .act-line {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 /*
@@ -3135,6 +3149,27 @@ img.project-icon {
 .effort-name {
   text-align: center;
   font-size: 17px;
+}
+
+/* An on/off option of the agent's under the slider, such as Fast mode. */
+.effort-switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.effort-switch-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.effort-switch-note {
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .effort-slider {

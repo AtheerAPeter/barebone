@@ -40,6 +40,7 @@ import {
   IconTerminal2,
   IconTool,
   IconTrash,
+  IconUserCog,
   IconVideo,
   IconVolume,
   IconWorld,
@@ -154,3 +155,5 @@ export const RouteIcon = fromTabler(IconRoute)
 export const SpeakerIcon = fromTabler(IconVolume)
 export const DownloadIcon = fromTabler(IconDownload)
 export const PhoneIcon = fromTabler(IconDeviceMobile)
+/** The persona the agent's main conversation runs as (Claude Code's custom agents). */
+export const PersonaIcon = fromTabler(IconUserCog)

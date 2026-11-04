@@ -367,6 +367,9 @@ export interface RecordingRequest {
 export interface AgentOption {
   id: string
   name: string
+  description?: string
+  /** An on/off option, whose values are 'true' and 'false'; a list to pick from otherwise. */
+  type?: 'boolean'
   category: string
   currentValue: string
   values: { value: string; name: string; description?: string }[]
@@ -482,6 +485,8 @@ export type ChatItem =
       images?: string[]
       /** The subagent call this call was made in, for calls shown under their subagent. */
       parentId?: string
+      /** A subagent that can be stopped on its own while it works (Claude Code's). */
+      cancellable?: boolean
     }
   | { kind: 'plan'; id: string; entries: { content: string; status: string }[] }
   | {

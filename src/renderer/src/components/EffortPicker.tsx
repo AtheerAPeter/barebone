@@ -3,6 +3,7 @@ import type { AgentOption } from '../../../shared/types'
 import { useOverlay } from '../lib/overlays'
 import { menuPlacement, placementProps, type MenuPlacement } from '../lib/menuPlacement'
 import { ChevronDownIcon, GaugeIcon } from './icons'
+import { Switch } from './SettingsCard'
 
 /** The value agents use for the model's own effort; opencode lists it last, the harness first. */
 const DEFAULT = 'default'
@@ -26,22 +27,30 @@ const STEP_KEYS: Record<string, (i: number, last: number) => number> = {
  *
  * An invisible range input on top takes the pointer, keys and screen readers;
  * the track, fill and thumb under it are drawn, so they can glide between stops.
+ *
+ * The agent's on/off options for how the model works (Fast mode, Ultracode)
+ * are switches under the slider. A switch moves once the agent has taken the
+ * change, so one it refuses stays as it was.
  */
 export function EffortPicker({
   option,
+  switches,
   onChange
 }: {
-  option: AgentOption
-  onChange: (value: string) => void
+  option?: AgentOption
+  switches: AgentOption[]
+  onChange: (optionId: string, value: string) => void
 }): React.JSX.Element {
-  const stops = [
-    ...option.values.filter((v) => v.value === DEFAULT),
-    ...option.values.filter((v) => v.value !== DEFAULT)
-  ]
+  const stops = option
+    ? [
+        ...option.values.filter((v) => v.value === DEFAULT),
+        ...option.values.filter((v) => v.value !== DEFAULT)
+      ]
+    : []
   const last = stops.length - 1
   const currentIndex = Math.max(
     0,
-    stops.findIndex((v) => v.value === option.currentValue)
+    stops.findIndex((v) => v.value === option?.currentValue)
   )
   const [placement, setPlacement] = useState<MenuPlacement>()
   /** The stop shown while the menu is open; the agent's answer to a change comes later. */
@@ -73,9 +82,9 @@ export function EffortPicker({
 
   function choose(next: number): void {
     const clamped = Math.min(last, Math.max(0, next))
-    if (clamped === index) return
+    if (!option || clamped === index) return
     setIndex(clamped)
-    onChange(stops[clamped].value)
+    onChange(option.id, stops[clamped].value)
   }
 
   function press(): void {
@@ -99,61 +108,85 @@ export function EffortPicker({
   }
 
   const position = drag ?? index
+  const on = switches.filter((s) => s.currentValue === 'true').map((s) => s.name)
+  const label = option ? 'Thinking effort' : switches.map((s) => s.name).join(', ')
 
   return (
     <div className="picker" ref={rootRef} onKeyDown={open ? onKeyDown : undefined}>
       <button
         type="button"
         className="picker-button"
-        title={`Thinking effort: ${stops[currentIndex]?.name ?? option.currentValue}`}
+        title={[
+          ...(option
+            ? [`Thinking effort: ${stops[currentIndex]?.name ?? option.currentValue}`]
+            : []),
+          ...on.map((name) => `${name}: on`)
+        ].join('\n')}
         onClick={toggle}
       >
         <span className="picker-icon">
           <GaugeIcon width={15} height={15} />
         </span>
-        <span className="picker-label">Thinking effort</span>
+        <span className="picker-label">{label}</span>
         <ChevronDownIcon width={12} height={12} className="picker-chevron" />
       </button>
       {placement && (
         <div className="picker-menu effort-menu" ref={menuRef} {...placementProps(placement)}>
-          <div className="effort-name">{stops[index]?.name}</div>
-          <div
-            className={`effort-slider${drag !== null ? ' dragging' : ''}`}
-            style={{ '--effort': last > 0 ? position / last : 0 } as React.CSSProperties}
-          >
-            <span className="effort-fill" />
-            {stops.map((stop, i) => (
-              <span
-                key={stop.value}
-                className={`effort-stop${i <= position ? ' passed' : ''}`}
-                style={{ '--at': last > 0 ? i / last : 0 } as React.CSSProperties}
+          {option && (
+            <>
+              <div className="effort-name">{stops[index]?.name}</div>
+              <div
+                className={`effort-slider${drag !== null ? ' dragging' : ''}`}
+                style={{ '--effort': last > 0 ? position / last : 0 } as React.CSSProperties}
+              >
+                <span className="effort-fill" />
+                {stops.map((stop, i) => (
+                  <span
+                    key={stop.value}
+                    className={`effort-stop${i <= position ? ' passed' : ''}`}
+                    style={{ '--at': last > 0 ? i / last : 0 } as React.CSSProperties}
+                  />
+                ))}
+                <span className="effort-thumb" />
+                <input
+                  type="range"
+                  aria-label="Thinking effort"
+                  aria-valuetext={stops[index]?.name}
+                  autoFocus
+                  min={0}
+                  max={last}
+                  step="any"
+                  value={position}
+                  onPointerDown={press}
+                  onChange={(e) => {
+                    const at = Number(e.target.value)
+                    if (pressed.current) setDrag(at)
+                    choose(Math.round(at))
+                  }}
+                  onKeyDown={(e) => {
+                    const step = STEP_KEYS[e.key]
+                    if (!step) return
+                    // One stop per key: a free range would move a hundredth of the track.
+                    e.preventDefault()
+                    choose(step(index, last))
+                  }}
+                />
+              </div>
+            </>
+          )}
+          {switches.map((s) => (
+            <div className="effort-switch" key={s.id}>
+              <span className="effort-switch-text">
+                <span>{s.name}</span>
+                {s.description && <span className="effort-switch-note">{s.description}</span>}
+              </span>
+              <Switch
+                label={s.name}
+                on={s.currentValue === 'true'}
+                onChange={(next) => onChange(s.id, String(next))}
               />
-            ))}
-            <span className="effort-thumb" />
-            <input
-              type="range"
-              aria-label="Thinking effort"
-              aria-valuetext={stops[index]?.name}
-              autoFocus
-              min={0}
-              max={last}
-              step="any"
-              value={position}
-              onPointerDown={press}
-              onChange={(e) => {
-                const at = Number(e.target.value)
-                if (pressed.current) setDrag(at)
-                choose(Math.round(at))
-              }}
-              onKeyDown={(e) => {
-                const step = STEP_KEYS[e.key]
-                if (!step) return
-                // One stop per key: a free range would move a hundredth of the track.
-                e.preventDefault()
-                choose(step(index, last))
-              }}
-            />
-          </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

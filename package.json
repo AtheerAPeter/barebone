@@ -66,7 +66,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@agentclientprotocol/claude-agent-acp": "0.99.1",
+    "@agentclientprotocol/claude-agent-acp": "0.100.0",
     "@agentclientprotocol/codex-acp": "2.5.0",
     "electron-liquid-glass": "^1.1.1",
     "onnxruntime-node": "^1.31.1",

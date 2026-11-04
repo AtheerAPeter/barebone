@@ -619,6 +619,9 @@ function registerIpc(browser: BuiltinBrowser): void {
   ipcMain.handle('chat:stopCommand', (_e, chatId: string, pid: number) =>
     agents.stopCommand(chatId, pid)
   )
+  ipcMain.handle('chat:stopSubagent', (_e, chatId: string, id: string) =>
+    agents.stopSubagent(chatId, id)
+  )
   ipcMain.handle('chat:clearTimer', (_e, chatId: string) => {
     agents.clearTimer(chatId)
   })

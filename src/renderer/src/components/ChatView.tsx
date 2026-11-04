@@ -1167,22 +1167,36 @@ function AgentRow({
   )
   return (
     <div className={`activity${open ? ' open' : ''}`}>
-      <button
-        className="act-line tool-line"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-      >
-        <Icon width={15} height={15} className="call-icon" />
-        <span className={`act-lead${running ? ' shimmer' : ''}`}>{verb}</span>
-        <span className="act-detail agent-task">{what}</span>
-        {!implement && !explore && <span className="call-result">{type}</span>}
-        {steps.length > 0 && (
-          <span className="call-result">{plural(steps.length, 'step', 'steps')}</span>
+      <div className="act-row">
+        <button
+          className="act-line tool-line"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <Icon width={15} height={15} className="call-icon" />
+          <span className={`act-lead${running ? ' shimmer' : ''}`}>{verb}</span>
+          <span className="act-detail agent-task">{what}</span>
+          {!implement && !explore && <span className="call-result">{type}</span>}
+          {steps.length > 0 && (
+            <span className="call-result">{plural(steps.length, 'step', 'steps')}</span>
+          )}
+          {item.status === 'failed' && <span className="result-bad">failed</span>}
+          {item.status === 'interrupted' && <span className="call-result">interrupted</span>}
+          <ChevronIcon width={10} height={10} className="chevron" />
+        </button>
+        {/* Claude Code's subagents stop on their own; the chat's turn goes on. */}
+        {running && item.cancellable && (
+          <button
+            type="button"
+            className="label-btn danger"
+            title="Stop this subagent; the chat goes on"
+            onClick={() => void window.api.stopSubagent(chatId, item.id)}
+          >
+            <StopIcon width={11} height={11} />
+            Stop
+          </button>
         )}
-        {item.status === 'failed' && <span className="result-bad">failed</span>}
-        {item.status === 'interrupted' && <span className="call-result">interrupted</span>}
-        <ChevronIcon width={10} height={10} className="chevron" />
-      </button>
+      </div>
       <Collapse open={open} className="tool-rows">
         {steps.map((tool) => (
           <CallRow key={tool.id} tool={tool} chatId={chatId} nested />

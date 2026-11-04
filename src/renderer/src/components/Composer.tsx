@@ -23,6 +23,7 @@ import {
   FileIcon,
   MicIcon,
   PencilIcon,
+  PersonaIcon,
   PlusIcon,
   SendIcon,
   ShieldIcon,
@@ -367,11 +368,16 @@ export function Composer({
   }
 
   /**
-   * The one option shown besides the model picker (which also covers cline's
-   * provider). Anything else the agent offers is ignored, including mode:
-   * chats always run in build mode.
+   * The options shown besides the model picker (which also covers cline's
+   * provider): the thinking effort, with the on/off options (Fast mode,
+   * Ultracode) in its menu, and the persona the agent's main conversation
+   * runs as (Claude Code's custom agents, offered once the user has some).
+   * Anything else the agent offers is ignored, including mode: chats always
+   * run in build mode.
    */
   const effort = options?.find((o) => o.category === 'thought_level')
+  const switches = options?.filter((o) => o.type === 'boolean') ?? []
+  const persona = options?.find((o) => o.category === 'agent' && o.type !== 'boolean')
   /** Who the message goes to: the agent, or for the custom providers the chat's provider. */
   const source = modelOptions(options ?? []).source
   const addressee =
@@ -623,7 +629,21 @@ export function Composer({
           agentFixed={chat.running}
           onChange={pickModel}
         />
-        {effort && <EffortPicker option={effort} onChange={(v) => onOptionChange(effort.id, v)} />}
+        {(effort || switches.length > 0) && (
+          <EffortPicker option={effort} switches={switches} onChange={onOptionChange} />
+        )}
+        {persona && (
+          <Picker
+            title={persona.name}
+            icon={<PersonaIcon width={15} height={15} />}
+            value={persona.currentValue}
+            // Claude Code's "Default" says nothing on its own beside the other pickers.
+            values={persona.values.map((v) =>
+              v.value === 'default' ? { ...v, name: `Default ${persona.name.toLowerCase()}` } : v
+            )}
+            onChange={(value) => void onOptionChange(persona.id, value)}
+          />
+        )}
         <div className="permission-mode" data-mode={permissionMode(chat)}>
           <Picker
             title="Permissions"
