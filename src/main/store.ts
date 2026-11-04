@@ -211,6 +211,12 @@ export function setMobile(on: boolean): void {
   scheduleFlush()
 }
 
+/** The language and name of the meeting the AI last joined, to offer them next time. */
+export function setMeeting(meeting: NonNullable<AppState['meeting']>): void {
+  state.meeting = meeting
+  scheduleFlush()
+}
+
 /** Speech is on unless the user turned it off. */
 export function setSpeech(on: boolean): void {
   state.speech = on ? undefined : false

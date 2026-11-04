@@ -27,6 +27,8 @@ import { PageDriver } from './page-driver'
  * running, and its tabs are reopened next time.
  */
 const PARTITION = 'persist:browser'
+/** The site whose calls the AI can join (meeting.ts). */
+const MEETING_ORIGIN = 'https://meet.google.com'
 const EMPTY_STATE: BrowserState = {
   tabs: [],
   url: '',
@@ -150,6 +152,8 @@ export class ChatPage extends EventEmitter {
   shown = false
   /** The window is starting to capture it, to record it as a video (recording.ts). */
   capturing = false
+  /** The AI is in a meeting in it (meeting.ts): its pages get the AI's microphone and ears. */
+  meeting = false
   /** The page it shows, kept for reopening the tab after the browser closes. */
   url = ''
   /** The page's icon, once the page has declared one. */
@@ -323,6 +327,13 @@ export class BuiltinBrowser {
       id: 'barebone-page',
       filePath: join(import.meta.dirname, '../preload/page.cjs')
     })
+    // The AI's microphone and ears, in the frames of a meeting's tab only (see meetingFrame).
+    browserSession.registerPreloadScript({
+      type: 'frame',
+      id: 'barebone-meeting',
+      filePath: join(import.meta.dirname, '../preload/meeting.cjs')
+    })
+    ipcMain.on('meeting:frame', (event) => (event.returnValue = this.meetingFrame(event)))
     // Save straight to ~/Downloads instead of showing a Save dialog, which an
     // agent cannot answer, and record where each file went.
     browserSession.on('will-download', (_event, item, contents) => {
@@ -560,12 +571,35 @@ export class BuiltinBrowser {
     return tab
   }
 
-  private pageOf(contents: WebContents): [string, ChatPage] | undefined {
+  /** The chat and tab a page is in, if it is a chat's. */
+  pageOf(contents: WebContents): [string, ChatPage] | undefined {
     for (const [chatId, browser] of this.chats) {
       const tab = browser.tabs.find((t) => t.contents === contents)
       if (tab) return [chatId, tab]
     }
     return undefined
+  }
+
+  /**
+   * Whether a frame asking at its start gets the AI's microphone and ears:
+   * one of Google Meet's own, in a meeting's tab. Any other frame of the tab
+   * (an embedded site) gets nothing, and keeps getting no microphone.
+   */
+  private meetingFrame(event: IpcMainEvent): boolean {
+    const frame = event.senderFrame
+    return this.pageOf(event.sender)?.[1].meeting === true && frame?.origin === MEETING_ORIGIN
+  }
+
+  /**
+   * Put a tab in a meeting, or take it out, and load its page again so the
+   * page starts with the AI's microphone, or without. While in it the tab is
+   * muted: the call would otherwise play out of the Mac's speakers, and the
+   * AI hears it from the call's own audio.
+   */
+  setMeeting(tab: ChatPage, on: boolean, reload: boolean): void {
+    tab.meeting = on
+    tab.contents.setAudioMuted(on)
+    if (reload && !tab.contents.isDestroyed()) tab.contents.reload()
   }
 
   /**
@@ -642,11 +676,15 @@ export class BuiltinBrowser {
     }
   }
 
-  /** Close browsers that nothing needs: not shown in the panel and not running. */
+  /**
+   * Close browsers that nothing needs: not shown in the panel, not running,
+   * and not in a meeting, whose call goes on while its agent waits to be woken.
+   */
   prune(): void {
-    for (const chatId of [...this.chats.keys()]) {
+    for (const [chatId, browser] of [...this.chats]) {
       const shown = chatId === this.activeChat && this.panelBounds
-      if (!shown && !this.isRunning(chatId)) this.closeBrowser(chatId)
+      const meeting = browser.tabs.some((tab) => tab.meeting)
+      if (!shown && !meeting && !this.isRunning(chatId)) this.closeBrowser(chatId)
     }
   }
 

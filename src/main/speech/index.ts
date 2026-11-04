@@ -1,10 +1,10 @@
-import { app, net, utilityProcess, type UtilityProcess } from 'electron'
-import { createHash } from 'node:crypto'
-import { createWriteStream, existsSync, statSync } from 'node:fs'
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
+import { app, utilityProcess, type UtilityProcess } from 'electron'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { setTimeout as sleep } from 'node:timers/promises'
 import type { SpeechStatus, SpeechStop, SpokenAudio } from '../../shared/types'
+import { POCKET_FILES } from '../meeting-models'
+import { downloadFiles, haveFiles, totalSize, type ModelFile } from '../models'
+import { isPocketLanguage, type PocketLanguage } from './pocket-voices'
 import type { Language } from './supertonic'
 import type { FromWorker, ToWorker } from './worker'
 
@@ -15,13 +15,17 @@ import type { FromWorker, ToWorker } from './worker'
  * the revision the voice was chosen at, and every file is checked against its
  * SHA-256 before it is used. Its process ends after a while without speaking,
  * which frees the memory the model takes.
+ *
+ * A chat in a meeting (main/meeting.ts) speaks with Pocket instead, in the
+ * languages it has: it starts talking about 0.1 s after the text arrives,
+ * where Supertonic takes a second or more. Its files come with the meeting.
  */
 
 /** Supertonic 3 at the revision the supertonic Python package 1.3.1 pins. */
 const REPO =
   'https://huggingface.co/Supertone/supertonic-3/resolve/724fb5abbf5502583fb520898d45929e62f02c0b'
 const VOICE = 'M3'
-const FILES = [
+const FILES: ModelFile[] = [
   { path: 'onnx/tts.json', size: 8253, sha256: '42078d3aef1cd43ab43021f3c54f47d2d75ceb4e75f627f118890128b06a0d09' },
   { path: 'onnx/unicode_indexer.json', size: 277676, sha256: '9bf7346e43883a81f8645c81224f786d43c5b57f3641f6e7671a7d6c493cb24f' },
   { path: `voice_styles/${VOICE}.json`, size: 290198, sha256: 'ea1ac35ccb91b0d7ecad533a2fbd0eec10c91513d8951e3b25fbba99954e159b' },
@@ -29,13 +33,8 @@ const FILES = [
   { path: 'onnx/text_encoder.onnx', size: 36416150, sha256: 'c7befd5ea8c3119769e8a6c1486c4edc6a3bc8365c67621c881bbb774b9902ff' },
   { path: 'onnx/vocoder.onnx', size: 101424195, sha256: '085de76dd8e8d5836d6ca66826601f615939218f90e519f70ee8a36ed2a4c4ba' },
   { path: 'onnx/vector_estimator.onnx', size: 256534781, sha256: '883ac868ea0275ef0e991524dc64f16b3c0376efd7c320af6b53f5b780d7c61c' }
-] // prettier-ignore
-const TOTAL = FILES.reduce((sum, file) => sum + file.size, 0)
-
-/** A file that receives nothing this long has stalled: it is stopped and tried again. */
-const STALL_MS = 30_000
-/** Tries of each file before the download fails. */
-const ATTEMPTS = 3
+].map((file) => ({ ...file, url: `${REPO}/${file.path}` })) // prettier-ignore
+const TOTAL = totalSize(FILES)
 
 /** The engine's process ends after this long without speaking. */
 const IDLE_MS = 5 * 60_000
@@ -55,6 +54,10 @@ export interface Spoken {
 
 export class Speech {
   private readonly dir = join(app.getPath('userData'), 'speech', 'supertonic-3')
+  /** Pocket's bundles, one folder per language (meeting-models.ts). */
+  private readonly pocketDir = join(app.getPath('userData'), 'speech', 'pocket')
+  /** The chat in a meeting, which speaks with Pocket where it can. */
+  private meetingChat?: string
   private download?: { received: number; abort: AbortController }
   private failure?: string
   private worker?: UtilityProcess
@@ -73,7 +76,13 @@ export class Speech {
   /** Messages not heard to their end yet, with what to tell when they begin and end. */
   private readonly unsaid = new Map<
     string,
-    { chatId?: string; begin: (begun: boolean) => void; end: () => void; ended: Promise<void> }
+    {
+      chatId?: string
+      text: string
+      begin: (begun: boolean) => void
+      end: () => void
+      ended: Promise<void>
+    }
   >()
 
   constructor(
@@ -93,43 +102,27 @@ export class Speech {
     return { state: this.ready() ? 'ready' : 'missing', total: TOTAL }
   }
 
-  /** Every file is there at its size; they were checked against their SHA-256 when downloaded. */
   private ready(): boolean {
-    return FILES.every((file) => {
-      const path = join(this.dir, file.path)
-      return existsSync(path) && statSync(path).size === file.size
-    })
+    return haveFiles(this.dir, FILES)
   }
 
   /** Download the model, the files it does not have yet; resolves when done, failed or cancelled. */
   async fetchModel(): Promise<void> {
     if (this.download || this.ready()) return
     const abort = new AbortController()
-    this.download = { received: 0, abort }
+    const download = { received: 0, abort }
+    this.download = download
     this.failure = undefined
+    let lastEmit = 0
     // Whatever goes wrong, it ends here: a download is never left looking as if it ran.
     try {
       this.emitStatus()
-      for (const file of FILES) {
-        const path = join(this.dir, file.path)
-        if (existsSync(path) && statSync(path).size === file.size) {
-          this.download.received += file.size
-          continue
-        }
-        for (let attempt = 1; ; attempt++) {
-          const before = this.download.received
-          try {
-            await this.fetchFile(file, path, abort.signal)
-            break
-          } catch (error) {
-            if (abort.signal.aborted || attempt === ATTEMPTS) throw error
-            console.error(`[speech] ${file.path}, try ${attempt}:`, (error as Error).message)
-            this.download.received = before
-            this.emitStatus()
-            await sleep(attempt * 2000)
-          }
-        }
-      }
+      await downloadFiles(this.dir, FILES, abort.signal, (received) => {
+        download.received = received
+        if (Date.now() - lastEmit < 200) return
+        lastEmit = Date.now()
+        this.emitStatus()
+      })
     } catch (error) {
       if (!abort.signal.aborted) {
         this.failure = `The voice could not be downloaded: ${(error as Error).message}`
@@ -140,71 +133,28 @@ export class Speech {
     }
   }
 
-  private async fetchFile(
-    file: (typeof FILES)[number],
-    path: string,
-    signal: AbortSignal
+  /** Pocket's files for a language a meeting is in, and their size. */
+  pocketFiles(language: string): ModelFile[] {
+    return isPocketLanguage(language) ? POCKET_FILES[language] : []
+  }
+
+  /** Whether Pocket's files for a meeting's language are here; true for a language it does not speak. */
+  pocketReady(language: string): boolean {
+    return haveFiles(this.pocketDir, this.pocketFiles(language))
+  }
+
+  /** Download Pocket's files for a meeting's language, those it does not have yet. */
+  fetchPocket(
+    language: PocketLanguage,
+    signal: AbortSignal,
+    progress: (n: number) => void
   ): Promise<void> {
-    await mkdir(dirname(path), { recursive: true })
-    // Stopped when the user cancels, and when nothing arrives for STALL_MS:
-    // a connection that stalls would otherwise wait forever, with no error.
-    const stop = new AbortController()
-    let stalled = false
-    const cancel = (): void => stop.abort()
-    signal.addEventListener('abort', cancel)
-    // A read waiting on the body ends at once when it is cancelled, whatever the connection does.
-    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
-    stop.signal.addEventListener('abort', () => void reader?.cancel().catch(() => undefined))
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const watch = (): void => {
-      clearTimeout(timer)
-      timer = setTimeout(() => {
-        stalled = true
-        stop.abort()
-      }, STALL_MS)
-    }
-    const partial = `${path}.part`
-    const out = createWriteStream(partial)
-    const hash = createHash('sha256')
-    let lastEmit = 0
-    try {
-      watch()
-      const response = await net.fetch(`${REPO}/${file.path}`, { signal: stop.signal })
-      if (!response.ok || !response.body) {
-        throw new Error(`Hugging Face answered ${response.status}`)
-      }
-      reader = response.body.getReader()
-      for (;;) {
-        const { done, value } = await reader.read()
-        // Ended by cancelling, not by the file being complete.
-        if (stop.signal.aborted) throw new Error('stopped')
-        watch()
-        if (done) break
-        hash.update(value)
-        if (!out.write(value))
-          await new Promise<void>((resolve) => out.once('drain', () => resolve()))
-        this.download!.received += value.length
-        if (Date.now() - lastEmit > 200) {
-          lastEmit = Date.now()
-          this.emitStatus()
-        }
-      }
-      await new Promise<void>((resolve, reject) =>
-        out.end((error?: Error) => (error ? reject(error) : resolve()))
-      )
-    } catch (error) {
-      out.destroy()
-      await rm(partial, { force: true })
-      throw stalled ? new Error(`nothing arrived for ${STALL_MS / 1000} seconds`) : error
-    } finally {
-      clearTimeout(timer)
-      signal.removeEventListener('abort', cancel)
-    }
-    if (hash.digest('hex') !== file.sha256) {
-      await rm(partial, { force: true })
-      throw new Error(`${file.path} did not match its checksum`)
-    }
-    await rename(partial, path)
+    return downloadFiles(this.pocketDir, POCKET_FILES[language], signal, progress)
+  }
+
+  /** The chat in a meeting, which speaks with Pocket from now on; none when the meeting ends. */
+  setMeeting(chatId: string | undefined): void {
+    this.meetingChat = chatId
   }
 
   cancelDownload(): void {
@@ -226,7 +176,12 @@ export class Speech {
    */
   speak(chatId: string | undefined, text: string, lang: Language, pace = 1): Spoken {
     if (!text.trim()) throw new Error('There is nothing to say: the text is empty.')
-    if (!this.ready()) {
+    const pocket =
+      chatId !== undefined &&
+      chatId === this.meetingChat &&
+      isPocketLanguage(lang) &&
+      haveFiles(this.pocketDir, POCKET_FILES[lang])
+    if (!pocket && !this.ready()) {
       throw new Error('The voice is not downloaded. The user can download it in Settings.')
     }
     const id = crypto.randomUUID()
@@ -234,9 +189,9 @@ export class Speech {
     let end: () => void = () => undefined
     const started = new Promise<boolean>((resolve) => (begin = resolve))
     const ended = new Promise<void>((resolve) => (end = resolve))
-    this.unsaid.set(id, { chatId, begin, end, ended })
+    this.unsaid.set(id, { chatId, text, begin, end, ended })
     this.messages.set(id, { chatId, text })
-    this.send({ type: 'speak', id, text, lang, pace })
+    this.send({ type: 'speak', id, text, lang, pace, engine: pocket ? 'pocket' : 'supertonic' })
     return { started, ended, stop: () => this.stopMessage(id) }
   }
 
@@ -255,7 +210,7 @@ export class Speech {
       sampleRate: number
     }>((done, fail) => {
       this.files.set(id, { pieces: [], done, fail })
-      this.send({ type: 'speak', id, text, lang, pace })
+      this.send({ type: 'speak', id, text, lang, pace, engine: 'supertonic' })
     })
     await mkdir(dirname(path), { recursive: true })
     // A new file only, as videos are (main/recording.ts).
@@ -273,6 +228,11 @@ export class Speech {
   async said(chatId: string): Promise<void> {
     const waiting = [...this.unsaid.values()].filter((message) => message.chatId === chatId)
     await Promise.all(waiting.map((message) => message.ended))
+  }
+
+  /** What a chat is saying, or is yet to say, message by message (see meeting.ts). */
+  saying(chatId: string): string[] {
+    return [...this.unsaid.values()].filter((m) => m.chatId === chatId).map((m) => m.text)
   }
 
   /** The player is about to play a message (lib/speech.ts). */
@@ -335,7 +295,12 @@ export class Speech {
       if (this.worker === worker) this.worker = undefined
       this.dropMessages()
     })
-    worker.postMessage({ type: 'load', dir: this.dir, voice: VOICE } satisfies ToWorker)
+    worker.postMessage({
+      type: 'load',
+      dir: this.dir,
+      voice: VOICE,
+      pocketDir: this.pocketDir
+    } satisfies ToWorker)
     this.worker = worker
   }
 
