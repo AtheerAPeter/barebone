@@ -2674,8 +2674,8 @@ export class AgentManager implements ChatsApi {
   }
 
   /**
-   * A new chat like the caller's (agent, model, permissions), working on the
-   * task it was sent, or on the agent and model the user asked for.
+   * A new chat like the caller's (agent, model, thinking level, permissions),
+   * working on the task it was sent, or on the ones the user asked for.
    */
   async startChat(
     caller: string,
@@ -2705,6 +2705,14 @@ export class AgentManager implements ChatsApi {
       projectOnly: parent.projectOnly,
       startedBy: parent.id
     })
+    // The levels depend on the model, so they are known once the chat's session has it.
+    if (choice.thinking !== undefined) {
+      const notSet = await this.setThinking(chat.id, choice.thinking)
+      if (notSet) {
+        await this.deleteChat(chat.id)
+        throw new Error(notSet)
+      }
+    }
     this.owesReport.add(chat.id)
     // Titled from the task before send's first await.
     void this.send(chat.id, prompt, [], { chatId: parent.id, title: parent.title })
@@ -2768,16 +2776,48 @@ export class AgentManager implements ChatsApi {
     }
   }
 
+  /**
+   * Put a new chat on the thinking level start_chat was asked for, by its id or
+   * its name, as the chat's model offers it; returns why it cannot, if so.
+   */
+  private async setThinking(chatId: string, level: string): Promise<string | undefined> {
+    const { agent } = store.getChat(chatId)
+    const label = AGENTS.find((a) => a.id === agent)?.label ?? agent
+    const { options, error } = await this.open(chatId)
+    if (error) return `Not started: ${label} could not open the chat: ${error}`
+    const model = modelOptions(options).model
+    const current = model?.values.find((v) => v.value === model.currentValue)
+    const on = current ? `${label}'s model "${current.value}"` : label
+    const thinking = options.find((o) => o.category === 'thought_level')
+    if (!thinking) return `Not started: ${on} has no thinking levels to pick. Leave "thinking" out.`
+    const value =
+      thinking.values.find((v) => v.value === level) ??
+      thinking.values.find((v) => v.name.toLowerCase() === level.toLowerCase())
+    if (!value) {
+      const levels = thinking.values.map((v) => `"${v.value}"`).join(', ')
+      return `Not started: ${on} has no thinking level "${level}". It has ${levels}. Pass the one the user asked for, or ask them which.`
+    }
+    if (value.value === thinking.currentValue) return undefined
+    return this.setOption(chatId, thinking.id, value.value).then(
+      () => undefined,
+      async (failure) =>
+        `Not started: ${label} did not take the thinking level: ${errorMessage(await this.processFor(chatId).explain(failure), agent)}`
+    )
+  }
+
   /** What list_models shows: what the caller runs on, and each agent's models. */
   async listModels(caller: string): Promise<ModelsListing> {
     const chat = this.caller(caller)
-    const { model, source } = modelOptions(this.processFor(chat.id).getOptions(chat.id) ?? [])
+    const options = this.processFor(chat.id).getOptions(chat.id) ?? []
+    const { model, source } = modelOptions(options)
+    const thinking = options.find((o) => o.category === 'thought_level')
     const selected = (
       option: AgentOption | undefined
     ): { value: string; name: string } | undefined => {
       const value = option?.values.find((v) => v.value === option.currentValue)
       return value && { value: value.value, name: value.name }
     }
+    const level = selected(thinking)
     const agents = await Promise.all(
       AGENTS.map(async ({ id }) => {
         const status = await this.status(id)
@@ -2799,7 +2839,15 @@ export class AgentManager implements ChatsApi {
       current: {
         agent: chat.agent,
         ...(source ? { provider: selected(source) } : {}),
-        ...(model ? { model: selected(model) } : {})
+        ...(model ? { model: selected(model) } : {}),
+        ...(thinking && level
+          ? {
+              thinking: {
+                level,
+                levels: thinking.values.map((v) => ({ value: v.value, name: v.name }))
+              }
+            }
+          : {})
       },
       agents
     }

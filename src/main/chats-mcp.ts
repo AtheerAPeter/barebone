@@ -41,13 +41,13 @@ export const CHATS_GUIDANCE =
   'send_message. Its report arrives as a new message once your turn has ended, and when it ends ' +
   'its turn without reporting (it finished, failed or was stopped), you are told that instead, ' +
   'with why. So never wait or poll for it: end your turn, and you are woken. A chat you start runs ' +
-  'on your agent and model unless the user asks for another, which list_models finds. list_chats ' +
-  'shows how each chat you started is doing, and send_message gets a stopped one going again. ' +
-  'delete_chat removes a chat you started. run_in_background runs a long command (a download, a ' +
-  'long build or test run, a dev server) and wakes this chat with its result when it ends; run ' +
-  'one that ends within a couple of minutes with your own shell tool instead. list_background, ' +
-  'read_background and stop_background check on it and stop it. set_timer wakes this chat later, ' +
-  'to check on something nothing else tells you about.'
+  'on your agent, model and thinking level unless the user asks for others, which list_models ' +
+  'finds. list_chats shows how each chat you started is doing, and send_message gets a stopped ' +
+  'one going again. delete_chat removes a chat you started. run_in_background runs a long ' +
+  'command (a download, a long build or test run, a dev server) and wakes this chat with its ' +
+  'result when it ends; run one that ends within a couple of minutes with your own shell tool ' +
+  'instead. list_background, read_background and stop_background check on it and stop it. ' +
+  'set_timer wakes this chat later, to check on something nothing else tells you about.'
 
 /** "45s", "3m 12s", "1h 5m". */
 export function formatDuration(ms: number): string {
@@ -184,6 +184,8 @@ export interface ModelChoice {
   /** The provider the model comes from, for an agent with several (as list_models names them). */
   provider?: string
   model?: string
+  /** How hard the model thinks (low, medium, high, ...), as the chat's model offers it. */
+  thinking?: string
 }
 
 /** A model as list_models shows it. */
@@ -194,7 +196,13 @@ export interface ListedModel {
 
 /** What list_models shows: what the caller runs on, and every agent with its models. */
 export interface ModelsListing {
-  current: { agent: AgentId; provider?: ListedModel; model?: ListedModel }
+  current: {
+    agent: AgentId
+    provider?: ListedModel
+    model?: ListedModel
+    /** The thinking level the caller's model is on, and the ones it offers, when it has any. */
+    thinking?: { level: ListedModel; levels: ListedModel[] }
+  }
   agents: {
     agent: AgentId
     /** Why the agent cannot be used now: not installed, not signed in, or its models not read. */
@@ -218,8 +226,13 @@ function sourceName(agent: AgentId, provider: ListedModel | undefined): string {
 export function formatModels(listing: ModelsListing, search: string | undefined): string {
   const { current } = listing
   const lines = [
-    `You run on ${sourceName(current.agent, current.provider)}${current.model ? `, model ${quoted(current.model)}` : ''}.`
+    `You run on ${sourceName(current.agent, current.provider)}${current.model ? `, model ${quoted(current.model)}` : ''}${current.thinking ? `, thinking level ${quoted(current.thinking.level)}` : ''}.`
   ]
+  if (current.thinking) {
+    lines.push(
+      `Your model's thinking levels: ${current.thinking.levels.map(quoted).join(', ')}. Other models may have others; start_chat says which when the one asked for is not offered.`
+    )
+  }
   const query = search?.trim().toLowerCase()
   const hit = (...texts: (string | undefined)[]): boolean =>
     !query || texts.some((t) => t?.toLowerCase().includes(query))
@@ -302,7 +315,7 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
   server.registerTool(
     'start_chat',
     {
-      description: `Start a new chat in this project, with the same permissions as yours, and send it a task. Only when the user asks for new chats; otherwise do the work yourself. A chat another chat started cannot start chats. It runs on the same agent and model as yours. Only when the user asks for another agent, provider or model for it, pick that one with "agent", "provider" and "model", as list_models lists them; never pick one yourself. The new chat is not given this conversation, only told the file it is saved in, to look things up there: put everything it needs in "prompt" (the goal, the relevant paths, constraints, and what to report). It works on its own, alongside you, and reports back with send_message. Its report arrives here as a new message once your turn has ended; if it ends its turn without reporting (it finished, failed or was stopped), you are told that instead, with why. So do not wait or poll for it: start the chats you need, tell the user, and end your turn.`,
+      description: `Start a new chat in this project, with the same permissions as yours, and send it a task. Only when the user asks for new chats; otherwise do the work yourself. A chat another chat started cannot start chats. It runs on the same agent, model and thinking level as yours. Only when the user asks for another agent, provider, model or thinking level for it, pick that one with "agent", "provider", "model" and "thinking", as list_models lists them; never pick one yourself. The new chat is not given this conversation, only told the file it is saved in, to look things up there: put everything it needs in "prompt" (the goal, the relevant paths, constraints, and what to report). It works on its own, alongside you, and reports back with send_message. Its report arrives here as a new message once your turn has ended; if it ends its turn without reporting (it finished, failed or was stopped), you are told that instead, with why. So do not wait or poll for it: start the chats you need, tell the user, and end your turn.`,
       inputSchema: {
         prompt: z.string().describe('The complete task, with all the context it needs'),
         agent: z
@@ -323,15 +336,28 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
           .describe(
             "Only when the user asks for it: the model to run on, as list_models quotes it. Left out, it is yours, or the agent's default when you pick another agent."
           ),
+        thinking: z
+          .string()
+          .optional()
+          .describe(
+            'Only when the user asks for it: how hard the model thinks, such as "low", "medium" or "high", from the levels the chat\'s model offers. Left out, it is yours when the chat is on your agent and its model offers it, or else the model\'s default. When the model does not offer it, the chat is not started and you are told the levels it has.'
+          ),
         ...chatArg
       }
     },
-    async ({ prompt, agent, provider, model, chat }) => {
-      const started = await chats.startChat(chatForKey(chat), prompt, { agent, provider, model })
-      const on =
-        agent || model
-          ? ` on ${agent ? agentLabel(agent) : 'your agent'}${model ? `, model "${model}"` : ''}`
-          : ''
+    async ({ prompt, agent, provider, model, thinking, chat }) => {
+      const started = await chats.startChat(chatForKey(chat), prompt, {
+        agent,
+        provider,
+        model,
+        thinking
+      })
+      const picks = [
+        ...(agent || model ? [agent ? agentLabel(agent) : 'your agent'] : []),
+        ...(model ? [`model "${model}"`] : []),
+        ...(thinking ? [`thinking level "${thinking}"`] : [])
+      ]
+      const on = picks.length > 0 ? ` on ${picks.join(', ')}` : ''
       return text(
         `Started chat ${started.id} ("${started.title}")${on}. It reports back here when it is done.`
       )
@@ -342,7 +368,7 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
     'list_models',
     {
       description:
-        'List the agents and models a chat you start with start_chat can run on, and the ones you run on. Use it only when the user asks for new chats on another agent, provider or model, to find the one they named; start_chat takes it with "agent", "provider" and "model". It asks every installed agent for its models, so it can take a few seconds.',
+        'List the agents and models a chat you start with start_chat can run on, and the ones you run on, with your thinking level and the levels your model offers. Use it only when the user asks for new chats on another agent, provider, model or thinking level, to find the one they named; start_chat takes it with "agent", "provider", "model" and "thinking". It asks every installed agent for its models, so it can take a few seconds.',
       inputSchema: {
         search: z
           .string()
