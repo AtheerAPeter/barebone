@@ -46,6 +46,8 @@ import {
   SERVER_NAME as CHATS_SERVER,
   type ChatListing,
   type ChatsApi,
+  type ModelChoice,
+  type ModelsListing,
   type Timer
 } from './chats-mcp'
 import { listSkills } from './skills'
@@ -2062,6 +2064,9 @@ const LAST_ANSWER_CHARS = 8000
 /** How a chat's turn ended, as list_chats shows it. */
 type TurnEnd = { outcome: 'done' } | { outcome: 'stopped' } | { outcome: 'failed'; error: string }
 
+/** A model that start_chat's "model" may mean, and the list it is in. */
+type Offered = { source: ModelSource; value: string }
+
 /** The answer the agent gave last in its chat's latest turn, if any. */
 function lastAnswer(chatId: string): string | undefined {
   const items = store.getMessages(chatId)
@@ -2559,7 +2564,13 @@ export class AgentManager implements ChatsApi {
     const { agent, handoff } = store.getChat(chatId)
     let prompt = from
       ? from.kind === undefined || from.kind === 'chat'
-        ? fromChatPrompt(from.title, browserId(from.chatId), text, first)
+        ? fromChatPrompt(
+            from.title,
+            browserId(from.chatId),
+            text,
+            first,
+            store.chatFile(from.chatId)
+          )
         : text
       : this.expandChatsTag(chatId, this.expandBrowserTag(chatId, this.expandSkill(chatId, text)))
     if (steers && !from) prompt = `${prompt}\n\n${STEER_NOTE}`
@@ -2662,8 +2673,17 @@ export class AgentManager implements ChatsApi {
     )
   }
 
-  /** A new chat like the caller's (agent, model, permissions), working on the task it was sent. */
-  startChat(caller: string, prompt: string): { id: string; title: string } {
+  /**
+   * A new chat like the caller's (agent, model, permissions), working on the
+   * task it was sent, or on the agent and model the user asked for.
+   */
+  async startChat(
+    caller: string,
+    prompt: string,
+    choice: ModelChoice
+  ): Promise<{ id: string; title: string }> {
+    // Looked up first, so the checks below hold when the chat is made.
+    const picked = await this.pickedModel(caller, choice)
     const parent = this.caller(caller)
     // Only a turn the user started: a chain of chats ends at the chats it started.
     const turn = store.getMessages(caller).findLast((i): i is UserItem => i.kind === 'user')
@@ -2675,8 +2695,12 @@ export class AgentManager implements ChatsApi {
     if (!prompt.trim()) throw new Error('"prompt" must describe the task.')
     const chat = store.createChat({
       projectId: parent.projectId,
-      agent: parent.agent,
-      settings: { ...parent.settings },
+      agent: picked?.agent ?? parent.agent,
+      // On the caller's agent, only what was picked changes; another agent starts from its own.
+      settings:
+        picked && picked.agent !== parent.agent
+          ? picked.settings
+          : { ...parent.settings, ...picked?.settings },
       bypassPermissions: parent.bypassPermissions,
       projectOnly: parent.projectOnly,
       startedBy: parent.id
@@ -2685,6 +2709,100 @@ export class AgentManager implements ChatsApi {
     // Titled from the task before send's first await.
     void this.send(chat.id, prompt, [], { chatId: parent.id, title: parent.title })
     return { id: browserId(chat.id), title: chat.title }
+  }
+
+  /**
+   * The agent and settings for the model start_chat was asked for, checked
+   * against what the agent offers; undefined when it was asked for none.
+   */
+  private async pickedModel(
+    caller: string,
+    { agent, provider, model }: ModelChoice
+  ): Promise<{ agent: AgentId; settings: Record<string, string> } | undefined> {
+    if (provider !== undefined && model === undefined) {
+      throw new Error(
+        'Not started: "provider" says where "model" comes from, so pass it with "model".'
+      )
+    }
+    if (agent === undefined && model === undefined) return undefined
+    const chat = store.getChat(caller)
+    const id = agent ?? chat.agent
+    const label = AGENTS.find((a) => a.id === id)?.label ?? id
+    const status = await this.status(id)
+    if (!status.available)
+      throw new Error(`Not started: ${label} cannot be used now: ${status.error}`)
+    if (model === undefined) return { agent: id, settings: {} }
+    const { sources, error } = await this.models(id, chat.projectId)
+    if (error) throw new Error(`Not started: ${label} did not list its models: ${error}`)
+    const fromProvider = sources.filter(
+      (s) => provider === undefined || s.setting?.value === provider
+    )
+    const offered = (matches: (v: AgentOption['values'][number]) => boolean): Offered[] =>
+      fromProvider.flatMap((source) =>
+        source.option.values.filter(matches).map((v) => ({ source, value: v.value }))
+      )
+    // The model's id, or else the name the user knows it by ("6 Luna").
+    const byId = offered((v) => v.value === model)
+    const offering =
+      byId.length > 0 ? byId : offered((v) => v.name.toLowerCase() === model.toLowerCase())
+    if (offering.length === 0) {
+      throw new Error(
+        `Not started: ${label} has no model "${model}"${provider !== undefined ? ` from provider "${provider}"` : ''}. list_models lists the ones it has.`
+      )
+    }
+    if (offering.length > 1) {
+      const names = offering
+        .map(({ source, value }) =>
+          source.setting ? `"${value}" from provider "${source.setting.value}"` : `"${value}"`
+        )
+        .join(', ')
+      throw new Error(
+        `Not started: ${label} has several models that "${model}" could mean (${names}). Pass the one the user asked for, with its "provider" if it has one, or ask them which.`
+      )
+    }
+    const [{ source, value }] = offering
+    const { setting, option } = source
+    return {
+      agent: id,
+      settings: { ...(setting ? { [setting.optionId]: setting.value } : {}), [option.id]: value }
+    }
+  }
+
+  /** What list_models shows: what the caller runs on, and each agent's models. */
+  async listModels(caller: string): Promise<ModelsListing> {
+    const chat = this.caller(caller)
+    const { model, source } = modelOptions(this.processFor(chat.id).getOptions(chat.id) ?? [])
+    const selected = (
+      option: AgentOption | undefined
+    ): { value: string; name: string } | undefined => {
+      const value = option?.values.find((v) => v.value === option.currentValue)
+      return value && { value: value.value, name: value.name }
+    }
+    const agents = await Promise.all(
+      AGENTS.map(async ({ id }) => {
+        const status = await this.status(id)
+        if (!status.available)
+          return { agent: id, error: status.error ?? 'not installed', sources: [] }
+        const { sources, error } = await this.models(id, chat.projectId)
+        return {
+          agent: id,
+          ...(error ? { error } : {}),
+          sources: sources.map((s) => ({
+            ...(s.setting ? { provider: { value: s.setting.value, name: s.setting.name } } : {}),
+            models: s.option.values.map((v) => ({ value: v.value, name: v.name })),
+            ...(s.error ? { error: s.error } : {})
+          }))
+        }
+      })
+    )
+    return {
+      current: {
+        agent: chat.agent,
+        ...(source ? { provider: selected(source) } : {}),
+        ...(model ? { model: selected(model) } : {})
+      },
+      agents
+    }
   }
 
   /** Start a turn in another chat of the caller's project, or queue the message for its next one. */

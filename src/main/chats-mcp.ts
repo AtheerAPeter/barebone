@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
+import { AGENTS, type AgentId } from '../shared/types'
 import type { Finished, Running } from './background'
 import type { Spoken } from './speech'
 import { LANGUAGES, type Language } from './speech/supertonic'
@@ -39,11 +40,12 @@ export const CHATS_GUIDANCE =
   'so otherwise do the work yourself. A chat you start works alongside you and reports back with ' +
   'send_message. Its report arrives as a new message once your turn has ended, and when it ends ' +
   'its turn without reporting (it finished, failed or was stopped), you are told that instead, ' +
-  'with why. So never wait or poll for it: end your turn, and you are woken. list_chats shows how ' +
-  'each chat you started is doing, and send_message gets a stopped one going again. delete_chat ' +
-  'removes a chat you started. run_in_background runs a long command (a download, a long build or ' +
-  'test run, a dev server) and wakes this chat with its result when it ends; run one that ends ' +
-  'within a couple of minutes with your own shell tool instead. list_background, ' +
+  'with why. So never wait or poll for it: end your turn, and you are woken. A chat you start runs ' +
+  'on your agent and model unless the user asks for another, which list_models finds. list_chats ' +
+  'shows how each chat you started is doing, and send_message gets a stopped one going again. ' +
+  'delete_chat removes a chat you started. run_in_background runs a long command (a download, a ' +
+  'long build or test run, a dev server) and wakes this chat with its result when it ends; run ' +
+  'one that ends within a couple of minutes with your own shell tool instead. list_background, ' +
   'read_background and stop_background check on it and stop it. set_timer wakes this chat later, ' +
   'to check on something nothing else tells you about.'
 
@@ -79,8 +81,17 @@ function chatForKey(key: string): string {
  * chat's full id, taken from its key; other chats are named by their chat IDs.
  */
 export interface ChatsApi {
-  /** Start a chat like the caller's and send it the task; returns its ID and title. */
-  startChat(caller: string, prompt: string): { id: string; title: string }
+  /**
+   * Start a chat like the caller's and send it the task, on the agent and model
+   * chosen, or the caller's own; returns its ID and title.
+   */
+  startChat(
+    caller: string,
+    prompt: string,
+    choice: ModelChoice
+  ): Promise<{ id: string; title: string }>
+  /** The agents a started chat can run on, with their models, and what the caller runs on. */
+  listModels(caller: string): Promise<ModelsListing>
   /** Send a message: 'started' when it started a turn, 'steering' when it joins the running turn at its next step. */
   message(caller: string, to: string, text: string): 'started' | 'steering'
   /** The chats the caller started, and the project's other working chats. */
@@ -164,6 +175,75 @@ export interface ChatListing {
   file?: string
 }
 
+/**
+ * The agent and model a chat started with start_chat runs on, when the user
+ * asked for others than the caller's. Each one left out is the caller's.
+ */
+export interface ModelChoice {
+  agent?: AgentId
+  /** The provider the model comes from, for an agent with several (as list_models names them). */
+  provider?: string
+  model?: string
+}
+
+/** A model as list_models shows it. */
+export interface ListedModel {
+  value: string
+  name: string
+}
+
+/** What list_models shows: what the caller runs on, and every agent with its models. */
+export interface ModelsListing {
+  current: { agent: AgentId; provider?: ListedModel; model?: ListedModel }
+  agents: {
+    agent: AgentId
+    /** Why the agent cannot be used now: not installed, not signed in, or its models not read. */
+    error?: string
+    sources: { provider?: ListedModel; models: ListedModel[]; error?: string }[]
+  }[]
+}
+
+const agentLabel = (agent: AgentId): string => AGENTS.find((a) => a.id === agent)?.label ?? agent
+
+/** A model or provider as list_models names it: its id, and its name when that differs. */
+const quoted = (m: ListedModel): string =>
+  m.name && m.name !== m.value ? `"${m.value}" (${m.name})` : `"${m.value}"`
+
+/** One agent and its provider, as the headings of list_models name them. */
+function sourceName(agent: AgentId, provider: ListedModel | undefined): string {
+  return `${agentLabel(agent)}: agent "${agent}"${provider ? `, provider ${quoted(provider)}` : ''}`
+}
+
+/** The list_models answer: the caller's own agent and model, then each agent's models that match `search`. */
+export function formatModels(listing: ModelsListing, search: string | undefined): string {
+  const { current } = listing
+  const lines = [
+    `You run on ${sourceName(current.agent, current.provider)}${current.model ? `, model ${quoted(current.model)}` : ''}.`
+  ]
+  const query = search?.trim().toLowerCase()
+  const hit = (...texts: (string | undefined)[]): boolean =>
+    !query || texts.some((t) => t?.toLowerCase().includes(query))
+  let shown = 0
+  for (const { agent, error, sources } of listing.agents) {
+    if (error) {
+      if (hit(agent, agentLabel(agent)))
+        lines.push('', `${sourceName(agent, undefined)}: cannot be used now: ${error}`)
+      continue
+    }
+    for (const source of sources) {
+      const whole = hit(agent, agentLabel(agent), source.provider?.value, source.provider?.name)
+      const models = whole ? source.models : source.models.filter((m) => hit(m.value, m.name))
+      if (!whole && models.length === 0) continue
+      lines.push('', `${sourceName(agent, source.provider)}:`)
+      if (source.error) lines.push(`  Its models could not be read: ${source.error}`)
+      lines.push(...models.map((m) => `  ${quoted(m)}`))
+      shown += models.length
+    }
+  }
+  if (query && shown === 0) lines.push('', `No agent, provider or model matches "${search}".`)
+  return lines.join('\n')
+}
+
 /** A chat's timer (see set_timer). */
 export interface Timer {
   note: string
@@ -171,12 +251,24 @@ export interface Timer {
   at: number
 }
 
-/** What a chat's agent is sent for a message from another chat. */
-export function fromChatPrompt(title: string, id: string, text: string, first: boolean): string {
+/**
+ * What a chat's agent is sent for a message from another chat. The first one
+ * says where the sender's conversation is saved (`file`), to read if the task
+ * leaves something out.
+ */
+export function fromChatPrompt(
+  title: string,
+  id: string,
+  text: string,
+  first: boolean,
+  file: string
+): string {
   if (first) {
     return `The chat "${title}" (chat ID ${id}) started this chat to hand you this task:
 
 ${text}
+
+That chat's whole conversation is saved in ${file}: the user's messages, its answers and its tool calls with their output. If the task leaves out something you need, search that file for it. It can be long, so search it before reading it whole, and only read it, never change it.
 
 Work on it on your own. When you are done, report back to that chat with send_message: what you did or found, and anything it must know or decide. Your report is all it sees of your work. If you cannot go on, report that too, with why.`
   }
@@ -210,18 +302,59 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
   server.registerTool(
     'start_chat',
     {
-      description: `Start a new chat in this project, with the same agent, model and permissions as yours, and send it a task. Only when the user asks for new chats; otherwise do the work yourself. A chat another chat started cannot start chats. The new chat sees none of this conversation: put everything it needs in "prompt" (the goal, the relevant paths, constraints, and what to report). It works on its own, alongside you, and reports back with send_message. Its report arrives here as a new message once your turn has ended; if it ends its turn without reporting (it finished, failed or was stopped), you are told that instead, with why. So do not wait or poll for it: start the chats you need, tell the user, and end your turn.`,
+      description: `Start a new chat in this project, with the same permissions as yours, and send it a task. Only when the user asks for new chats; otherwise do the work yourself. A chat another chat started cannot start chats. It runs on the same agent and model as yours. Only when the user asks for another agent, provider or model for it, pick that one with "agent", "provider" and "model", as list_models lists them; never pick one yourself. The new chat is not given this conversation, only told the file it is saved in, to look things up there: put everything it needs in "prompt" (the goal, the relevant paths, constraints, and what to report). It works on its own, alongside you, and reports back with send_message. Its report arrives here as a new message once your turn has ended; if it ends its turn without reporting (it finished, failed or was stopped), you are told that instead, with why. So do not wait or poll for it: start the chats you need, tell the user, and end your turn.`,
       inputSchema: {
         prompt: z.string().describe('The complete task, with all the context it needs'),
+        agent: z
+          .enum(AGENTS.map((a) => a.id) as [AgentId, ...AgentId[]])
+          .optional()
+          .describe(
+            'Only when the user asks for it: the agent to run on, from list_models. Left out, it is yours.'
+          ),
+        provider: z
+          .string()
+          .optional()
+          .describe(
+            'Only with "model", for an agent whose models list_models shows by provider: the provider the model comes from'
+          ),
+        model: z
+          .string()
+          .optional()
+          .describe(
+            "Only when the user asks for it: the model to run on, as list_models quotes it. Left out, it is yours, or the agent's default when you pick another agent."
+          ),
         ...chatArg
       }
     },
-    ({ prompt, chat }) => {
-      const started = chats.startChat(chatForKey(chat), prompt)
+    async ({ prompt, agent, provider, model, chat }) => {
+      const started = await chats.startChat(chatForKey(chat), prompt, { agent, provider, model })
+      const on =
+        agent || model
+          ? ` on ${agent ? agentLabel(agent) : 'your agent'}${model ? `, model "${model}"` : ''}`
+          : ''
       return text(
-        `Started chat ${started.id} ("${started.title}"). It reports back here when it is done.`
+        `Started chat ${started.id} ("${started.title}")${on}. It reports back here when it is done.`
       )
     }
+  )
+
+  server.registerTool(
+    'list_models',
+    {
+      description:
+        'List the agents and models a chat you start with start_chat can run on, and the ones you run on. Use it only when the user asks for new chats on another agent, provider or model, to find the one they named; start_chat takes it with "agent", "provider" and "model". It asks every installed agent for its models, so it can take a few seconds.',
+      inputSchema: {
+        search: z
+          .string()
+          .optional()
+          .describe(
+            'Only the agents, providers and models whose name or id has this text, such as "gpt" or "openrouter"; left out, all of them'
+          ),
+        ...chatArg
+      },
+      annotations: { readOnlyHint: true }
+    },
+    async ({ search, chat }) => text(formatModels(await chats.listModels(chatForKey(chat)), search))
   )
 
   server.registerTool(
