@@ -666,6 +666,8 @@ function FormCard({ item, chatId }: { item: FormItem; chatId: string }): React.J
       </div>
     )
   }
+  const pages = questionPages(item)
+  if (pages) return <QuestionsCard item={item} chatId={chatId} pages={pages} />
   const missing = item.fields.some((f) => f.required && blank(answers[f.key]))
   const set = (key: string, value: FormAnswers[string] | undefined): void =>
     setAnswers((current) => {
@@ -701,6 +703,208 @@ function FormCard({ item, chatId }: { item: FormItem; chatId: string }): React.J
           onClick={() => window.api.answerForm(chatId, item.id, item.url ? {} : answers)}
         >
           {item.url ? 'Open' : 'Send'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+type ChoiceField = Extract<FormField, { type: 'choice' | 'choices' }>
+type TextField = Extract<FormField, { type: 'text' }>
+
+/** One question of a form of questions: its pick, and its own "Other" box if it has one. */
+interface QuestionPage {
+  question: string
+  label: string
+  field: ChoiceField
+  other?: TextField
+}
+
+/**
+ * The form as questions to page through, when it is one: every field a pick,
+ * each but followed by its own free-text field (`<key>_custom`). That is how
+ * Claude Code's AskUserQuestion arrives; other forms are shown whole.
+ */
+function questionPages(item: FormItem): QuestionPage[] | undefined {
+  if (item.url) return undefined
+  const choices = item.fields.filter(
+    (f): f is ChoiceField => f.type === 'choice' || f.type === 'choices'
+  )
+  if (choices.length === 0) return undefined
+  const pages: QuestionPage[] = []
+  for (const field of item.fields) {
+    if (field.type === 'choice' || field.type === 'choices') {
+      const other = item.fields.find((f) => f.key === `${field.key}_custom`)
+      pages.push({
+        // One question comes in the form's message; several, each in its field's description.
+        question: field.description ?? (choices.length === 1 ? item.message : field.title),
+        // The field's title is the question's short header, or its key when it has none.
+        label: field.title !== field.key ? field.title : `Question ${pages.length + 1}`,
+        field,
+        ...(other?.type === 'text' ? { other } : {})
+      })
+    } else if (!pages.some((page) => page.other === field)) {
+      return undefined
+    }
+  }
+  return pages
+}
+
+/**
+ * Questions one at a time, as Claude Code asks them: the question large, its
+ * options as one list, and last its own "Other" row to type in. Picking an
+ * option only selects it; Next (or Enter) goes on, so a stray click never
+ * skips past a question. Number keys pick, in the order shown.
+ */
+function QuestionsCard({
+  item,
+  chatId,
+  pages
+}: {
+  item: FormItem
+  chatId: string
+  pages: QuestionPage[]
+}): React.JSX.Element {
+  const [answers, setAnswers] = useState<FormAnswers>(() => formDefaults(item.fields))
+  const [at, setAt] = useState(0)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const otherRef = useRef<HTMLInputElement>(null)
+  const page = pages[at]
+  const last = at === pages.length - 1
+  const missing = item.fields.some((f) => f.required && blank(answers[f.key]))
+  const set = (key: string, value: FormAnswers[string] | undefined): void =>
+    setAnswers((current) => {
+      const next = { ...current }
+      if (value === undefined) delete next[key]
+      else next[key] = value
+      return next
+    })
+  const send = (): void => {
+    void window.api.answerForm(chatId, item.id, answers)
+  }
+  const go = (index: number): void => {
+    // The control that had focus goes with its page; the card keeps the keys working.
+    const inside = cardRef.current?.contains(document.activeElement)
+    setAt(index)
+    if (inside) requestAnimationFrame(() => cardRef.current?.focus({ preventScroll: true }))
+  }
+  const next = (): void => {
+    if (!last) go(at + 1)
+    else if (!missing) send()
+  }
+  const picked = (): string[] => {
+    const value = answers[page.field.key]
+    return Array.isArray(value) ? value : typeof value === 'string' ? [value] : []
+  }
+  const toggle = (option: string): void => {
+    const current = picked()
+    if (page.field.type === 'choice') {
+      set(page.field.key, current[0] !== option ? option : undefined)
+    } else {
+      const chosen = current.includes(option)
+        ? current.filter((v) => v !== option)
+        : [...current, option]
+      set(page.field.key, chosen.length > 0 ? chosen : undefined)
+    }
+  }
+  const options = page.field.options
+  const onKeyDown = (event: React.KeyboardEvent): void => {
+    if (event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
+    const typing = event.target instanceof HTMLInputElement
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      next()
+    } else if (!typing && /^[1-9]$/.test(event.key)) {
+      const index = Number(event.key) - 1
+      if (index < options.length) {
+        event.preventDefault()
+        toggle(options[index].value)
+      } else if (index === options.length && page.other) {
+        event.preventDefault()
+        otherRef.current?.focus()
+      }
+    }
+  }
+  const chosen = picked()
+  // A lone question without a header needs no line above it.
+  const eyebrow = pages.length > 1 || page.field.title !== page.field.key
+  return (
+    <div className="ask-card form-card questions" ref={cardRef} tabIndex={-1} onKeyDown={onKeyDown}>
+      {eyebrow && (
+        <div className="question-meta">
+          {pages.length > 1 && (
+            <span className="question-count">
+              {at + 1} of {pages.length}
+            </span>
+          )}
+          <span>{page.label}</span>
+        </div>
+      )}
+      <div className="question-page" key={page.field.key}>
+        <div className="question-text">{page.question}</div>
+        {page.field.type === 'choices' && <div className="question-hint">Pick any that fit</div>}
+        <div
+          className="question-list"
+          role={page.field.type === 'choice' ? 'radiogroup' : 'group'}
+          aria-label={page.question}
+        >
+          {options.map((option) => {
+            const on = chosen.includes(option.value)
+            return (
+              <button
+                key={option.value}
+                type="button"
+                className={`question-option${on ? ' on' : ''}`}
+                role={page.field.type === 'choice' ? 'radio' : 'checkbox'}
+                aria-checked={on}
+                onClick={() => toggle(option.value)}
+              >
+                <span
+                  className={`question-mark ${page.field.type === 'choice' ? 'radio' : 'check'}`}
+                >
+                  {on && page.field.type === 'choices' && <CheckIcon width={11} height={11} />}
+                </span>
+                <span className="question-option-text">
+                  <span className="question-option-title">{option.title}</span>
+                  {option.description && (
+                    <span className="question-option-description">{option.description}</span>
+                  )}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+        {page.other && (
+          <input
+            ref={otherRef}
+            className="form-input question-other"
+            aria-label={`${page.other.title}: ${page.question}`}
+            placeholder={
+              page.field.type === 'choice'
+                ? 'Something else, or a note on your pick'
+                : 'Something else to add'
+            }
+            value={
+              typeof answers[page.other.key] === 'string' ? String(answers[page.other.key]) : ''
+            }
+            onChange={(e) => set(page.other!.key, e.target.value || undefined)}
+          />
+        )}
+      </div>
+      <div className="ask-actions">
+        <button
+          className="btn question-skip"
+          onClick={() => window.api.answerForm(chatId, item.id, null)}
+        >
+          Skip
+        </button>
+        {at > 0 && (
+          <button className="btn" onClick={() => go(at - 1)}>
+            Back
+          </button>
+        )}
+        <button className="btn primary" disabled={last && missing} onClick={next}>
+          {last ? 'Send' : 'Next'}
         </button>
       </div>
     </div>
