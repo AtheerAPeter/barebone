@@ -24,7 +24,6 @@ import { cleanStoredOutput } from './tool-output'
 import { chatPreview } from './preview'
 import { removeChatImages } from './images'
 import { addPrompt, historyPrompt, PROMPT_HISTORY_LIMIT } from '../shared/prompt-history'
-import { topicIcon } from './topic-icon'
 
 const dataDir = join(app.getPath('userData'), 'data')
 const chatsDir = join(dataDir, 'chats')
@@ -119,34 +118,6 @@ for (const chat of state.chats) {
   if (legacy.browserUrl) {
     chat.browserTabs ??= { urls: [legacy.browserUrl], active: 0 }
     delete legacy.browserUrl
-  }
-}
-
-/** How many of the chats used most recently a new chat's hue keeps away from. */
-const HUE_NEIGHBORS = 8
-
-/** The hue farthest from all of these, so a chat looks different from the chats around it. */
-function freeHue(taken: number[]): number {
-  if (taken.length === 0) return 220
-  let best = 0
-  let bestGap = -1
-  for (let hue = 0; hue < 360; hue++) {
-    const gap = Math.min(...taken.map((t) => Math.min(Math.abs(hue - t), 360 - Math.abs(hue - t))))
-    if (gap > bestGap) {
-      best = hue
-      bestGap = gap
-    }
-  }
-  return best
-}
-
-// Chats from before chat hues get one. The sidebar lists chats by when they were last used, so
-// from the latest back, each keeps away from the hues of the chats used just after it.
-{
-  const after: number[] = []
-  for (const chat of [...state.chats].sort((a, b) => b.updatedAt - a.updatedAt)) {
-    chat.hue ??= freeHue(after.slice(-HUE_NEIGHBORS))
-    after.push(chat.hue)
   }
 }
 
@@ -294,12 +265,6 @@ export function createChat({
     bypassPermissions,
     projectOnly,
     startedBy,
-    hue: freeHue(
-      [...state.chats]
-        .sort((a, b) => b.updatedAt - a.updatedAt)
-        .slice(0, HUE_NEIGHBORS)
-        .flatMap((c) => (c.hue === undefined ? [] : [c.hue]))
-    ),
     running: false,
     createdAt: Date.now(),
     updatedAt: Date.now()
@@ -322,50 +287,6 @@ export function updateChat(chatId: string, patch: Partial<Chat>): Chat {
   Object.assign(chat, patch)
   scheduleFlush()
   return chat
-}
-
-/** The text of the first message in a chat's items, which says what the chat is for. */
-function firstMessage(items: ChatItem[]): string {
-  const first = items.find((i) => i.kind === 'user')
-  return first?.kind === 'user' ? first.text : ''
-}
-
-/**
- * Match the chat's topic icon to its title and first message again (see
- * topic-icon.ts), after either changed. Resolves to whether the icon changed.
- */
-export async function refreshTopic(chatId: string): Promise<boolean> {
-  const chat = getChat(chatId)
-  const icon = await topicIcon(chat.title, firstMessage(getMessages(chatId)))
-  // The chat may have been deleted while the icons loaded.
-  if (!state.chats.includes(chat) || chat.icon === icon) return false
-  chat.icon = icon
-  scheduleFlush()
-  return true
-}
-
-/**
- * Give chats from before topic icons theirs, once. Their messages are read
- * from disk one chat at a time, without keeping them in memory. Resolves to
- * whether any chat got one.
- */
-export async function matchMissingTopics(): Promise<boolean> {
-  let changed = false
-  for (const chat of state.chats.filter((c) => c.icon === undefined)) {
-    let items: ChatItem[] = []
-    try {
-      items = JSON.parse(await readFile(join(chatsDir, `${chat.id}.json`), 'utf8'))
-    } catch {
-      // No messages saved, or a damaged file (getMessages sets that aside when it is opened):
-      // the title alone says what the chat is about.
-    }
-    const icon = await topicIcon(chat.title, firstMessage(messages.get(chat.id) ?? items))
-    if (!state.chats.includes(chat) || chat.icon !== undefined) continue
-    chat.icon = icon
-    changed = true
-  }
-  if (changed) scheduleFlush()
-  return changed
 }
 
 export function removeChat(chatId: string): void {

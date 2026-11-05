@@ -2,7 +2,6 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState, type RefObject 
 import { ThemeToggle } from './ThemeToggle'
 import { Collapse } from './Collapse'
 import { ProjectIcon } from './ProjectIcon'
-import { TopicIcon } from './TopicIcon'
 import { RowMenu } from './RowMenu'
 import { AgentLogo } from './model-picker/AgentLogo'
 import { startedChats, type AppState, type Chat, type Project } from '../../../shared/types'
@@ -202,8 +201,6 @@ export function Sidebar({
     // Pinned chats are one line, led by their project's icon, so the Pinned list stays short.
     const compact = !byProject && chat.pinned && !chat.waiting
     const card = !byProject && !compact
-    // A row's first column holds its project's icon when pinned, else its topic icon.
-    const projectLed = compact && project
     const row = (
       <div
         key={chat.id}
@@ -218,13 +215,12 @@ export function Sidebar({
             <span className="card-project">{project?.name}</span>
             <CardStatus chat={chat} working={working(chat)} now={now} />
           </div>
-        ) : projectLed ? (
-          <ProjectIcon project={projectLed} size={20} />
+        ) : compact && project ? (
+          <ProjectIcon project={project} size={20} />
         ) : (
-          <TopicIcon chat={chat} />
+          <span />
         )}
         <div className="chat-line">
-          {(card || projectLed) && <TopicIcon chat={chat} size={card ? 17 : 16} />}
           {renaming === chat.id ? (
             <RenameField
               title={chat.title}

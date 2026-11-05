@@ -129,19 +129,6 @@ const cliOf = (agent: AcpAgent): string =>
  * reads the app's archive, where the adapter finds its own dependencies, and
  * adapter-env.cjs keeps the variable from what the adapter starts.
  */
-/**
- * Match a chat's topic icon again after its title or first message changed,
- * and show the new one (see store.refreshTopic).
- */
-export function refreshTopic(chatId: string, stateChanged: () => void): void {
-  store.refreshTopic(chatId).then(
-    (changed) => {
-      if (changed) stateChanged()
-    },
-    (error) => console.error(`Could not match a topic icon for chat ${chatId}:`, error)
-  )
-}
-
 function commandFor(agent: AcpAgent): { command: string; args: string[] } {
   if (!isAdapterAgent(agent)) return COMMANDS[agent]
   const script = createRequire(import.meta.url).resolve(ADAPTERS[agent].script)
@@ -1606,7 +1593,6 @@ class AgentProcess implements AgentBackend {
         if (update.title && !store.getChat(chatId).renamed) {
           store.updateChat(chatId, { title: update.title })
           this.events.stateChanged()
-          refreshTopic(chatId, () => this.events.stateChanged())
         }
         const retry = providerRetry(update._meta)
         if (retry) {
@@ -2415,7 +2401,6 @@ export class AgentManager implements ChatsApi {
     this.events.item(chatId, store.upsertItem(chatId, userItem))
     store.updateChat(chatId, { preview: chatPreview(store.getMessages(chatId)) })
     this.events.stateChanged()
-    if (isFirst) refreshTopic(chatId, () => this.events.stateChanged())
 
     let outcome: TurnOutcome = 'failed'
     let failure: string | undefined

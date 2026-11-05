@@ -8,15 +8,7 @@
   --accent: #3b7bf6;
   --amber: #f5b14a;
   --line: rgba(255, 255, 255, 0.14);
-  /* The chat's topic icon on the orb, as styles.css draws it in the dark theme. */
-  --topic-l: 0.74;
-  --topic-c: 0.14;
   color-scheme: dark;
-}
-
-.topic-icon {
-  flex-shrink: 0;
-  color: oklch(var(--topic-l) var(--topic-c) var(--topic-hue, 250));
 }
 
 html,

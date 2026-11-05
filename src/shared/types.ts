@@ -164,17 +164,6 @@ export interface Chat {
   title: string
   /** Set once the user renames the chat; automatic titles no longer replace it. */
   renamed?: boolean
-  /**
-   * The Tabler icon of what the chat is about, matched from its title and first
-   * message (main/topic-icon.ts) and matched again when the title changes.
-   */
-  icon?: string
-  /**
-   * The chat's own hue (0–359) for its icon, chosen when it is made as far as
-   * possible from the hues of the chats used most recently, so chats beside
-   * each other in the sidebar look different even when their icons match.
-   */
-  hue?: number
   /** Listed in the sidebar's Pinned section, by status, until the user unpins it. */
   pinned?: boolean
   agent: AgentId
@@ -566,9 +555,6 @@ export interface OrbLine {
 /** What the agent orb shows for the selected chat while the chat is folded away. */
 export interface OrbState {
   chatId: string
-  /** The chat's topic icon and hue (see Chat), which the orb shows as its own. */
-  icon?: string
-  hue?: number
   status: 'working' | 'waiting' | 'idle'
   lines: OrbLine[]
   /** The user is dictating (push to talk), or what they said is being written out. */
