@@ -29,6 +29,7 @@ import type {
   Rect,
   Skill,
   SkillScope,
+  TelegramStatus,
   Theme,
   WalkAt,
   WalkControl,
@@ -155,6 +156,19 @@ const api = {
       on('voice:key', listener),
     /** The app lost focus: a held key's release goes elsewhere. */
     onBlur: (listener: () => void) => on('voice:blur', listener)
+  },
+
+  /** Control from Telegram (main/telegram): a bot that carries one chat to the user's phone. */
+  telegram: {
+    /** The saved bot token's last four characters; null when none is saved. */
+    keyHint: (): Promise<string | null> => ipcRenderer.invoke('telegram:keyHint'),
+    /** Save a token, checked with Telegram first, or remove it (null); returns the new hint. */
+    setKey: (key: string | null): Promise<string | null> =>
+      ipcRenderer.invoke('telegram:setKey', key),
+    status: (): Promise<TelegramStatus> => ipcRenderer.invoke('telegram:status'),
+    onStatus: (listener: (status: TelegramStatus) => void) => on('telegram:status', listener),
+    /** Make a chat the one the bot controls, or none (null). */
+    link: (chatId: string | null): Promise<void> => ipcRenderer.invoke('telegram:link', chatId)
   },
 
   /** The providers added in Settings, which the Custom providers agent runs on. */

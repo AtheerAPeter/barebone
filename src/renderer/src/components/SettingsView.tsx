@@ -1,6 +1,8 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { renderSVG } from 'uqr'
 import type { MobileToolCheck, SpeechStatus } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
+import { useTelegramStatus } from '../lib/telegram'
 import { useUpdateInstall } from '../lib/update'
 import {
   DownloadIcon,
@@ -10,6 +12,7 @@ import {
   RouteIcon,
   SearchIcon,
   SpeakerIcon,
+  TelegramIcon,
   TextIcon,
   VideoIcon
 } from './icons'
@@ -70,6 +73,7 @@ export function SettingsView({
         </p>
         <KeyForm label="Groq API key" saved={window.api.voice} />
       </SettingsCard>
+      <TelegramCard />
       <SpeechCard on={speech} />
       <UpdatesCard />
     </div>
@@ -135,6 +139,65 @@ function KeyForm({
       </form>
       {error && <div className="msg-error">{error}</div>}
     </>
+  )
+}
+
+/** Control from Telegram: the bot token, pairing, and which chat the bot controls. */
+function TelegramCard(): React.JSX.Element {
+  const status = useTelegramStatus()
+  const bot = status?.bot ? `@${status.bot}` : 'your bot'
+  return (
+    <SettingsCard icon={<TelegramIcon />} tone="blue" title="Control from Telegram">
+      <p>
+        Guide a chat from your phone. In Telegram, send <code>/newbot</code> to @BotFather and paste
+        the token it gives you here. Then choose Control from Telegram in a chat&apos;s menu in the
+        sidebar. What you send the bot goes to that chat, and chats it starts with{' '}
+        <code>@chats</code> show as cards that keep up with what they do. Bot chats in Telegram are
+        not end-to-end encrypted. Barebone has to be open on a Mac that is awake.
+      </p>
+      <KeyForm label="Telegram bot token" saved={window.api.telegram} />
+      {status?.state === 'pairing' && status.bot && status.code && (
+        <TelegramPairing bot={status.bot} code={status.code} />
+      )}
+      {status?.state === 'ready' && (
+        <p>
+          Paired with {bot}.{' '}
+          {status.linkedTitle ? (
+            <>
+              It controls <b>{status.linkedTitle}</b>.
+            </>
+          ) : (
+            'No chat is linked yet.'
+          )}
+        </p>
+      )}
+      {status?.error && <div className="msg-error">{status.error}</div>}
+    </SettingsCard>
+  )
+}
+
+/**
+ * Pairing with the bot: a QR code of its start link for the phone's camera,
+ * and the same link for Telegram on this Mac. Opening it sends the bot the code.
+ */
+function TelegramPairing({ bot, code }: { bot: string; code: string }): React.JSX.Element {
+  const link = `https://t.me/${bot}?start=${code}`
+  const qr = useMemo(
+    () => `data:image/svg+xml;utf8,${encodeURIComponent(renderSVG(link, { ecc: 'M', border: 2 }))}`,
+    [link]
+  )
+  return (
+    <div className="telegram-pair">
+      <img src={qr} alt="QR code of the pairing link" width={132} height={132} />
+      <p>
+        To pair, scan this with your phone&apos;s camera. It opens @{bot} in Telegram: press Start.
+        With Telegram on this Mac,{' '}
+        <a href={`tg://resolve?domain=${bot}&start=${code}`} target="_blank" rel="noreferrer">
+          open it here
+        </a>{' '}
+        instead.
+      </p>
+    </div>
   )
 }
 

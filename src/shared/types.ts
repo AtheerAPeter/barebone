@@ -249,6 +249,23 @@ export function startedChats(chats: Chat[]): Map<string, Chat[]> {
   return started
 }
 
+/**
+ * Control from Telegram (main/telegram): 'off' without a bot token; 'pairing'
+ * until the user sends the bot `/start <code>` (the pairing link does);
+ * 'ready' once paired; 'error' when the bot cannot be used, with why. In the
+ * other states `error` is a passing trouble, such as Telegram out of reach
+ * while it retries. `bot` is the bot's username, once known.
+ */
+export interface TelegramStatus {
+  state: 'off' | 'pairing' | 'ready' | 'error'
+  bot?: string
+  code?: string
+  /** The chat messages to the bot go to, while one is linked. */
+  linkedChatId?: string
+  linkedTitle?: string
+  error?: string
+}
+
 /** A file or image attached to a message: a path on disk, or pasted image data. */
 export interface Attachment {
   name: string
@@ -538,6 +555,18 @@ export type FormField = {
 
 /** A form's answers, by field key, as the agent reads them. */
 export type FormAnswers = Record<string, string | number | boolean | string[]>
+
+/** A form's starting answers: its defaults. */
+export function formDefaults(fields: FormField[]): FormAnswers {
+  const answers: FormAnswers = {}
+  for (const field of fields) {
+    if (field.type === 'choice' && field.default?.[0]) answers[field.key] = field.default[0]
+    else if (field.type === 'choices' && field.default?.length) answers[field.key] = field.default
+    else if (field.type !== 'choice' && field.type !== 'choices' && field.default !== undefined)
+      answers[field.key] = field.default
+  }
+  return answers
+}
 
 /**
  * A subtitle next to the agent orb: something the agent said or thought, a

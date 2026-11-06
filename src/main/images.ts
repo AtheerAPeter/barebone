@@ -76,6 +76,13 @@ export function saveImages(chatId: string, images: { mimeType: string; data: str
   return [...new Set(files)]
 }
 
+/** Where one of a chat's saved images is on disk, once its write (saveImage) has finished. */
+export async function chatImagePath(chatId: string, file: string): Promise<string> {
+  const path = join(imagesDir, chatId, file)
+  await writing.get(path)
+  return path
+}
+
 export function removeChatImages(chatId: string): void {
   rmSync(join(imagesDir, chatId), { recursive: true, force: true })
 }

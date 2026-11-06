@@ -38,6 +38,7 @@ import { SERVER_NAME as CHATS_SERVER } from './chats-mcp'
 import { registerWithCline, unregisterFromCline } from './cline-mcp'
 import { DeviceManager } from './devices'
 import { SERVER_NAME as DEVICES_SERVER } from './devices-mcp'
+import { TelegramBridge } from './telegram/bridge'
 import { exaKeyHint, setExaKey } from './exa-key'
 import { microphoneAccess, setVoiceKey, transcribe, voiceKeyHint } from './voice'
 import {
@@ -83,11 +84,18 @@ function send(channel: string, ...args: unknown[]): boolean {
 
 const agents = new AgentManager(
   {
-    item: (chatId: string, item: ChatItem) => send('chat:item', chatId, item),
-    options: (chatId: string, options: AgentOption[]) => send('chat:options', chatId, options),
+    item: (chatId: string, item: ChatItem) => {
+      send('chat:item', chatId, item)
+      telegram.item(chatId, item)
+    },
+    options: (chatId: string, options: AgentOption[]) => {
+      send('chat:options', chatId, options)
+      telegram.options(chatId, options)
+    },
     commands: (chatId: string, commands: AgentCommand[]) => send('chat:commands', chatId, commands),
     stateChanged: () => {
       send('state:changed', store.getState())
+      telegram.stateChanged()
       // A chat that stopped running may no longer need its browser page, and
       // no longer controls a tab.
       browser?.prune()
@@ -98,6 +106,23 @@ const agents = new AgentManager(
   },
   (chatId) => browser?.state(chatId)
 )
+
+/** Stop a chat's turn, as its Stop button does: what it says out loud stops too. */
+function cancelChat(chatId: string): Promise<void> {
+  speech.stop(chatId)
+  return agents.cancel(chatId)
+}
+
+/** Control from Telegram: the linked chat and the chats it starts, on the user's phone. */
+const telegram = new TelegramBridge({
+  send: (chatId, text, attachments) => agents.send(chatId, text, attachments),
+  cancel: cancelChat,
+  resolvePermission: (chatId, permissionId, optionId) =>
+    agents.resolvePermission(chatId, permissionId, optionId),
+  answerForm: (chatId, formId, answers) => agents.answerForm(chatId, formId, answers),
+  turnEnd: (chatId) => agents.turnEnd(chatId),
+  statusChanged: (status) => send('telegram:status', status)
+})
 
 function createWindow(): BuiltinBrowser {
   mainWindow = new BrowserWindow({
@@ -480,6 +505,10 @@ function registerIpc(browser: BuiltinBrowser): void {
   ipcMain.handle('voice:keyHint', () => voiceKeyHint())
   ipcMain.handle('voice:setKey', (_e, key: string | null) => setVoiceKey(key))
   ipcMain.handle('voice:microphone', () => microphoneAccess())
+  ipcMain.handle('telegram:keyHint', () => telegram.tokenHint())
+  ipcMain.handle('telegram:setKey', (_e, token: string | null) => telegram.setToken(token))
+  ipcMain.handle('telegram:status', () => telegram.status())
+  ipcMain.handle('telegram:link', (_e, chatId: string | null) => telegram.link(chatId))
   ipcMain.handle('voice:transcribe', (_e, audio: Uint8Array, mimeType: string) =>
     transcribe(audio, mimeType)
   )
@@ -608,10 +637,7 @@ function registerIpc(browser: BuiltinBrowser): void {
     (_e, chatId: string, permissions: Pick<Chat, 'bypassPermissions' | 'projectOnly'>) =>
       agents.setPermissions(chatId, permissions)
   )
-  ipcMain.handle('chat:cancel', (_e, chatId: string) => {
-    speech.stop(chatId)
-    return agents.cancel(chatId)
-  })
+  ipcMain.handle('chat:cancel', (_e, chatId: string) => cancelChat(chatId))
   ipcMain.handle('chat:takeWaiting', (_e, chatId: string, id: string) =>
     agents.takeWaiting(chatId, id)
   )
@@ -734,9 +760,11 @@ app.whenReady().then(async () => {
   browser = createWindow()
   recorder = new PageRecorder(
     mainWindow.webContents,
-    (chatId) => store.getState().chats.find((chat) => chat.id === chatId)?.running === true
+    (chatId) => store.getState().chats.find((chat) => chat.id === chatId)?.running === true,
+    (chatId, video) => telegram.video(chatId, video)
   )
   registerIpc(browser)
+  telegram.start()
   registerGitIpc()
   registerDevicesIpc()
   // On by default: the voice downloads in the background the first time.
@@ -804,6 +832,7 @@ app.on('before-quit', (event) => {
   if (quitting) return
   quitting = true
   event.preventDefault()
+  telegram.stop()
   const stopped = agents.stopAll()
   // A failed save (a full disk) must not keep the app from quitting.
   try {

@@ -1,11 +1,14 @@
-import { randomBytes } from 'node:crypto'
-import { isAbsolute } from 'node:path'
+import { app } from 'electron'
+import { createHmac, randomBytes } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, isAbsolute, join } from 'node:path'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { AGENTS, type AgentId } from '../shared/types'
 import type { Finished, Running } from './background'
 import type { Spoken } from './speech'
 import { LANGUAGES, type Language } from './speech/supertonic'
+import * as store from './store'
 
 /**
  * An MCP server that lets a chat start other chats in its project and message
@@ -43,7 +46,11 @@ export const CHATS_GUIDANCE =
   'with why. So never wait or poll for it: end your turn, and you are woken. A chat you start runs ' +
   'on your agent, model and thinking level unless the user asks for others, which list_models ' +
   'finds. list_chats shows how each chat you started is doing, and send_message gets a stopped ' +
-  'one going again. delete_chat removes a chat you started. run_in_background runs a long ' +
+  'one going again. delete_chat removes a chat you started. Treat the chats you start as ' +
+  'subagents: once one has reported back and you have used its result, delete it, unless the ' +
+  'user may want to follow up in it. Before starting new chats, check list_chats: give ' +
+  'follow-up work to an idle chat of yours that has the context, and delete the ones no longer ' +
+  'of use, so only chats that are working or still needed are left. run_in_background runs a long ' +
   'command (a download, a long build or test run, a dev server) and wakes this chat with its ' +
   'result when it ends; run one that ends within a couple of minutes with your own shell tool ' +
   'instead. list_background, read_background and stop_background check on it and stop it. ' +
@@ -58,19 +65,42 @@ export function formatDuration(ms: number): string {
   return `${Math.floor(m / 60)}h ${m % 60}m`
 }
 
-/** Each chat's private key, kept for this launch only (see chatKey). */
-const keys = new Map<string, string>()
+/**
+ * What chats' keys are made from, kept on disk, readable only by the user. A
+ * chat's key stays the same across launches, as an agent may keep the prompt
+ * that first told it its key: a resumed Claude Code session keeps its system
+ * prompt, so a key made anew at each launch would no longer be its own.
+ */
+const secretPath = join(app.getPath('userData'), 'data', 'chat-keys.json')
 
-/** The key a chat passes to these tools, made on first use. */
+let secret: Buffer | undefined
+
+function keySecret(): Buffer {
+  if (secret) return secret
+  try {
+    if (existsSync(secretPath)) {
+      const saved = JSON.parse(readFileSync(secretPath, 'utf8')) as { secret?: unknown }
+      if (typeof saved.secret === 'string' && saved.secret.length >= 64) {
+        return (secret = Buffer.from(saved.secret, 'hex'))
+      }
+    }
+  } catch (error) {
+    console.error(`${secretPath} could not be read:`, (error as Error).message)
+  }
+  secret = randomBytes(32)
+  mkdirSync(dirname(secretPath), { recursive: true })
+  writeFileSync(secretPath, JSON.stringify({ secret: secret.toString('hex') }), { mode: 0o600 })
+  return secret
+}
+
+/** The key a chat passes to these tools: only Barebone, which holds the secret, can make it. */
 export function chatKey(chatId: string): string {
-  let key = keys.get(chatId)
-  if (!key) keys.set(chatId, (key = randomBytes(16).toString('hex')))
-  return key
+  return createHmac('sha256', keySecret()).update(chatId).digest('hex').slice(0, 32)
 }
 
 /** The chat a key belongs to; throws a message the model can act on. */
 function chatForKey(key: string): string {
-  for (const [chatId, k] of keys) if (k === key) return chatId
+  for (const chat of store.getState().chats) if (chatKey(chat.id) === key) return chat.id
   throw new Error(
     'Unknown key. Pass your own harness_chats key, given in the conversation, as "chat".'
   )
@@ -406,7 +436,7 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
     'delete_chat',
     {
       description:
-        'Delete a chat you started, by its chat ID, with all its messages. If it is working, it is stopped first. Only chats you started with start_chat can be deleted. Use it when the user asks, or to clear away a chat you started that is no longer needed, such as one you replace with a new one.',
+        'Delete a chat you started, by its chat ID, with all its messages. If it is working, it is stopped first. Only chats you started with start_chat can be deleted. Use it when the user asks, once a chat you started has reported back and you have used its result (unless the user may want to follow up in it), or to clear away one that is no longer needed, such as one you replace with a new one.',
       inputSchema: {
         to: z.string().describe('The chat ID of the chat to delete'),
         ...chatArg

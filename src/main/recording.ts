@@ -75,7 +75,9 @@ export class PageRecorder {
     /** The window, which records. */
     private readonly window: WebContents,
     /** Whether a chat's agent is working on a turn now. */
-    private readonly working: (chatId: string) => boolean
+    private readonly working: (chatId: string) => boolean,
+    /** A chat's video was saved: its agent stopped the recording and the file is closed. */
+    private readonly saved: (chatId: string, video: Recorded) => void
   ) {
     const from = <Args extends unknown[]>(
       channel: string,
@@ -201,6 +203,7 @@ export class PageRecorder {
     this.end(recording)
     const recorded = await recording.done
     if (this.latest.get(chatId) === recording) this.latest.delete(chatId)
+    this.saved(chatId, recorded)
     return recorded
   }
 

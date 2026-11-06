@@ -3,6 +3,7 @@ import { ThemeToggle } from './ThemeToggle'
 import { Collapse } from './Collapse'
 import { ProjectIcon } from './ProjectIcon'
 import { RowMenu } from './RowMenu'
+import { useTelegramStatus } from '../lib/telegram'
 import { AgentLogo } from './model-picker/AgentLogo'
 import { startedChats, type AppState, type Chat, type Project } from '../../../shared/types'
 import { readPref, writePref } from '../lib/prefs'
@@ -15,6 +16,7 @@ import {
   FolderIcon,
   FolderPlusIcon,
   SearchIcon,
+  PhoneIcon,
   SidebarIcon
 } from './icons'
 
@@ -92,6 +94,8 @@ export function Sidebar({
   useRowMotion(navRef, resizing)
   /** The chat whose title is being edited in place. */
   const [renaming, setRenaming] = useState<string>()
+  /** Once paired, a chat the user started can be linked to the Telegram bot. */
+  const telegram = useTelegramStatus()
   /** The search text; undefined while the search field is closed. */
   const [query, setQuery] = useState<string>()
   const [version, setVersion] = useState<string>()
@@ -236,6 +240,11 @@ export function Sidebar({
               {chat.title}
             </span>
           )}
+          {telegram?.state === 'ready' && telegram.linkedChatId === chat.id && (
+            <span className="chat-remote" title="Controlled from Telegram">
+              <PhoneIcon width={14} height={14} aria-label="Controlled from Telegram" />
+            </span>
+          )}
           {led && (
             <button
               className={`lead-toggle${isOpen ? ' open' : ''}`}
@@ -266,6 +275,19 @@ export function Sidebar({
                   ]
                 : []),
               { name: 'Rename', onSelect: () => setRenaming(chat.id) },
+              ...(telegram?.state === 'ready' && !chat.startedBy
+                ? [
+                    telegram.linkedChatId === chat.id
+                      ? {
+                          name: 'Stop Telegram control',
+                          onSelect: () => void window.api.telegram.link(null)
+                        }
+                      : {
+                          name: 'Control from Telegram',
+                          onSelect: () => void window.api.telegram.link(chat.id)
+                        }
+                  ]
+                : []),
               {
                 name: 'Delete',
                 danger: true,

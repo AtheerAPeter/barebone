@@ -1010,6 +1010,14 @@ img.project-icon {
   text-overflow: ellipsis;
 }
 
+/* The chat Telegram controls (Control from Telegram). */
+.chat-remote {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  color: var(--accent-text);
+}
+
 .chat-status {
   flex-shrink: 0;
 }
@@ -4982,6 +4990,17 @@ img.project-icon {
   height: 100%;
   background: var(--accent);
   transition: width 200ms linear;
+}
+
+.telegram-pair {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.telegram-pair img {
+  flex: none;
+  border-radius: var(--radius-sm);
 }
 
 .speech-ready {

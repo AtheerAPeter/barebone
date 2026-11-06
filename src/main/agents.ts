@@ -50,7 +50,7 @@ import {
   type ModelsListing,
   type Timer
 } from './chats-mcp'
-import { listSkills } from './skills'
+import { listSkills, REMOTE_SKILL } from './skills'
 import { resolveProjectFile } from './files'
 import { formatRaw, imagesIn, limitOutput } from './tool-output'
 import { saveImage, saveImageFile, saveImages } from './images'
@@ -968,7 +968,9 @@ class AgentProcess implements AgentBackend {
     }
     this.sessionChats.set(sessionId, chatId)
     this.liveSessions.add(sessionId)
-    if (setup.systemPrompt) this.notedSessions.add(sessionId)
+    // A loaded session may keep the system prompt it was created with (a resumed
+    // Claude Code session does), so it is told its notes with each prompt too.
+    if (setup.systemPrompt && !loaded) this.notedSessions.add(sessionId)
     else this.notedSessions.delete(sessionId)
 
     // Re-apply the saved selection. Options can depend on each other (cline's model
@@ -2048,7 +2050,8 @@ function finishedMessage(f: Finished): string {
 const LAST_ANSWER_CHARS = 8000
 
 /** How a chat's turn ended, as list_chats shows it. */
-type TurnEnd = { outcome: 'done' } | { outcome: 'stopped' } | { outcome: 'failed'; error: string }
+export type TurnEnd =
+  { outcome: 'done' } | { outcome: 'stopped' } | { outcome: 'failed'; error: string }
 
 /** A model that start_chat's "model" may mean, and the list it is in. */
 type Offered = { source: ModelSource; value: string }
@@ -2312,10 +2315,20 @@ export class AgentManager implements ChatsApi {
   private expandChatsTag(chatId: string, text: string): string {
     if (!/(^|\s)@chats\b/.test(text)) return text
     const ask =
-      '@chats: do this with new chats. Start one with start_chat for each part that can be done on its own, each with a complete task, then tell me what you started and end your turn. Their reports arrive here as new messages.'
+      '@chats: do this with new chats. Start one with start_chat for each part that can be done on its own, each with a complete task, then tell me what you started and end your turn. Their reports arrive here as new messages. When they are in, delete the chats you no longer need with delete_chat.'
     // The harness has the guidance in its system prompt already.
     if (isHarnessAgent(store.getChat(chatId).agent)) return `${text}\n\n${ask}`
     return `${text}\n\n${ask} start_chat is one of the ${CHATS_SERVER} tools. ${CHATS_GUIDANCE}`
+  }
+
+  /**
+   * A message that starts with `Remote:` came from the Telegram bot (see
+   * telegram/bridge.ts): the user is on their phone and can't see the Mac, so
+   * the agent is pointed to the skill on keeping them in the loop.
+   */
+  private expandRemoteTag(text: string): string {
+    if (!/^Remote:/.test(text)) return text
+    return `${text}\n\n(Remote: the user sent this from Telegram on their phone and can't see the Mac. If you haven't read the remote skill in this chat yet, read it before you answer, and follow it while they write from Telegram: ${REMOTE_SKILL})`
   }
 
   /** `@path` mentions of project files become ACP resource links next to the text. */
@@ -2557,7 +2570,9 @@ export class AgentManager implements ChatsApi {
             store.chatFile(from.chatId)
           )
         : text
-      : this.expandChatsTag(chatId, this.expandBrowserTag(chatId, this.expandSkill(chatId, text)))
+      : this.expandRemoteTag(
+          this.expandChatsTag(chatId, this.expandBrowserTag(chatId, this.expandSkill(chatId, text)))
+        )
     if (steers && !from) prompt = `${prompt}\n\n${STEER_NOTE}`
     if (handoff) {
       const label = AGENTS.find((a) => a.id === handoff)?.label ?? handoff
@@ -3055,6 +3070,11 @@ export class AgentManager implements ChatsApi {
 
   /** How each chat's last turn ended, this launch (see chatState). */
   private readonly turnEnds = new Map<string, TurnEnd>()
+
+  /** How a chat's last turn ended, this launch; undefined before one has. */
+  turnEnd(chatId: string): TurnEnd | undefined {
+    return this.turnEnds.get(chatId)
+  }
 
   /** Chats the user is stopping (see cancel), so the end of their turn reads as a stop. */
   private readonly stopping = new Set<string>()
