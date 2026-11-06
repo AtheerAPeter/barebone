@@ -32,6 +32,7 @@ import {
   GlobeIcon,
   LockIcon,
   PencilIcon,
+  PhoneIcon,
   SearchIcon,
   ShieldIcon,
   StopIcon,
@@ -1030,9 +1031,83 @@ const THOUGHT_INLINE_MAX = 300
 /** Output lines shown under an open step before the rest folds away. */
 const OUTPUT_PREVIEW = 12
 
-const BROWSER_TOOL = /^harness_browser_{1,2}(\w+)/
+const BROWSER_TOOL = /^(?:mcp__)?harness_browser_{1,2}(\w+)/
 /** The speak tool (chats-mcp.ts), under the names agents give MCP tools. */
 const SPEAK_TOOL = /^(?:mcp__)?harness_chats_{1,2}speak$/
+
+/** The app's own MCP servers (devices-mcp.ts, browser-mcp.ts, chats-mcp.ts). */
+type Harness = 'devices' | 'browser' | 'chats'
+const HARNESS_TOOL = /^(?:mcp__)?harness_(devices|browser|chats)_{1,2}(\w+)/
+
+/** The classes that give a call to one of the app's own servers its color. */
+const harnessClass = (server: Harness): string => `harness harness-${server}`
+
+/** Which of the app's own servers a call went to, and the tool's name there. */
+function harnessTool(tool: ToolItem): { server: Harness; name: string } | undefined {
+  const match = tool.title.match(HARNESS_TOOL)
+  return match ? { server: match[1] as Harness, name: match[2] } : undefined
+}
+
+/** The device and chats tools' verbs, finished and in progress. The browser has its own. */
+const HARNESS_VERBS: Partial<Record<Harness, Record<string, [string, string]>>> = {
+  devices: {
+    devices: ['Checked the devices', 'Checking the devices'],
+    screen: ['Looked at the screen', 'Looking at the screen'],
+    tap: ['Tapped', 'Tapping'],
+    swipe: ['Swiped', 'Swiping'],
+    type: ['Typed', 'Typing'],
+    press: ['Pressed', 'Pressing'],
+    wait_for: ['Waited for', 'Waiting for'],
+    app: ['Used the app', 'Using the app'],
+    settings: ['Changed device settings', 'Changing device settings'],
+    logs: ['Read the logs', 'Reading the logs'],
+    metro: ['Metro', 'Metro']
+  },
+  chats: {
+    start_chat: ['Started a chat', 'Starting a chat'],
+    list_chats: ['Listed the chats', 'Listing the chats'],
+    list_models: ['Listed the models', 'Listing the models'],
+    send_message: ['Messaged a chat', 'Messaging a chat'],
+    delete_chat: ['Deleted a chat', 'Deleting a chat'],
+    run_in_background: ['Started in the background', 'Starting in the background'],
+    list_background: ['Listed background commands', 'Listing background commands'],
+    read_background: ['Read a background command', 'Reading a background command'],
+    stop_background: ['Stopped a background command', 'Stopping a background command'],
+    set_timer: ['Set a timer', 'Setting a timer'],
+    cancel_timer: ['Cancelled a timer', 'Cancelling a timer']
+  }
+}
+
+/** What a device or chats call acted on: the element tapped, the text typed, the task given. */
+function harnessTarget(server: Harness, name: string, input: Record<string, unknown>): string {
+  const text = (value: unknown): string | undefined =>
+    typeof value === 'string' && value ? value.replace(/\s+/g, ' ').trim() : undefined
+  const quoted = (value: unknown): string | undefined => text(value) && `“${text(value)}”`
+  const element =
+    quoted(input.text) ??
+    text(input.ref) ??
+    (typeof input.x === 'number' ? `at ${input.x}, ${input.y}` : undefined)
+  const parts =
+    server === 'devices'
+      ? {
+          tap: [element],
+          swipe: [text(input.direction), element && `from ${element}`],
+          type: [quoted(input.value)],
+          press: [text(input.button)],
+          wait_for: [quoted(input.text), input.gone ? 'to go' : undefined],
+          devices: [text(input.action), text(input.device)],
+          app: [text(input.action), text(input.url) ?? text(input.app)],
+          metro: [text(input.action)]
+        }[name]
+      : {
+          start_chat: [text(input.prompt)],
+          send_message: [text(input.message)],
+          run_in_background: [text(input.command)],
+          set_timer: [text(input.note)]
+        }[name]
+  const target = (parts ?? []).filter(Boolean).join(' ')
+  return target.length > 120 ? `${target.slice(0, 119)}…` : target
+}
 
 /** What an agent said out loud with the speak tool; undefined for any other call. */
 function spokenText(tool: ToolItem): string | undefined {
@@ -1074,8 +1149,8 @@ function humanize(name: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
-/** A short detail for a call: the URL, path, command or query it acted on. */
-function toolDetail(tool: ToolItem): string | undefined {
+/** A call's arguments, when the agent gave them as a JSON object. */
+function toolInput(tool: ToolItem): Record<string, unknown> | undefined {
   if (!tool.input) return undefined
   let input: unknown
   try {
@@ -1083,8 +1158,13 @@ function toolDetail(tool: ToolItem): string | undefined {
   } catch {
     return undefined
   }
-  if (!input || typeof input !== 'object') return undefined
-  const fields = input as Record<string, unknown>
+  return input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined
+}
+
+/** A short detail for a call: the URL, path, command or query it acted on. */
+function toolDetail(tool: ToolItem): string | undefined {
+  const fields = toolInput(tool)
+  if (!fields) return undefined
   for (const key of [
     'url',
     'path',
@@ -1156,6 +1236,12 @@ const KIND_WORDS: Record<string, string> = {
 function toolKindAndTarget(tool: ToolItem): [string, string] {
   const said = spokenText(tool)
   if (said !== undefined) return ['Voice', said.length > 120 ? `${said.slice(0, 119)}…` : said]
+  const harness = harnessTool(tool)
+  if (harness && HARNESS_VERBS[harness.server]?.[harness.name])
+    return [
+      harness.server === 'devices' ? 'Device' : 'Chats',
+      harnessTarget(harness.server, harness.name, toolInput(tool) ?? {})
+    ]
   const detail = toolDetail(tool)
   const browser = tool.title.match(BROWSER_TOOL)
   if (browser) return ['Browser', [humanize(browser[1]), detail].filter(Boolean).join(' ')]
@@ -1164,10 +1250,12 @@ function toolKindAndTarget(tool: ToolItem): [string, string] {
 }
 
 /** What a call did, for the words that describe it and for summing up a group. */
-type CallKind = 'read' | 'search' | 'edit' | 'run' | 'fetch' | 'browser' | 'other'
+type CallKind =
+  'read' | 'search' | 'edit' | 'run' | 'fetch' | 'browser' | 'device' | 'chats' | 'other'
 
 function callKind(tool: ToolItem): CallKind {
-  if (BROWSER_TOOL.test(tool.title)) return 'browser'
+  const harness = harnessTool(tool)?.server
+  if (harness) return harness === 'devices' ? 'device' : harness
   switch (tool.toolKind) {
     case 'read':
     case 'search':
@@ -1191,6 +1279,9 @@ const isWebSearch = (tool: ToolItem): boolean => tool.title === 'websearch'
 function callVerb(tool: ToolItem): [string, string] {
   if (spokenText(tool) !== undefined) return ['Said', 'Saying']
   if (isWebSearch(tool)) return ['Searched the web for', 'Searching the web for']
+  const harness = harnessTool(tool)
+  const harnessVerbs = harness && HARNESS_VERBS[harness.server]?.[harness.name]
+  if (harnessVerbs) return harnessVerbs
   switch (tool.toolKind) {
     case 'delete':
       return ['Deleted', 'Deleting']
@@ -1204,6 +1295,8 @@ function callVerb(tool: ToolItem): [string, string] {
     run: ['Ran', 'Running'],
     fetch: ['Fetched', 'Fetching'],
     browser: ['Browser', 'Browser'],
+    device: ['Called', 'Calling'],
+    chats: ['Called', 'Calling'],
     other: ['Called', 'Calling']
   }
   return verbs[callKind(tool)]
@@ -1228,9 +1321,18 @@ function DiffCount({ added, removed }: { added: number; removed: number }): Reac
  * files, ran commands". Each kind of call says so once, and its icon leads the
  * line.
  */
-type Category = 'tool' | 'read' | 'edit' | 'run' | 'fetch' | 'browser'
+type Category = 'tool' | 'read' | 'edit' | 'run' | 'fetch' | 'browser' | 'device' | 'chats'
 
-const CATEGORY_ORDER: Category[] = ['tool', 'read', 'edit', 'run', 'fetch', 'browser']
+const CATEGORY_ORDER: Category[] = [
+  'tool',
+  'read',
+  'edit',
+  'run',
+  'fetch',
+  'browser',
+  'device',
+  'chats'
+]
 
 function category(tool: ToolItem): Category {
   const kind = callKind(tool)
@@ -1244,7 +1346,9 @@ const CATEGORY_WORDS: Record<Category, [string, string]> = {
   edit: ['edited a file', 'edited files'],
   run: ['ran a command', 'ran commands'],
   fetch: ['fetched a page', 'fetched pages'],
-  browser: ['used the browser', 'used the browser']
+  browser: ['used the browser', 'used the browser'],
+  device: ['used the phone', 'used the phone'],
+  chats: ['used Barebone', 'used Barebone']
 }
 
 const CATEGORY_ICONS: Record<Category, (p: React.SVGProps<SVGSVGElement>) => React.JSX.Element> = {
@@ -1253,7 +1357,9 @@ const CATEGORY_ICONS: Record<Category, (p: React.SVGProps<SVGSVGElement>) => Rea
   edit: PencilIcon,
   run: TerminalIcon,
   fetch: GlobeIcon,
-  browser: GlobeIcon
+  browser: GlobeIcon,
+  device: PhoneIcon,
+  chats: ChatIcon
 }
 
 /** The icon of one call, by what it did. */
@@ -1297,10 +1403,13 @@ function ToolGroup({ tools, chatId }: { tools: ToolItem[]; chatId: string }): Re
   const active = tools.findLast(isRunning)
   const failed = tools.filter((t) => t.status === 'failed').length
   const Icon = CATEGORY_ICONS[groupCategories(tools)[0]]
+  // Calls all to one of the app's own servers take its color.
+  const servers = new Set(tools.map((t) => harnessTool(t)?.server))
+  const [server] = servers
   return (
     <div className={`activity${open ? ' open' : ''}`}>
       <button
-        className="act-line tool-line"
+        className={`act-line tool-line${servers.size === 1 && server ? ` ${harnessClass(server)}` : ''}`}
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >
@@ -1444,8 +1553,11 @@ const CallRow = memo(function CallRow({
   const expandable = lines.length > 0 && tool.toolKind !== 'read'
   const hidden = lines.length - OUTPUT_PREVIEW
   const shown = all || hidden <= 0 ? lines : lines.slice(0, OUTPUT_PREVIEW)
+  const server = harnessTool(tool)?.server
   return (
-    <div className={`call${nested ? '' : ' alone'}${open ? ' open' : ''}`}>
+    <div
+      className={`call${nested ? '' : ' alone'}${open ? ' open' : ''}${server ? ` ${harnessClass(server)}` : ''}`}
+    >
       <button
         className="call-line"
         disabled={!expandable}

@@ -41,6 +41,10 @@
   --danger: #d92d20;
   --ok: #12814a;
   --warn: #b54708;
+  /* The app's own tools in chat, a color per server: devices, browser, chats. */
+  --harness-devices: #1f56c9;
+  --harness-browser: #b45309;
+  --harness-chats: #6b41c9;
 
   /* Flat fills: hover, tracks, chips. */
   --fill: rgba(0, 0, 0, 0.05);
@@ -172,6 +176,9 @@
     --danger: #ff6b64;
     --ok: #4cc38a;
     --warn: #e7a14a;
+    --harness-devices: #8ab0ff;
+    --harness-browser: #f5a524;
+    --harness-chats: #b89bff;
 
     --fill: rgba(255, 255, 255, 0.06);
     --fill-strong: rgba(255, 255, 255, 0.1);
@@ -1611,6 +1618,31 @@ img.project-icon {
 
 .call.alone > .call-line:not(:disabled):hover :is(.call-verb, .call-target) {
   color: var(--text-soft);
+}
+
+/* Calls to the app's own tools take their server's color, so they stand out from the agent's own. */
+.harness-devices {
+  --harness: var(--harness-devices);
+}
+
+.harness-browser {
+  --harness: var(--harness-browser);
+}
+
+.harness-chats {
+  --harness: var(--harness-chats);
+}
+
+.harness .call-icon,
+.call.harness .call-verb:not(.shimmer),
+.call.harness > .call-line:not(:disabled):hover .call-verb:not(.shimmer),
+.act-line.harness .act-lead:not(.shimmer) {
+  color: var(--harness);
+}
+
+/* While one runs, its shimmer sweeps through the same color. */
+.harness .shimmer {
+  --text-muted: var(--harness);
 }
 
 /* An open group's rows line up under its line, without an indent rule. */
