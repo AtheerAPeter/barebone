@@ -7,11 +7,16 @@ import {
   AGENTS,
   formDefaults,
   modelOptions,
+  type AgentId,
+  type AgentModels,
   type AgentOption,
+  type AgentStatus,
   type Attachment,
   type Chat,
   type ChatItem,
   type FormAnswers,
+  type ModelSource,
+  type OpenChatResult,
   type TelegramStatus
 } from '../../shared/types'
 import type { TurnEnd } from '../agents'
@@ -75,12 +80,28 @@ const MAX_UPLOAD = 50 * 1024 * 1024
 /** Callback tokens kept for buttons, oldest dropped past this. */
 const MAX_ACTIONS = 2000
 
-const NOT_LINKED =
-  'No chat is linked. On the Mac, open a chat’s menu in the sidebar and choose Control from Telegram.'
+/** A project's chats the picker lists, newest first; older ones are picked on the Mac. */
+const PICK_CHATS = 8
+
+/** Models shown per page of the model picker, and found at most by a search. */
+const PICK_MODELS = 10
+
+const NOT_LINKED = 'No chat is linked. Send /projects to pick one or start a new one.'
+
+const MODELS_OUT_OF_DATE = 'This list is out of date. Send /model again.'
 
 /** What Barebone does for the bridge, as the window's buttons do. */
 export interface BridgeHost {
   send(chatId: string, text: string, attachments: Attachment[]): Promise<void>
+  /** A new chat in a project, with the agent, model and permissions of `like`. */
+  createChat(projectId: string, like: Chat): Chat
+  deleteChat(chatId: string): Promise<void>
+  /** The chat's session options (its model, ...), its session opened for them. */
+  openChat(chatId: string): Promise<OpenChatResult>
+  agentStatus(agent: AgentId): Promise<AgentStatus>
+  agentModels(agent: AgentId, projectId: string): Promise<AgentModels>
+  setOption(chatId: string, optionId: string, value: string): Promise<void>
+  changeAgent(chatId: string, agent: AgentId, settings: Record<string, string>): Promise<void>
   cancel(chatId: string): Promise<void>
   resolvePermission(chatId: string, permissionId: string, optionId: string): void
   answerForm(chatId: string, formId: string, answers: FormAnswers | null): void
@@ -96,10 +117,43 @@ type Action =
   | { kind: 'pick'; form: string; field: string; value: string }
   | { kind: 'ask'; form: string; field: string }
   | { kind: 'formSend' | 'formDecline' | 'formOpen'; form: string }
+  | { kind: 'projects' }
+  | { kind: 'project' | 'newChat'; projectId: string }
+  | { kind: 'link'; chatId: string }
+  | { kind: 'sources' }
+  | { kind: 'source'; key: string; page: number }
+  | { kind: 'model'; key: string; value: string }
+  | { kind: 'thinking'; chatId: string; optionId: string; value: string; name: string }
 
 /** A message the user is asked to reply to, and where the reply goes. */
 type ReplyTarget =
   { kind: 'message'; chatId: string } | { kind: 'field'; form: string; field: string }
+
+/** A message of buttons to pick from, edited in place as the user goes through it. */
+interface Picker {
+  html: string
+  rows: InlineButton[][]
+}
+
+/**
+ * Where a list of models comes from, as the window's model picker has them:
+ * an agent, or one of its providers when it has several (Cline, Custom providers).
+ */
+interface Source {
+  key: string
+  agent: AgentId
+  setting?: ModelSource['setting']
+  option: AgentOption
+}
+
+/** The models the linked chat can switch to, read when /model is sent. */
+interface Catalog {
+  chatId: string
+  /** The key of the source the chat is on. */
+  current: string
+  options: AgentOption[]
+  sources: Source[]
+}
 
 type ToolItem = Extract<ChatItem, { kind: 'tool' }>
 type PermissionItem = Extract<ChatItem, { kind: 'permission' }>
@@ -176,6 +230,10 @@ export class TelegramBridge {
   private readonly sentImages = new Set<string>()
   private readonly chatOptions = new Map<string, AgentOption[]>()
   private linkedTitle?: string
+  /** Chats started from Telegram: one left before it was sent anything goes, as in the window. */
+  private readonly started = new Set<string>()
+  /** The models read for the last /model, which its buttons pick from. */
+  private catalog?: Catalog
 
   constructor(private readonly host: BridgeHost) {}
 
@@ -273,11 +331,22 @@ export class TelegramBridge {
     if (chat) {
       const project = store.getState().projects.find((p) => p.id === chat.projectId)
       this.say(
-        `Now controlling <b>${escapeHtml(chat.title)}</b>${project ? ` in ${escapeHtml(project.name)}` : ''}. What you send here goes to that chat. Write <code>@chats</code> to have it split the work into new chats.`
+        `Now controlling <b>${escapeHtml(chat.title)}</b>${project ? ` in ${escapeHtml(project.name)}` : ''}. What you send here goes to that chat, which hands each task to a new chat with a card here.`
       )
     } else if (before) {
       this.say(`Stopped controlling <b>${escapeHtml(before)}</b>.`)
     }
+    if (linkedChatId) this.dropIfUnused(linkedChatId)
+  }
+
+  /** A chat started from Telegram and left before it was sent anything is of no use, so it goes. */
+  private dropIfUnused(chatId: string): void {
+    if (!this.started.delete(chatId)) return
+    const chat = this.chat(chatId)
+    if (!chat || chat.running || chat.draft || store.getMessages(chatId).length > 0) return
+    this.host
+      .deleteChat(chatId)
+      .catch((error) => console.error('Telegram: could not delete an unused chat:', error))
   }
 
   private publish(): void {
@@ -301,6 +370,7 @@ export class TelegramBridge {
     this.forms.clear()
     this.sentImages.clear()
     this.replies.clear()
+    this.catalog = undefined
   }
 
   // --- Reading updates ---------------------------------------------------------
@@ -316,7 +386,15 @@ export class TelegramBridge {
         if (!this.commandsSet) {
           await api.call(
             'setMyCommands',
-            { commands: [{ command: 'stop', description: 'Stop the linked chat' }] },
+            {
+              commands: [
+                { command: 'new', description: 'Start a new chat in this project' },
+                { command: 'projects', description: 'Switch to another project or chat' },
+                { command: 'model', description: 'Switch the model or provider' },
+                { command: 'thinking', description: 'Change the thinking level' },
+                { command: 'stop', description: 'Stop the linked chat' }
+              ]
+            },
             signal
           )
           this.commandsSet = true
@@ -398,9 +476,7 @@ export class TelegramBridge {
     updateTelegramConfig({ owner: { userId: message.from!.id, chatId: message.chat.id } })
     this.code = undefined
     this.publish()
-    this.say(
-      `Paired with Barebone. Now link a chat: on the Mac, open a chat’s menu in the sidebar and choose <b>Control from Telegram</b>.`
-    )
+    this.say(`Paired with Barebone. Send /projects to pick a chat to control or start a new one.`)
   }
 
   private async onMessage(message: TelegramMessage): Promise<void> {
@@ -417,13 +493,42 @@ export class TelegramBridge {
       this.say(linked ? `Paired. Controlling <b>${escapeHtml(linked)}</b>.` : NOT_LINKED)
       return
     }
+    if (/^\/projects(@\w+)?$/.test(text)) {
+      this.showPicker(this.projectsView())
+      return
+    }
     const linkedChatId = telegramConfig().linkedChatId
+    if (/^\/new(@\w+)?$/.test(text)) {
+      const projectId = linkedChatId ? this.chat(linkedChatId)?.projectId : undefined
+      // With no chat linked, the project is picked first.
+      if (!projectId) {
+        this.showPicker(this.projectsView())
+        return
+      }
+      const note = this.startChat(projectId)
+      if (note) this.say(escapeHtml(note))
+      return
+    }
     if (!linkedChatId) {
       this.say(NOT_LINKED)
       return
     }
     if (/^\/stop(@\w+)?$/.test(text)) {
       await this.host.cancel(linkedChatId)
+      return
+    }
+    // Read in the background: the agents can take a few seconds to list their models.
+    const model = text.match(/^\/model(?:@\w+)?(?:\s+([\s\S]+))?$/)
+    if (model) {
+      this.showModels(linkedChatId, model[1]?.trim().toLowerCase() ?? '').catch((error) =>
+        this.say(escapeHtml(`Couldn’t read the models: ${(error as Error).message}`))
+      )
+      return
+    }
+    if (/^\/thinking(@\w+)?$/.test(text)) {
+      this.showThinking(linkedChatId).catch((error) =>
+        this.say(escapeHtml(`Couldn’t read the thinking levels: ${(error as Error).message}`))
+      )
       return
     }
     const attachments: Attachment[] = []
@@ -572,7 +677,347 @@ export class TelegramBridge {
       case 'formDecline':
       case 'formOpen':
         return this.formAction(action)
+      case 'projects':
+        this.showPicker(this.projectsView(), messageId)
+        return undefined
+      case 'project': {
+        const view = this.projectView(action.projectId)
+        if (!view) return 'That project is gone.'
+        this.showPicker(view, messageId)
+        return undefined
+      }
+      case 'link':
+        if (!this.chat(action.chatId)) return 'That chat is gone.'
+        if (action.chatId === telegramConfig().linkedChatId) return 'Already controlling it.'
+        this.link(action.chatId)
+        this.removeMessage(messageId)
+        return undefined
+      case 'newChat': {
+        const note = this.startChat(action.projectId)
+        if (!note) this.removeMessage(messageId)
+        return note
+      }
+      case 'sources': {
+        const catalog = this.liveCatalog()
+        if (!catalog) return MODELS_OUT_OF_DATE
+        this.showPicker(this.sourcesView(catalog), messageId)
+        return undefined
+      }
+      case 'source': {
+        const catalog = this.liveCatalog()
+        const view = catalog && this.modelsView(catalog, action.key, action.page)
+        if (!view) return MODELS_OUT_OF_DATE
+        this.showPicker(view, messageId)
+        return undefined
+      }
+      case 'model':
+        return this.pickModel(action.key, action.value, messageId)
+      case 'thinking': {
+        if (action.chatId !== telegramConfig().linkedChatId) {
+          return 'This list is out of date. Send /thinking again.'
+        }
+        try {
+          await this.host.setOption(action.chatId, action.optionId, action.value)
+        } catch (error) {
+          this.say(escapeHtml((error as Error).message))
+          return undefined
+        }
+        const done = `Thinking level: <b>${escapeHtml(action.name)}</b>.`
+        if (messageId) this.enqueue(() => this.edit(messageId, done, []))
+        return undefined
+      }
     }
+  }
+
+  // --- Picking a chat ----------------------------------------------------------
+
+  /** The projects, as the sidebar lists them; the linked chat's is ticked. */
+  private projectsView(): Picker {
+    const { projects } = store.getState()
+    if (projects.length === 0) return { html: 'No projects yet. Add one on the Mac.', rows: [] }
+    const linkedChatId = telegramConfig().linkedChatId
+    const current = linkedChatId ? this.chat(linkedChatId)?.projectId : undefined
+    const buttons = projects.map((p) =>
+      this.button(`${p.id === current ? '✓ ' : ''}${p.name}`, { kind: 'project', projectId: p.id })
+    )
+    const rows: InlineButton[][] = []
+    for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2))
+    return { html: 'Pick a project:', rows }
+  }
+
+  /** A project's latest chats the user started, newest first, and a button for a new one. */
+  private projectView(projectId: string): Picker | undefined {
+    const { projects, chats } = store.getState()
+    const project = projects.find((p) => p.id === projectId)
+    if (!project) return undefined
+    const linkedChatId = telegramConfig().linkedChatId
+    const own = chats
+      .filter((c) => c.projectId === projectId && !c.startedBy)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, PICK_CHATS)
+    const rows = own.map((c) => [
+      this.button(
+        `${c.id === linkedChatId ? '✓ ' : ''}${c.title}${c.running ? ' · working' : ''}`,
+        {
+          kind: 'link',
+          chatId: c.id
+        }
+      )
+    ])
+    rows.push([
+      this.button('+ New chat', { kind: 'newChat', projectId }),
+      this.button('‹ Projects', { kind: 'projects' })
+    ])
+    const lead = own.length ? 'Pick a chat or start a new one:' : 'No chats yet.'
+    return { html: `<b>${escapeHtml(project.name)}</b>\n${lead}`, rows }
+  }
+
+  /** Show a picker, in place of the one tapped when there is one. */
+  private showPicker(view: Picker, messageId?: number): void {
+    this.enqueue(async () => {
+      if (messageId) {
+        await this.edit(messageId, view.html, view.rows)
+      } else {
+        await this.sendText(
+          { html: view.html, plain: view.html.replace(/<[^>]+>/g, '') },
+          { reply_markup: this.keyboard(view.rows) }
+        )
+      }
+    })
+  }
+
+  /** Remove a picker once it is used: linking says what was picked. */
+  private removeMessage(messageId?: number): void {
+    if (!messageId) return
+    this.enqueue(() =>
+      this.api!.call('deleteMessage', {
+        chat_id: telegramConfig().owner!.chatId,
+        message_id: messageId
+      })
+    )
+  }
+
+  /**
+   * Start a new chat in a project and control it. It takes the agent, model
+   * and permissions of the linked chat, or else of the latest chat the user
+   * started: what the window picks for new chats is kept in the window.
+   * Returns why it could not, if it could not.
+   */
+  private startChat(projectId: string): string | undefined {
+    const { projects, chats } = store.getState()
+    if (!projects.some((p) => p.id === projectId)) return 'That project is gone.'
+    const latest = (list: Chat[]): Chat | undefined =>
+      list
+        .filter((c) => !c.startedBy)
+        .reduce<Chat | undefined>((a, c) => (!a || c.updatedAt > a.updatedAt ? c : a), undefined)
+    const linkedChatId = telegramConfig().linkedChatId
+    const like =
+      (linkedChatId ? this.chat(linkedChatId) : undefined) ??
+      latest(chats.filter((c) => c.projectId === projectId)) ??
+      latest(chats)
+    if (!like) return 'Start a chat on the Mac first: new chats here take its agent and model.'
+    const chat = this.host.createChat(projectId, like)
+    this.started.add(chat.id)
+    this.link(chat.id)
+    return undefined
+  }
+
+  // --- Picking a model and thinking level --------------------------------------
+
+  /** Read the models the linked chat can switch to, then show them, or the ones `query` finds. */
+  private async showModels(chatId: string, query: string): Promise<void> {
+    const chat = this.chat(chatId)
+    if (!chat) return
+    this.typing()
+    const catalog = await this.readModels(chat)
+    if (telegramConfig().linkedChatId !== chatId) return
+    this.catalog = catalog
+    this.showPicker(query ? this.searchView(catalog, query) : this.sourcesView(catalog))
+  }
+
+  /** Every installed agent's models, as the window's model picker reads them when it opens. */
+  private async readModels(chat: Chat): Promise<Catalog> {
+    const [{ options }, lists] = await Promise.all([
+      this.host.openChat(chat.id),
+      Promise.all(
+        AGENTS.map(async ({ id }) =>
+          (await this.host.agentStatus(id)).available
+            ? { agent: id, models: await this.host.agentModels(id, chat.projectId) }
+            : undefined
+        )
+      )
+    ])
+    const live = modelOptions(options)
+    const current = sourceKey(chat.agent, live.source?.currentValue)
+    const sources: Source[] = []
+    for (const list of lists) {
+      if (!list) continue
+      for (const { setting, option } of list.models.sources) {
+        const key = sourceKey(list.agent, setting?.value)
+        // The chat's own list is the live one: it knows the current model.
+        sources.push({
+          key,
+          agent: list.agent,
+          setting,
+          option: key === current && live.model ? live.model : option
+        })
+      }
+    }
+    return { chatId: chat.id, current, options, sources }
+  }
+
+  /** The models read for the chat that is still linked. */
+  private liveCatalog(): Catalog | undefined {
+    const catalog = this.catalog
+    return catalog?.chatId === telegramConfig().linkedChatId ? catalog : undefined
+  }
+
+  /** Every agent and provider with models, the chat's own ticked. */
+  private sourcesView(catalog: Catalog): Picker {
+    const chat = this.chat(catalog.chatId)
+    const now = chat
+      ? `Now on <b>${escapeHtml(modelLabel(chat.agent, catalog.options))}</b>.\n`
+      : ''
+    if (catalog.sources.length === 0) return { html: `${now}No agent listed its models.`, rows: [] }
+    const buttons = catalog.sources.map((s) =>
+      this.button(`${s.key === catalog.current ? '✓ ' : ''}${sourceName(s)}`, {
+        kind: 'source',
+        key: s.key,
+        page: 0
+      })
+    )
+    const rows: InlineButton[][] = []
+    for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2))
+    return { html: `${now}Pick an agent or provider:`, rows }
+  }
+
+  /** A page of one agent's or provider's models. */
+  private modelsView(catalog: Catalog, key: string, page: number): Picker | undefined {
+    const source = catalog.sources.find((s) => s.key === key)
+    if (!source) return undefined
+    const { values, currentValue } = source.option
+    const pages = Math.max(1, Math.ceil(values.length / PICK_MODELS))
+    const at = Math.min(Math.max(page, 0), pages - 1)
+    const rows = values.slice(at * PICK_MODELS, (at + 1) * PICK_MODELS).map((v) => [
+      this.button(`${key === catalog.current && v.value === currentValue ? '✓ ' : ''}${v.name}`, {
+        kind: 'model',
+        key,
+        value: v.value
+      })
+    ])
+    rows.push([
+      ...(at > 0 ? [this.button('‹ Prev', { kind: 'source', key, page: at - 1 })] : []),
+      ...(at < pages - 1 ? [this.button('Next ›', { kind: 'source', key, page: at + 1 })] : []),
+      this.button('‹ Providers', { kind: 'sources' })
+    ])
+    const counted = pages > 1 ? `, page ${at + 1} of ${pages}` : ''
+    const lead = values.length ? 'Pick a model:' : 'It lists no models.'
+    return { html: `<b>${escapeHtml(sourceName(source))}</b>${counted}\n${lead}`, rows }
+  }
+
+  /** The models of every agent and provider whose name or id has `query` in it. */
+  private searchView(catalog: Catalog, query: string): Picker {
+    const found = catalog.sources.flatMap((source) =>
+      source.option.values
+        .filter((v) => [v.name, v.value].some((text) => text.toLowerCase().includes(query)))
+        .map((v) => ({ source, v }))
+    )
+    const back = [this.button('All providers', { kind: 'sources' })]
+    if (found.length === 0) {
+      return { html: `No model matches “${escapeHtml(query)}”.`, rows: [back] }
+    }
+    const rows = found.slice(0, PICK_MODELS).map(({ source, v }) => [
+      this.button(`${v.name} · ${sourceName(source)}`, {
+        kind: 'model',
+        key: source.key,
+        value: v.value
+      })
+    ])
+    rows.push(back)
+    const more =
+      found.length > PICK_MODELS
+        ? ` The first ${PICK_MODELS} of ${found.length}; add to the search to narrow it.`
+        : ''
+    return { html: `Models matching “${escapeHtml(query)}”:${more}`, rows }
+  }
+
+  /**
+   * Put the linked chat on a model, as the window's model picker does: on its
+   * own agent by setting the provider, then the model; on another agent by
+   * switching to it, which the agent refuses while the chat works.
+   */
+  private async pickModel(
+    key: string,
+    value: string,
+    messageId?: number
+  ): Promise<string | undefined> {
+    const catalog = this.liveCatalog()
+    const chat = catalog && this.chat(catalog.chatId)
+    const source = catalog?.sources.find((s) => s.key === key)
+    const picked = source?.option.values.find((v) => v.value === value)
+    if (!catalog || !chat || !source || !picked) return MODELS_OUT_OF_DATE
+    if (key === catalog.current && value === source.option.currentValue) return 'Already on it.'
+    const settings: [string, string][] = source.setting
+      ? [[source.setting.optionId, source.setting.value]]
+      : []
+    settings.push([source.option.id, value])
+    try {
+      if (source.agent !== chat.agent) {
+        await this.host.changeAgent(chat.id, source.agent, Object.fromEntries(settings))
+      } else {
+        // In order: the model list depends on the provider set before it.
+        for (const [optionId, v] of settings) {
+          const now = catalog.options.find((o) => o.id === optionId)?.currentValue
+          if (now !== v) await this.host.setOption(chat.id, optionId, v)
+        }
+      }
+    } catch (error) {
+      this.say(escapeHtml((error as Error).message))
+      return undefined
+    }
+    this.catalog = undefined
+    const done = `Now on <b>${escapeHtml(`${sourceName(source)} · ${picked.name}`)}</b>.`
+    if (messageId) this.enqueue(() => this.edit(messageId, done, []))
+    else this.say(done)
+    return undefined
+  }
+
+  /** The thinking levels the linked chat's model offers, read from its session. */
+  private async showThinking(chatId: string): Promise<void> {
+    const chat = this.chat(chatId)
+    if (!chat) return
+    this.typing()
+    const { options, error } = await this.host.openChat(chatId)
+    if (telegramConfig().linkedChatId !== chatId) return
+    if (error) {
+      this.say(escapeHtml(`Couldn’t open the chat: ${error}`))
+      return
+    }
+    const on = modelLabel(chat.agent, options)
+    const thinking = options.find((o) => o.category === 'thought_level')
+    if (!thinking) {
+      this.say(`<b>${escapeHtml(on)}</b> has no thinking levels to pick.`)
+      return
+    }
+    const buttons = thinking.values.map((v) =>
+      this.button(`${v.value === thinking.currentValue ? '✓ ' : ''}${v.name}`, {
+        kind: 'thinking',
+        chatId,
+        optionId: thinking.id,
+        value: v.value,
+        name: v.name
+      })
+    )
+    const rows: InlineButton[][] = []
+    for (let i = 0; i < buttons.length; i += 3) rows.push(buttons.slice(i, i + 3))
+    this.showPicker({ html: `Thinking level for <b>${escapeHtml(on)}</b>:`, rows })
+  }
+
+  /** Show "typing…" while something slow is read for the user. */
+  private typing(): void {
+    const chatId = telegramConfig().owner?.chatId
+    if (!this.api || chatId === undefined) return
+    this.api.call('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => undefined)
   }
 
   /** Ask the user to reply to a message; the reply goes where `target` says. */
@@ -1073,12 +1518,8 @@ export class TelegramBridge {
     }
   }
 
-  /** "Claude Code · Haiku 4.5": the chat's agent, and its model once the agent said which. */
   private runsOn(chat: Chat): string {
-    const agent = AGENTS.find((a) => a.id === chat.agent)?.label ?? chat.agent
-    const { model } = modelOptions(this.chatOptions.get(chat.id) ?? [])
-    const name = model?.values.find((v) => v.value === model.currentValue)?.name
-    return name ? `${agent} · ${name}` : agent
+    return modelLabel(chat.agent, this.chatOptions.get(chat.id) ?? [])
   }
 
   private sendImages(chatId: string, files: string[]): void {
@@ -1200,6 +1641,27 @@ export class TelegramBridge {
   private chat(chatId: string): Chat | undefined {
     return store.getState().chats.find((c) => c.id === chatId)
   }
+}
+
+const agentLabel = (agent: AgentId): string => AGENTS.find((a) => a.id === agent)?.label ?? agent
+
+/** A source's key: its agent, and its provider when the agent has several. */
+const sourceKey = (agent: AgentId, provider?: string): string => `${agent}:${provider ?? ''}`
+
+/** "Cline · OpenRouter": the agent, and the provider when it has several. */
+function sourceName(source: Source): string {
+  return [agentLabel(source.agent), source.setting?.name].filter(Boolean).join(' · ')
+}
+
+/**
+ * "Claude Code · Haiku 4.5": the agent, its provider when it has several, and
+ * its model once the agent said which.
+ */
+function modelLabel(agent: AgentId, options: AgentOption[]): string {
+  const { model, source } = modelOptions(options)
+  const chosen = (o?: AgentOption): string | undefined =>
+    o?.values.find((v) => v.value === o.currentValue)?.name
+  return [agentLabel(agent), chosen(source), chosen(model)].filter(Boolean).join(' · ')
 }
 
 function unreadableHtml(error: unknown): boolean {

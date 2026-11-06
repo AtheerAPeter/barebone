@@ -1,6 +1,6 @@
 ---
 name: remote
-description: Work for a user who writes from Telegram on their phone and can't see the Mac. Use when a message starts with "Remote:". It covers keeping them in the loop with screenshots, narrated video demos, short replies and questions they can answer with a tap.
+description: Work for a user who writes from Telegram on their phone and can't see the Mac. Use when a message starts with "Remote:". It covers handing every task to a chat and deleting it once the work is confirmed done, keeping them in the loop with screenshots, narrated video demos, short replies and questions they can answer with a tap.
 ---
 
 # Remote: the user is on their phone
@@ -15,6 +15,17 @@ What reaches their phone by itself:
 - Every video you record with `start_recording` and `stop_recording`, as a video (up to 50 MB).
 - Permission prompts and forms, as buttons.
 - Cards for the chats you start with `@chats`.
+
+## Hand every task to a chat
+
+From Telegram, you manage and the chats you start do the work. The user asked for this, so start chats for every task without waiting for `@chats`. Each chat gets a card on their phone, so they can watch it work.
+
+1. Start a chat with `start_chat` for each task, or one per part when the parts can be done on their own. Write each task in full, since the chat sees nothing of this conversation. Tell it to check its work and to show the result with a screenshot or a recording. Its images and videos reach the phone too.
+2. Tell the user what you started, in a line or two, and end your turn. Reports arrive as new messages, so don't wait or poll.
+3. When a report comes in, confirm the work is done. Read what the chat says it did and how it checked. If that leaves doubt, look yourself: open the page, run the test. If something is missing or broken, send it back to the same chat with `send_message` and end your turn again.
+4. Once the work is confirmed done, tell the user the result and delete the chat with `delete_chat`.
+
+Answer questions about the work and its status yourself; `list_chats` shows how each chat is doing. A follow-up on a task that is still open goes to its chat with `send_message`, not to a new one.
 
 ## Show, don't describe
 

@@ -113,9 +113,33 @@ function cancelChat(chatId: string): Promise<void> {
   return agents.cancel(chatId)
 }
 
+/** Delete a chat, with its browser page and walkthrough. */
+async function deleteChat(chatId: string): Promise<void> {
+  await agents.deleteChat(chatId)
+  browser?.closeChat(chatId)
+  walks.forget(chatId)
+}
+
 /** Control from Telegram: the linked chat and the chats it starts, on the user's phone. */
 const telegram = new TelegramBridge({
   send: (chatId, text, attachments) => agents.send(chatId, text, attachments),
+  createChat: (projectId, like) => {
+    const chat = store.createChat({
+      projectId,
+      agent: like.agent,
+      settings: { ...like.settings },
+      bypassPermissions: like.bypassPermissions,
+      projectOnly: like.projectOnly
+    })
+    send('state:changed', store.getState())
+    return chat
+  },
+  deleteChat,
+  openChat: (chatId) => agents.open(chatId),
+  agentStatus: (agent) => agents.status(agent),
+  agentModels: (agent, projectId) => agents.models(agent, projectId),
+  setOption: (chatId, optionId, value) => agents.setOption(chatId, optionId, value),
+  changeAgent: (chatId, agent, settings) => agents.changeAgent(chatId, agent, settings),
   cancel: cancelChat,
   resolvePermission: (chatId, permissionId, optionId) =>
     agents.resolvePermission(chatId, permissionId, optionId),
@@ -578,19 +602,13 @@ function registerIpc(browser: BuiltinBrowser): void {
     }
   )
 
-  ipcMain.handle('chat:delete', async (_e, chatId: string) => {
-    await agents.deleteChat(chatId)
-    browser.closeChat(chatId)
-    walks.forget(chatId)
-  })
+  ipcMain.handle('chat:delete', (_e, chatId: string) => deleteChat(chatId))
 
   // A chat the user leaves before sending anything is of no use, so it goes.
   ipcMain.handle('chat:leave', async (_e, chatId: string) => {
     const chat = store.getState().chats.find((c) => c.id === chatId)
     if (!chat || chat.running || chat.draft || store.getMessages(chatId).length > 0) return
-    await agents.deleteChat(chatId)
-    browser.closeChat(chatId)
-    walks.forget(chatId)
+    await deleteChat(chatId)
   })
 
   // The composer saves its draft before it is left (Composer.tsx), so a chat
