@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { nativeImage, type NativeImage } from 'electron'
 import type { DeviceButton, MobileDevice } from '../shared/types'
 import {
+  busyNote,
   run,
   sleep,
   type DeviceDriver,
@@ -128,14 +129,19 @@ export class AndroidDevice implements DeviceDriver {
     return this.screen
   }
 
-  async screenshot(): Promise<NativeImage> {
-    const { width, height } = await this.size()
+  async screenshot(fullSize = false): Promise<NativeImage> {
+    const size = await this.size()
+    const scale = fullSize ? size.scale : 1
+    const width = Math.round(size.width * scale)
+    const height = Math.round(size.height * scale)
     if (this.emulator) {
       // About this size: the emulator keeps the screen's shape, so it can be off by a pixel.
       return rgbaImage(await this.emulator.screenshot(width, height)).resize({ width, height })
     }
-    const png = await run(this.adb, ['-s', this.info.id, 'exec-out', 'screencap', '-p'])
-    return nativeImage.createFromBuffer(png).resize({ width, height, quality: 'good' })
+    const png = nativeImage.createFromBuffer(
+      await run(this.adb, ['-s', this.info.id, 'exec-out', 'screencap', '-p'])
+    )
+    return fullSize ? png : png.resize({ width, height, quality: 'good' })
   }
 
   async elements(): Promise<ScreenElement[]> {
@@ -151,7 +157,7 @@ export class AndroidDevice implements DeviceDriver {
       // The dump goes on on the device after adb gives up, and the next one queues behind it.
       await this.shell(['pkill', '-f', 'uiautomator']).catch(() => undefined)
       throw new Error(
-        `Android's UI dump did not finish within ${DUMP_TIMEOUT_MS / 1000}s. It waits for the screen to stop changing, and something on it keeps moving (an animation, a spinner, streaming text). (${(error as Error).message})`
+        `Android's UI dump did not finish within ${DUMP_TIMEOUT_MS / 1000}s. It waits for the screen to stop changing, and something on it keeps moving (an animation, a spinner, streaming text).${busyNote()} (${(error as Error).message})`
       )
     }
     return androidElements(xml, scale)
@@ -334,6 +340,36 @@ export class AndroidDevice implements DeviceDriver {
         'user-fixed'
       ])
     }
+  }
+
+  async language(code: string, app?: string): Promise<void> {
+    // Android sets the whole system's language only with root; one app's, since Android 13.
+    if (!app) throw new Error('On Android the language is set for one app: pass the app.')
+    await this.shell(['cmd', 'locale', 'set-app-locales', shellQuote(app), '--locales', code])
+  }
+
+  async softwareKeyboard(on: boolean): Promise<void> {
+    await this.shell(['settings', 'put', 'secure', 'show_ime_with_hard_keyboard', on ? '1' : '0'])
+  }
+
+  async push(): Promise<void> {
+    throw new Error(
+      "Android apps get push notifications through Firebase Cloud Messaging, which needs the app's server credentials: send one from the app's backend or the Firebase console."
+    )
+  }
+
+  async addMedia(path: string): Promise<void> {
+    const target = `/sdcard/Pictures/${basename(path)}`
+    await run(this.adb, ['-s', this.info.id, 'push', path, target])
+    // Scanned, so the photo picker lists it.
+    await this.shell([
+      'am',
+      'broadcast',
+      '-a',
+      'android.intent.action.MEDIA_SCANNER_SCAN_FILE',
+      '-d',
+      shellQuote(`file://${target}`)
+    ])
   }
 
   collectLogs(logs: DeviceLogs): () => void {

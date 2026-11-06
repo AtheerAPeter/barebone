@@ -202,12 +202,13 @@ export class IosSimulator implements DeviceDriver {
     return screenOf(this.deviceType)
   }
 
-  async screenshot(): Promise<NativeImage> {
+  async screenshot(fullSize = false): Promise<NativeImage> {
     const { width, height } = await this.size()
     const file = join(tmpdir(), `barebone-${this.info.id}-${Date.now()}.png`)
     try {
       await this.simctl(['io', this.info.id, 'screenshot', '--type=png', file])
-      return nativeImage.createFromPath(file).resize({ width, height, quality: 'good' })
+      const image = nativeImage.createFromPath(file)
+      return fullSize ? image : image.resize({ width, height, quality: 'good' })
     } finally {
       await rm(file, { force: true })
     }
@@ -290,11 +291,30 @@ export class IosSimulator implements DeviceDriver {
   }
 
   async openUrl(url: string): Promise<void> {
-    await this.simctl(['openurl', this.info.id, url])
+    await this.whenStarted(['openurl', this.info.id, url], `open ${url}`)
   }
 
   async launch(app: string): Promise<void> {
-    await this.simctl(['launch', this.info.id, app])
+    await this.whenStarted(['launch', this.info.id, app], `launch ${app}`)
+  }
+
+  /**
+   * Run a simctl command that hangs while the simulator is still starting:
+   * on a timeout, wait until it has started and try once more.
+   */
+  private async whenStarted(args: string[], what: string): Promise<void> {
+    const attempt = (): Promise<Buffer> => run('xcrun', ['simctl', ...args], { timeout: 20_000 })
+    try {
+      await attempt()
+    } catch (error) {
+      if (!/did not finish|timed out/i.test((error as Error).message)) throw error
+      await run('xcrun', ['simctl', 'bootstatus', this.info.id, '-b'], { timeout: 15_000 })
+      await attempt().catch((again: Error) => {
+        throw new Error(
+          `Could not ${what} on ${this.info.name}: ${again.message} The simulator has started, so the app for it may not be installed, or the URL's scheme belongs to no app.`
+        )
+      })
+    }
   }
 
   async terminate(app: string): Promise<void> {
@@ -334,6 +354,56 @@ export class IosSimulator implements DeviceDriver {
 
   async permission(app: string, name: string, action: 'grant' | 'revoke' | 'reset'): Promise<void> {
     await this.simctl(['privacy', this.info.id, action, name, app])
+  }
+
+  async language(code: string): Promise<void> {
+    // For every app, as Settings sets it; apps read it as they start.
+    const defaults = ['spawn', this.info.id, 'defaults', 'write', '-g']
+    await this.simctl([...defaults, 'AppleLanguages', '-array', code])
+    await this.simctl([...defaults, 'AppleLocale', '-string', code.replace('-', '_')])
+  }
+
+  async softwareKeyboard(): Promise<void> {
+    throw new Error(
+      "An iOS simulator shows its on-screen keyboard only while Simulator's I/O > Keyboard > Connect Hardware Keyboard is off, which only Simulator's own menu changes. Ask the user to press ⌘K in the Simulator window."
+    )
+  }
+
+  async push(app: string, payload: string): Promise<void> {
+    await this.simctl(['push', this.info.id, app, '-'], payload)
+  }
+
+  async addMedia(path: string): Promise<void> {
+    await this.simctl(['addmedia', this.info.id, path])
+  }
+
+  /**
+   * What the simulator logged in the last minutes that matches an os_log
+   * predicate, at every level: what the collected log leaves out, like a
+   * library's own subsystem.
+   */
+  async showLog(predicate: string, minutes: number): Promise<string[]> {
+    const out = await run(
+      'xcrun',
+      [
+        'simctl',
+        'spawn',
+        this.info.id,
+        'log',
+        'show',
+        '--style',
+        'compact',
+        '--info',
+        '--debug',
+        '--last',
+        `${minutes}m`,
+        '--predicate',
+        predicate
+      ],
+      { timeout: 30_000 }
+    )
+    // The first line is the column header.
+    return out.toString().split('\n').slice(1).filter(Boolean)
   }
 
   collectLogs(logs: DeviceLogs): () => void {
@@ -380,7 +450,9 @@ export class IosSimulator implements DeviceDriver {
           tag: basename(entry.processImagePath ?? 'unknown'),
           text: entry.eventMessage,
           pid: entry.processID,
-          js: entry.subsystem?.startsWith('com.facebook.react') === true
+          js: entry.subsystem?.startsWith('com.facebook.react') === true,
+          // Apps, Expo Go too, run from the simulator's app containers; the rest is the system.
+          system: !entry.processImagePath?.includes('/Containers/Bundle/Application/')
         })
       })
     )

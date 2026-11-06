@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { cpus, loadavg } from 'node:os'
 import type { NativeImage } from 'electron'
 import type { DeviceButton, MobileDevice } from '../shared/types'
 import type { DeviceLogs } from './device-logs'
@@ -14,8 +15,8 @@ export interface DeviceDriver {
   readonly info: MobileDevice
   /** The screen's size in points, and how many pixels a point is. */
   size(): Promise<ScreenSize>
-  /** The screen, at its size in points. */
-  screenshot(): Promise<NativeImage>
+  /** The screen, at its size in points, or with `fullSize` in pixels. */
+  screenshot(fullSize?: boolean): Promise<NativeImage>
   /** What is on screen, from the platform's accessibility tree. */
   elements(): Promise<ScreenElement[]>
   tap(x: number, y: number): Promise<void>
@@ -36,6 +37,14 @@ export interface DeviceDriver {
   textSize(size: TextSize): Promise<void>
   location(latitude: number, longitude: number): Promise<void>
   permission(app: string, name: string, action: 'grant' | 'revoke' | 'reset'): Promise<void>
+  /** The language apps show, like "de" or "en-US"; on Android for one app. */
+  language(code: string, app?: string): Promise<void>
+  /** Whether the on-screen keyboard shows while a hardware keyboard is connected. */
+  softwareKeyboard(on: boolean): Promise<void>
+  /** Send an app a push notification, given as its JSON payload. */
+  push(app: string, payload: string): Promise<void>
+  /** Add a photo or video to the device's photo library. */
+  addMedia(path: string): Promise<void>
   /** Copy what the device logs into `logs`, until the returned function is called. */
   collectLogs(logs: DeviceLogs): () => void
   shutdown(): Promise<void>
@@ -98,7 +107,7 @@ export function run(
         reject(
           new Error(
             timedOut
-              ? `${command} ${args[0] ?? ''} did not finish within ${timeout / 1000}s.`
+              ? `${command} ${args[0] ?? ''} did not finish within ${timeout / 1000}s.${busyNote()}`
               : said || error.message
           )
         )
@@ -110,4 +119,16 @@ export function run(
 
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * A note for errors about something that took too long, when this computer is
+ * so busy (two native builds at once, say) that devices answer slowly.
+ */
+export function busyNote(): string {
+  const load = loadavg()[0]
+  const cores = cpus().length
+  return load > cores * 1.5
+    ? ` This computer is very busy (load ${load.toFixed(0)} on ${cores} cores), which slows simulators and emulators down.`
+    : ''
 }

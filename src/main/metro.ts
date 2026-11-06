@@ -179,6 +179,29 @@ export class Metro {
     }
   }
 
+  /** Whether a Metro started here runs, so what it prints reaches logs. */
+  get runsHere(): boolean {
+    return Boolean(this.job && !this.job.ended)
+  }
+
+  /**
+   * Wait until the Metro started here has finished a bundle since `since`, as
+   * it does when an app loads or reloads; its lines saying so, or none when no
+   * bundle finished within `ms`.
+   */
+  async bundled(since: number, ms: number): Promise<string[]> {
+    const deadline = Date.now() + ms
+    for (;;) {
+      const lines = this.logs.query({
+        since,
+        sources: ['metro'],
+        match: (line) => /\bBundl(ed|ing failed)\b/.test(line.text)
+      })
+      if (lines.length || Date.now() >= deadline) return lines.map((line) => line.text)
+      await sleep(250)
+    }
+  }
+
   /** Tell every app Metro serves to load its JavaScript again, as pressing r in Metro does. */
   async reload(): Promise<void> {
     const port = this.port

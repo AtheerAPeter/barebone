@@ -24,6 +24,8 @@ export interface LogLine {
   js?: boolean
   /** An app crashed. */
   crash?: boolean
+  /** Logged by the system (SpringBoard, locationd…), not by an app. */
+  system?: boolean
 }
 
 /** How many lines are kept, from all sources together; older ones are dropped. */

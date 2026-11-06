@@ -58,8 +58,11 @@ function discoveryDirs(): string[] {
   ]
 }
 
-/** The discovery file of the emulator with this adb serial (emulator-5554), as key=value pairs. */
-function discovery(serial: string): Record<string, string> | undefined {
+/**
+ * The discovery file of the emulator with this adb serial (emulator-5554): its
+ * name, which holds the emulator's process ID, and its key=value pairs.
+ */
+function discovery(serial: string): { file: string; entries: Record<string, string> } | undefined {
   const port = serial.match(/^emulator-(\d+)$/)?.[1]
   if (!port) return undefined
   for (const dir of discoveryDirs()) {
@@ -78,10 +81,18 @@ function discovery(serial: string): Record<string, string> | undefined {
         // The emulator removed it as it quit.
         continue
       }
-      if (entries['port.serial'] === port) return entries
+      if (entries['port.serial'] === port) return { file, entries }
     }
   }
   return undefined
+}
+
+/**
+ * Which run of the emulator with this adb serial is up: a restarted emulator
+ * keeps its serial but writes a new discovery file, with a new token.
+ */
+export function emulatorRun(serial: string): string | undefined {
+  return discovery(serial)?.file
 }
 
 type Call<Request, Response> = (
@@ -107,7 +118,7 @@ interface Controller extends Client {
  * emulator at all.
  */
 export async function connectEmulator(serial: string): Promise<EmulatorGrpc | undefined> {
-  const found = discovery(serial)
+  const found = discovery(serial)?.entries
   const port = found?.['grpc.port']
   const protoDir = found?.['launcher.dir'] && join(found['launcher.dir'], 'lib')
   if (!port || !protoDir || !existsSync(join(protoDir, 'emulator_controller.proto'))) {
