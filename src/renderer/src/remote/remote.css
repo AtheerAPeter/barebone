@@ -211,7 +211,7 @@ html.remote .sidebar-hidden .topbar {
   }
 
   /* Settings use the whole width, and a key's field takes its own line above its buttons. */
-  html.remote .settings-card-body {
+  html.remote .setting-detail {
     padding-left: 0;
   }
 
@@ -243,5 +243,1098 @@ html.remote .sidebar-hidden .topbar {
   html.remote input,
   html.remote select {
     font-size: 16px;
+  }
+}
+
+/*
+ * A phone, sized for a thumb. The desktop's 12–14px type and 28–36px controls
+ * suit a pointer and a near screen; on a phone they read small and miss taps.
+ * So every size steps up: the chat at 17px like Gemini's, controls at 40–48px
+ * (Apple's 44pt is the floor), icons from 16 to 20–22px, and the surfaces that
+ * carry them — rows, cards, the composer, menus — grow with more room around
+ * the same words. Small type that stays small is status and timestamps alone.
+ */
+@media (max-width: 700px) {
+  html.remote {
+    --radius: 12px;
+    --radius-lg: 18px;
+    --radius-bubble: 24px;
+    --radius-xl: 32px;
+  }
+
+  html.remote body {
+    font-size: 16px;
+  }
+
+  /* The top bar: 56px, a 18px title and 40px glyphs. */
+  html.remote .topbar {
+    height: calc(56px + env(safe-area-inset-top));
+    gap: 8px;
+    padding: 0 8px;
+  }
+
+  html.remote .topbar-title {
+    padding: 0 8px;
+    font-size: 18px;
+  }
+
+  html.remote .topbar .icon-btn,
+  html.remote .sidebar-top .icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  html.remote .topbar .icon-btn svg,
+  html.remote .sidebar-top .icon-btn svg {
+    width: 21px;
+    height: 21px;
+  }
+
+  /* Whatever a bar's narrow rules made a small circle grows to a fingertip. */
+  html.remote .status-chip,
+  html.remote .status-chip.waiting,
+  html.remote .status-chip.running {
+    width: auto;
+    min-width: 36px;
+    height: 36px;
+    padding: 0 10px;
+    font-size: 14px;
+  }
+
+  html.remote .status-chip .spinner {
+    width: 13px;
+    height: 13px;
+  }
+
+  /* The drawer: wider, and every row 48px tall with 16px words. */
+  html.remote .sidebar {
+    width: min(348px, 90vw);
+    padding: 0 8px 8px;
+  }
+
+  html.remote .sidebar-top {
+    height: 56px;
+    gap: 4px;
+  }
+
+  html.remote .sidebar-search {
+    height: 46px;
+    margin-bottom: 8px;
+    padding: 0 14px;
+    gap: 12px;
+    font-size: 16px;
+  }
+
+  html.remote .sidebar-search svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  html.remote .nav-row {
+    height: 48px;
+    padding: 0 12px;
+    gap: 12px;
+    font-size: 16px;
+    border-radius: var(--radius);
+  }
+
+  html.remote .nav-row > svg {
+    width: 21px;
+    height: 21px;
+  }
+
+  html.remote .side-label {
+    padding: 18px 12px 6px;
+    font-size: 13.5px;
+  }
+
+  html.remote .chat-row {
+    min-height: 48px;
+    padding: 0 6px 0 8px;
+    column-gap: 6px;
+    border-radius: var(--radius);
+  }
+
+  html.remote .chat-row .chat-line {
+    height: 36px;
+  }
+
+  html.remote .chat-title {
+    font-size: 16px;
+  }
+
+  html.remote .chat-row.card {
+    gap: 3px;
+    margin-bottom: 6px;
+    padding: 11px 10px 12px 13px;
+  }
+
+  html.remote .card-head,
+  html.remote .card-foot {
+    height: 28px;
+  }
+
+  html.remote .chat-row.card .chat-line {
+    height: 28px;
+  }
+
+  html.remote .chat-row.card .chat-title {
+    font-size: 17px;
+  }
+
+  html.remote .card-project,
+  html.remote .card-latest {
+    font-size: 14px;
+  }
+
+  html.remote .card-status {
+    font-size: 13.5px;
+  }
+
+  html.remote .lead-count {
+    height: 20px;
+    padding: 0 6px;
+    font-size: 12.5px;
+  }
+
+  html.remote .chat-row .row-menu,
+  html.remote .project-row .project-new {
+    opacity: 1;
+  }
+
+  html.remote .row-menu .icon-btn,
+  html.remote .project-row .icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  html.remote .project-empty,
+  html.remote .chat-more button,
+  html.remote .side-empty {
+    font-size: 15px;
+  }
+
+  html.remote .avatar {
+    width: 34px;
+    height: 34px;
+    font-size: 13px;
+  }
+
+  html.remote .profile {
+    padding: 8px;
+  }
+
+  html.remote .profile-name {
+    font-size: 16px;
+  }
+
+  html.remote .profile-sub {
+    font-size: 13px;
+  }
+
+  /* The chat: 17px at 1.8, as a page of prose. */
+  html.remote .chat-items {
+    padding: 18px 18px 36px;
+    gap: 10px;
+    font-size: 17px;
+    line-height: 1.8;
+  }
+
+  html.remote .chat-empty h2 {
+    font-size: 30px;
+  }
+
+  html.remote .user-msg {
+    margin: 32px 0 6px;
+  }
+
+  html.remote .bubble {
+    max-width: 86%;
+    padding: 12px 18px;
+    font-size: 17px;
+    line-height: 1.55;
+  }
+
+  html.remote .bubble-from {
+    font-size: 13px;
+  }
+
+  html.remote .working,
+  html.remote .note,
+  html.remote .chat-notice,
+  html.remote .resolved {
+    font-size: 15px;
+  }
+
+  html.remote .working,
+  html.remote .note {
+    padding: 4px;
+  }
+
+  html.remote .resolved-tool {
+    font-size: 13px;
+  }
+
+  html.remote .chat-error {
+    padding: 12px 16px;
+    font-size: 15px;
+  }
+
+  html.remote .act-line {
+    padding: 5px 4px;
+    font-size: 15px;
+  }
+
+  html.remote .call-line,
+  html.remote .call.alone > .call-line {
+    padding: 4px 4px;
+    font-size: 15px;
+  }
+
+  html.remote .act-body {
+    margin-left: 10px;
+    padding-left: 14px;
+  }
+
+  html.remote .background-what.mono {
+    font-size: 13.5px;
+  }
+
+  html.remote .thumb img {
+    max-width: 100%;
+    height: 130px;
+  }
+
+  html.remote .attachment {
+    height: 34px;
+    padding: 0 12px;
+    font-size: 14px;
+  }
+
+  html.remote .attachment img {
+    width: 22px;
+    height: 22px;
+  }
+
+  html.remote .waiting-label {
+    font-size: 12.5px;
+  }
+
+  /* Buttons: 44px for a full one, 34–36 for a quiet inline action. */
+  html.remote .btn {
+    height: 44px;
+    padding: 0 18px;
+    font-size: 15px;
+  }
+
+  html.remote .label-btn {
+    height: 34px;
+    padding: 0 10px;
+    font-size: 14px;
+  }
+
+  html.remote .label-btn svg {
+    width: 17px;
+    height: 17px;
+  }
+
+  html.remote .icon-btn.small {
+    width: 36px;
+    height: 36px;
+  }
+
+  html.remote .icon-btn.round {
+    width: 42px;
+    height: 42px;
+  }
+
+  html.remote .segmented button {
+    height: 40px;
+    font-size: 15px;
+  }
+
+  /* What the agent asks: bigger to read before answering. */
+  html.remote .ask-card {
+    padding: 16px 16px;
+    gap: 12px;
+  }
+
+  html.remote .ask-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  html.remote .ask-tool,
+  html.remote .ask-args {
+    font-size: 13.5px;
+  }
+
+  html.remote .ask-args {
+    padding: 11px 13px;
+  }
+
+  html.remote .permission-note {
+    font-size: 13px;
+  }
+
+  html.remote .form-label {
+    font-size: 14.5px;
+  }
+
+  html.remote .form-option-description {
+    font-size: 14.5px;
+  }
+
+  html.remote .form-input {
+    height: 44px;
+    padding: 0 12px;
+    font-size: 16px;
+  }
+
+  html.remote .question-meta,
+  html.remote .question-hint {
+    font-size: 14px;
+  }
+
+  html.remote .question-count {
+    font-size: 15px;
+  }
+
+  html.remote .question-text {
+    font-size: 20px;
+  }
+
+  html.remote .question-option {
+    gap: 14px;
+    padding: 12px 10px;
+  }
+
+  html.remote .question-option-title {
+    font-size: 17px;
+  }
+
+  html.remote .question-option-description {
+    font-size: 16px;
+  }
+
+  html.remote .question-mark {
+    width: 21px;
+    height: 21px;
+  }
+
+  html.remote .question-other {
+    height: 46px;
+    font-size: 16px;
+  }
+
+  html.remote .todo-strip,
+  html.remote .background-strip {
+    font-size: 15px;
+  }
+
+  /* The composer: a 17px field in a taller pill, with 42–44px ends. */
+  html.remote .composer-wrap {
+    padding: 0 12px max(12px, env(safe-area-inset-bottom));
+  }
+
+  html.remote .composer {
+    padding: 10px;
+  }
+
+  html.remote .composer textarea,
+  html.remote .composer-suggestion,
+  html.remote .voice-live {
+    min-height: 44px;
+    padding: 8px;
+    font-size: 17px;
+    line-height: 28px;
+  }
+
+  html.remote textarea,
+  html.remote input,
+  html.remote select {
+    font-size: 17px;
+  }
+
+  html.remote .composer-leading .icon-btn,
+  html.remote .composer-trailing .icon-btn {
+    width: 42px;
+    height: 42px;
+  }
+
+  html.remote .composer-leading .icon-btn svg,
+  html.remote .composer-trailing .icon-btn svg {
+    width: 23px;
+    height: 23px;
+  }
+
+  html.remote .send-button {
+    width: 44px;
+    height: 44px;
+  }
+
+  html.remote .send-button svg {
+    width: 23px;
+    height: 23px;
+  }
+
+  html.remote .composer-settings {
+    gap: 4px;
+    padding: 8px 6px 2px;
+  }
+
+  html.remote .picker-button {
+    min-height: 40px;
+    padding: 0 10px;
+    gap: 6px;
+    font-size: 14.5px;
+  }
+
+  html.remote .picker-button svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  html.remote .context-meter {
+    font-size: 13px;
+  }
+
+  html.remote .composer-hint,
+  html.remote .composer-error {
+    font-size: 14px;
+  }
+
+  html.remote .composer-error {
+    max-width: 300px;
+  }
+
+  /* A menu as a sheet: 50px rows at 16px, and a search field that is read, not squinted at. */
+  html.remote .menu.sheet {
+    padding: 10px;
+    border-radius: 24px;
+  }
+
+  html.remote .menu.sheet > button {
+    min-height: 50px;
+    padding: 0 12px;
+    font-size: 16.5px;
+    border-radius: var(--radius);
+  }
+
+  html.remote .picker-menu,
+  html.remote .picker-menu[data-side='below'] {
+    border-radius: 24px;
+  }
+
+  html.remote .picker-search {
+    padding: 14px 16px;
+    font-size: 17px;
+  }
+
+  html.remote .picker-group {
+    padding: 10px 16px 6px;
+    font-size: 13px;
+  }
+
+  html.remote .picker-list {
+    padding: 8px;
+    scroll-padding-top: 36px;
+  }
+
+  html.remote .picker-item {
+    min-height: 50px;
+    padding: 10px 12px;
+    gap: 12px;
+    font-size: 16px;
+  }
+
+  html.remote .picker-item small {
+    font-size: 13px;
+  }
+
+  html.remote .picker-item > svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  html.remote .effort-name {
+    font-size: 19px;
+  }
+
+  html.remote .slash-menu {
+    border-radius: 24px;
+  }
+
+  html.remote .slash-item {
+    min-height: 50px;
+    padding: 10px 12px;
+    gap: 4px 10px;
+    font-size: 16px;
+  }
+
+  html.remote .slash-name {
+    font-size: 16px;
+  }
+
+  html.remote .slash-kind {
+    font-size: 12.5px;
+  }
+
+  html.remote .slash-desc {
+    font-size: 14px;
+  }
+
+  /* New chat: a full-height search line and 56px project rows. */
+  html.remote .palette {
+    top: 8vh;
+    width: calc(100vw - 20px);
+    border-radius: 22px;
+  }
+
+  html.remote .palette-search {
+    height: 60px;
+    padding: 0 16px;
+  }
+
+  html.remote .palette-search input {
+    font-size: 17px;
+  }
+
+  html.remote .palette-search svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  html.remote .palette-list {
+    padding: 8px;
+  }
+
+  html.remote .palette-label {
+    padding: 10px 10px 6px;
+    font-size: 13px;
+  }
+
+  html.remote .palette-row {
+    min-height: 56px;
+    padding: 8px 10px;
+    gap: 12px;
+  }
+
+  html.remote .palette-name {
+    font-size: 17px;
+  }
+
+  html.remote .palette-path {
+    font-size: 13px;
+  }
+
+  html.remote .palette-row .icon-btn,
+  html.remote .palette-actions .icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  /* Settings: full-width sheets with 44px fields and 15px labels. */
+  html.remote .settings {
+    padding: 22px 12px 40px;
+  }
+
+  html.remote .settings-head {
+    margin-bottom: 14px;
+  }
+
+  html.remote .settings h2 {
+    font-size: 30px;
+  }
+
+  html.remote .settings-head p {
+    font-size: 14px;
+  }
+
+  html.remote .settings-search {
+    height: 46px;
+    border-radius: 14px;
+  }
+
+  html.remote .settings-search input {
+    font-size: 16px;
+  }
+
+  html.remote .settings-filters {
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  html.remote .settings-filter {
+    height: 34px;
+    padding: 0 14px;
+    font-size: 14px;
+  }
+
+  html.remote .settings-count {
+    font-size: 13px;
+  }
+
+  html.remote .settings-group {
+    margin-top: 20px;
+    font-size: 11.5px;
+  }
+
+  html.remote .setting-line {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    position: relative;
+    row-gap: 6px;
+    min-height: 0;
+    padding: 10px 32px 10px 6px;
+  }
+
+  html.remote .settings-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+  }
+
+  html.remote .settings-icon svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  /* On a phone the name sits over its line, which wraps to two lines. */
+  html.remote .setting-text {
+    flex: 1 1 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  html.remote .setting-name {
+    font-size: 15.5px;
+    white-space: normal;
+  }
+
+  html.remote .setting-summary {
+    display: -webkit-box;
+    white-space: normal;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    font-size: 13.5px;
+    line-height: 1.4;
+  }
+
+  html.remote .setting-summary::before {
+    content: none;
+  }
+
+  html.remote .setting-ctl {
+    flex: 0 0 100%;
+    padding-left: 40px;
+  }
+
+  html.remote .setting-pill {
+    height: 22px;
+    font-size: 12px;
+  }
+
+  html.remote .setting-action {
+    height: 34px;
+    padding: 0 12px;
+    font-size: 13px;
+  }
+
+  html.remote .setting-ctl > .setting-action,
+  html.remote .setting-ctl > .switch {
+    margin-left: auto;
+  }
+
+  html.remote .setting-more {
+    position: absolute;
+    top: 8px;
+    right: 0;
+    width: 30px;
+    height: 30px;
+  }
+
+  html.remote .setting-detail {
+    gap: 14px;
+    padding: 2px 6px 16px;
+  }
+
+  html.remote .setting-scope {
+    font-size: 13px !important;
+  }
+
+  html.remote .setting-detail p {
+    font-size: 14.5px;
+    line-height: 1.6;
+  }
+
+  html.remote .setting-detail code {
+    font-size: 13px;
+  }
+
+  html.remote .settings-label,
+  html.remote .remote-list,
+  html.remote .speech-ready,
+  html.remote .speech-download {
+    font-size: 15px;
+  }
+
+  html.remote .settings-row {
+    gap: 10px;
+  }
+
+  html.remote .settings-row input,
+  html.remote .code-branch-new input,
+  html.remote .new-skill input {
+    height: 44px;
+    padding: 0 14px;
+    border-radius: var(--radius-pill);
+  }
+
+  html.remote .settings-instructions textarea {
+    padding: 12px 14px;
+    font-size: 16px;
+  }
+
+  html.remote .switch {
+    width: 48px;
+    height: 28px;
+  }
+
+  html.remote .switch > span {
+    top: 2px;
+    left: 2px;
+    width: 24px;
+    height: 24px;
+  }
+
+  html.remote .switch[aria-checked='true'] > span {
+    left: 22px;
+  }
+
+  html.remote .switch:active > span {
+    width: 32px;
+  }
+
+  html.remote .switch[aria-checked='true']:active > span {
+    left: 14px;
+  }
+
+  html.remote .setting-detail code.remote-url {
+    font-size: 14.5px;
+  }
+
+  html.remote .provider-list {
+    gap: 8px;
+  }
+
+  html.remote .provider-row {
+    padding: 11px 8px 11px 14px;
+    gap: 10px;
+  }
+
+  html.remote .provider-row-name {
+    font-size: 16px;
+  }
+
+  html.remote .provider-row-detail {
+    font-size: 14px;
+  }
+
+  html.remote .provider-form {
+    gap: 12px;
+    padding: 14px;
+  }
+
+  html.remote .provider-field > span {
+    font-size: 13.5px;
+  }
+
+  html.remote .provider-field > input,
+  html.remote .provider-field > textarea,
+  html.remote .provider-field .settings-row input {
+    padding: 11px 14px;
+    font-size: 16px;
+  }
+
+  html.remote .provider-field > textarea {
+    font-size: 14px;
+  }
+
+  /* Skills: readable rows, and the editor at 14px of monospace. */
+  html.remote .skills-list {
+    padding: 14px 12px;
+  }
+
+  html.remote .skills-header {
+    padding: 0 8px 10px;
+  }
+
+  html.remote .skills-header h2 {
+    font-size: 20px;
+  }
+
+  html.remote .section-label {
+    padding: 10px 12px 4px;
+    font-size: 14.5px;
+  }
+
+  html.remote .skill-row {
+    padding: 10px 10px 11px;
+  }
+
+  html.remote .skill-name {
+    font-size: 16.5px;
+  }
+
+  html.remote .skill-desc {
+    font-size: 14.5px;
+    line-height: 1.5;
+  }
+
+  html.remote .skills-back {
+    width: 42px;
+    height: 42px;
+  }
+
+  html.remote .skills-editor {
+    gap: 12px;
+    padding: 16px 14px 20px;
+  }
+
+  html.remote .skill-textarea {
+    padding: 14px;
+    font-size: 14px;
+    line-height: 1.65;
+  }
+
+  html.remote .new-skill {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  html.remote .new-skill input {
+    font-size: 16px;
+  }
+
+  /* The code sheet: 40px rows and a 14px diff, still dense but not tiny. */
+  html.remote .panel-tabs,
+  html.remote .code-panel .panel-tabs {
+    height: 60px;
+    padding: 0 8px;
+    gap: 6px;
+  }
+
+  html.remote .panel-tab {
+    height: 42px;
+    flex-basis: 200px;
+    gap: 9px;
+    padding: 0 8px 0 12px;
+    font-size: 15px;
+  }
+
+  html.remote .panel-tab-icon,
+  html.remote .panel-tab-icon img {
+    width: 17px;
+    height: 17px;
+  }
+
+  html.remote .panel-tab-close {
+    width: 26px;
+    height: 26px;
+  }
+
+  html.remote .panel-toolbar {
+    height: 50px;
+    padding: 0 8px;
+    gap: 4px;
+  }
+
+  html.remote .panel-toolbar .icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  html.remote .panel-toolbar .icon-btn svg {
+    width: 21px;
+    height: 21px;
+  }
+
+  html.remote .code-toolbar {
+    gap: 6px;
+    padding: 0 10px;
+  }
+
+  html.remote .code-branch {
+    height: 40px;
+    padding: 0 14px;
+    gap: 8px;
+    font-size: 15px;
+  }
+
+  html.remote .code-branch svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  html.remote .code-sync-count {
+    font-size: 13px;
+  }
+
+  html.remote .code-count {
+    min-width: 22px;
+    height: 22px;
+    font-size: 12.5px;
+  }
+
+  html.remote .code-tab-note {
+    font-size: 13px;
+  }
+
+  html.remote .code-scm {
+    padding: 12px 8px 20px;
+  }
+
+  html.remote .code-commit textarea {
+    padding: 11px 14px;
+    font-size: 16px;
+  }
+
+  html.remote .code-empty,
+  html.remote .code-clean {
+    font-size: 15px;
+  }
+
+  html.remote .code-group-head {
+    min-height: 38px;
+    font-size: 13px;
+  }
+
+  html.remote .code-file {
+    min-height: 42px;
+    padding-left: 28px;
+    font-size: 15px;
+  }
+
+  html.remote .code-file-dir {
+    font-size: 13.5px;
+  }
+
+  html.remote .code-kind {
+    width: 17px;
+    font-size: 13.5px;
+  }
+
+  html.remote .code-file .icon-btn,
+  html.remote .code-group-head .icon-btn {
+    width: 38px;
+    height: 38px;
+  }
+
+  html.remote .code-view {
+    font-size: 13.5px;
+    line-height: 1.65;
+  }
+
+  html.remote .code-number {
+    width: 48px;
+    padding-right: 12px;
+  }
+
+  html.remote .code-skip {
+    font-size: 13px;
+  }
+
+  html.remote .code-branch-menu {
+    width: auto;
+  }
+
+  html.remote .code-branch-new input {
+    height: 46px;
+  }
+
+  /* A code tour: 40px stops and 14.5px notes. */
+  html.remote .walk-route {
+    height: 56px;
+    padding: 0 8px;
+  }
+
+  html.remote .walk-stop {
+    height: 38px;
+    font-size: 14.5px;
+  }
+
+  html.remote .walk-n {
+    width: 22px;
+    height: 22px;
+    font-size: 12.5px;
+  }
+
+  html.remote .walk-card-head {
+    padding: 11px 14px;
+    font-size: 14.5px;
+  }
+
+  html.remote .walk-dir,
+  html.remote .walk-fn,
+  html.remote .walk-changes,
+  html.remote .walk-lines,
+  html.remote .walk-note {
+    font-size: 13px;
+  }
+
+  html.remote .walk-column {
+    padding: 14px 14px 140px 20px;
+  }
+
+  html.remote .walk-said {
+    bottom: 14px;
+    width: calc(100% - 24px);
+    gap: 12px;
+    padding: 12px 16px;
+    font-size: 16px;
+  }
+
+  html.remote .walk-orb {
+    width: 22px;
+    height: 22px;
+  }
+
+  /* The image viewer's padding: more room for its close tap. */
+  html.remote .image-viewer {
+    padding: 16px;
+  }
+
+  html.remote .connection-bar {
+    gap: 10px;
+    padding: 9px 18px;
+    font-size: 15px;
+  }
+}
+
+/*
+ * Smaller text that still has to be read on a phone: code in a reply, a skill
+ * path, the line under a skill's name.
+ */
+@media (max-width: 700px) {
+  html.remote .markdown code,
+  html.remote .markdown pre,
+  html.remote .chat-items code {
+    font-size: 14.5px;
+  }
+
+  html.remote .small {
+    font-size: 13.5px;
+  }
+
+  html.remote .skills-header .icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  html.remote .skills-header .icon-btn svg {
+    width: 20px;
+    height: 20px;
   }
 }
