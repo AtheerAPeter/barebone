@@ -14,6 +14,7 @@ import { Picker } from './Picker'
 import { EffortPicker } from './EffortPicker'
 import { ModelPicker } from './model-picker/ModelPicker'
 import { CompletionMenu, type CompletionItem } from './CompletionMenu'
+import { uploadFile } from '../remote/upload'
 import { addPrompt } from '../../../shared/prompt-history'
 import { LevelMeter } from './LevelMeter'
 import { writePref } from '../lib/prefs'
@@ -280,6 +281,8 @@ export function Composer({
   }, [text, expanded, suggestion])
 
   const [attachments, setAttachments] = useState<Attachment[]>([])
+  /** Why files could not be sent to the Mac, through the remote link. */
+  const [uploadError, setUploadError] = useState<string>()
   const [dragging, setDragging] = useState(false)
 
   // While the agent works, a message steers it (see AgentManager.wait).
@@ -293,6 +296,15 @@ export function Composer({
 
   /** Files from a paste or drop. Pasted screenshots have no path, so their data is read. */
   async function attachFiles(files: FileList): Promise<void> {
+    // A browser through the remote link has no paths: the files go to the Mac first.
+    if (window.api.remote) {
+      try {
+        addAttachments(await Promise.all(Array.from(files).map(uploadFile)))
+      } catch (error) {
+        setUploadError((error as Error).message)
+      }
+      return
+    }
     const added: Attachment[] = []
     for (const file of Array.from(files)) {
       const path = window.api.pathForFile(file)
@@ -478,7 +490,14 @@ export function Composer({
             type="button"
             className="icon-btn round"
             title="Attach files"
-            onClick={async () => addAttachments(await window.api.pickFiles())}
+            onClick={async () => {
+              setUploadError(undefined)
+              try {
+                addAttachments(await window.api.pickFiles())
+              } catch (error) {
+                setUploadError((error as Error).message)
+              }
+            }}
           >
             <PlusIcon width={20} height={20} />
           </button>
@@ -667,6 +686,11 @@ export function Composer({
         {voice.error && (
           <span className="composer-error" title={voice.error}>
             {voice.error}
+          </span>
+        )}
+        {uploadError && (
+          <span className="composer-error" title={uploadError}>
+            {uploadError}
           </span>
         )}
         {!options && !error && <span className="composer-hint">Starting agent…</span>}

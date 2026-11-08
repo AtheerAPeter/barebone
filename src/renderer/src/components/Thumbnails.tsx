@@ -28,10 +28,20 @@ export function Thumbnails({
             setOpen(file)
           }}
         >
-          <img src={imageUrl(chatId, file)} alt="" loading="lazy" draggable={false} />
+          <img
+            src={imageUrl(chatId, file, window.api.remote)}
+            alt=""
+            loading="lazy"
+            draggable={false}
+          />
         </button>
       ))}
-      {open && <ImageViewer src={imageUrl(chatId, open)} onClose={() => setOpen(undefined)} />}
+      {open && (
+        <ImageViewer
+          src={imageUrl(chatId, open, window.api.remote)}
+          onClose={() => setOpen(undefined)}
+        />
+      )}
     </div>
   )
 }

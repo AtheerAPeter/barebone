@@ -4,6 +4,15 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   main: {
+    // ws (the remote link's socket, main/remote/server.ts) tries its optional
+    // native helpers, bufferutil and utf-8-validate, in a try. Bundled, a
+    // missing one becomes an empty module that loads without failing, and the
+    // first frame from a browser crashes the app. These are ws's own switches
+    // for its JavaScript code instead.
+    define: {
+      'process.env.WS_NO_BUFFER_UTIL': JSON.stringify('1'),
+      'process.env.WS_NO_UTF_8_VALIDATE': JSON.stringify('1')
+    },
     // Dependencies are bundled in, not loaded from node_modules at runtime: one
     // file starts faster than hundreds of small ones read out of the asar.
     // ONNX Runtime and the window's Liquid Glass are native code, which cannot be
@@ -65,7 +74,10 @@ export default defineConfig({
         input: {
           index: resolve('src/renderer/index.html'),
           // The agent orb over the browser page (main/orb.ts).
-          orb: resolve('src/renderer/orb.html')
+          orb: resolve('src/renderer/orb.html'),
+          // The app in a browser through the remote link, and its pairing page (main/remote).
+          web: resolve('src/renderer/web.html'),
+          pair: resolve('src/renderer/pair.html')
         }
       },
       // Fonts stay files: the page's CSP allows fonts from 'self', not data: URLs.

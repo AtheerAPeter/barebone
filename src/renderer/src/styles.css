@@ -5003,6 +5003,76 @@ img.project-icon {
   border-radius: var(--radius-sm);
 }
 
+/* The remote link (RemoteLinkCard): its state and switch, pairing, and the devices paired. */
+.remote-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.remote-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+.remote-state::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.remote-state.online::before {
+  background: var(--ok);
+}
+
+.remote-state.starting::before {
+  background: var(--accent);
+}
+
+.remote-state.error::before {
+  background: var(--warn);
+}
+
+.remote-pair-text {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings-card code.remote-url {
+  font-size: 13px;
+  user-select: all;
+  word-break: break-all;
+}
+
+/* A button with an icon before its label. */
+.remote-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.remote-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.remote-list-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+}
+
 .speech-ready {
   align-items: center;
   flex-wrap: wrap;

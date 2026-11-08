@@ -108,6 +108,8 @@ export function Sidebar({
   const [update, setUpdate] = useState<string | null>(null)
   useEffect(() => {
     window.api.appVersion().then(setVersion)
+    // Updating quits and reopens the app: something to do on the Mac.
+    if (window.api.remote) return
     window.api.update.available().then(setUpdate)
     return window.api.update.onAvailable(setUpdate)
   }, [])
@@ -506,14 +508,17 @@ export function Sidebar({
           <BookIcon />
           Skills
         </button>
-        <button
-          className="nav-row"
-          title="Open project folder (⌘O)"
-          onClick={() => window.api.addProject()}
-        >
-          <FolderPlusIcon />
-          Open project
-        </button>
+        {/* A project is a folder chosen with the Mac's folder picker. */}
+        {!window.api.remote && (
+          <button
+            className="nav-row"
+            title="Open project folder (⌘O)"
+            onClick={() => window.api.addProject()}
+          >
+            <FolderPlusIcon />
+            Open project
+          </button>
+        )}
       </div>
       {query !== undefined && (
         <label className="sidebar-search">
@@ -558,7 +563,8 @@ export function Sidebar({
               {version && <span className="profile-sub">v{version}</span>}
             </span>
           </button>
-          <ThemeToggle />
+          {/* A browser follows its device's light or dark mode. */}
+          {!window.api.remote && <ThemeToggle />}
         </div>
       </div>
     </nav>

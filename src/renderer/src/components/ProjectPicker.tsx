@@ -29,10 +29,13 @@ export function ProjectPicker({
   const shown = projects.filter(
     (p) => !q || p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q)
   )
-  // One more entry after the projects: opening a folder.
-  const index = Math.min(active, shown.length)
+  // One more entry after the projects: opening a folder, which needs the Mac's folder picker.
+  const canOpen = !window.api.remote
+  const entries = shown.length + (canOpen ? 1 : 0)
+  const index = Math.min(active, entries - 1)
 
   async function choose(i: number): Promise<void> {
+    if (i < 0) return
     if (i < shown.length) return onPick(shown[i].id)
     const added = await window.api.addProject()
     if (added) onPick(added.id)
@@ -42,8 +45,8 @@ export function ProjectPicker({
     if (e.defaultPrevented) return
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()
-      const step = e.key === 'ArrowDown' ? 1 : shown.length
-      setActive((index + step) % (shown.length + 1))
+      const step = e.key === 'ArrowDown' ? 1 : entries - 1
+      setActive((index + step) % entries)
     } else if (e.key === 'Enter') {
       e.preventDefault()
       choose(index)
@@ -128,16 +131,18 @@ export function ProjectPicker({
               )}
             </Fragment>
           ))}
-          <div
-            className={`palette-row${index === shown.length ? ' active' : ''}`}
-            onMouseMove={() => setActive(shown.length)}
-            onClick={() => choose(shown.length)}
-          >
-            <FolderPlusIcon width={28} height={28} strokeWidth={2.2} className="project-icon" />
-            <div className="palette-text">
-              <span className="palette-name">Open a folder…</span>
+          {canOpen && (
+            <div
+              className={`palette-row${index === shown.length ? ' active' : ''}`}
+              onMouseMove={() => setActive(shown.length)}
+              onClick={() => choose(shown.length)}
+            >
+              <FolderPlusIcon width={28} height={28} strokeWidth={2.2} className="project-icon" />
+              <div className="palette-text">
+                <span className="palette-name">Open a folder…</span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
         <div className="palette-foot">
           <span>

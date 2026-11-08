@@ -29,6 +29,23 @@ import { LevelMeter } from './components/LevelMeter'
 /** How often the orb is told the agent's voice level while it speaks. */
 const ORB_LEVEL_MS = 50
 
+/** A phone's width, through the remote link: the sidebar is a drawer over the chat (remote.css). */
+const NARROW = '(max-width: 700px)'
+
+/** In a browser through the remote link (main/remote); the browser panel is the Mac's own. */
+const REMOTE = window.api.remote
+
+function useMedia(query: string): boolean {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches)
+  useEffect(() => {
+    const list = window.matchMedia(query)
+    const changed = (): void => setMatches(list.matches)
+    list.addEventListener('change', changed)
+    return () => list.removeEventListener('change', changed)
+  }, [query])
+  return matches
+}
+
 export default function App(): React.JSX.Element {
   const [state, setState] = useState<AppState>({ projects: [], chats: [] })
   const stateRef = useRef(state)
@@ -40,6 +57,8 @@ export default function App(): React.JSX.Element {
   )
   const [view, setView] = useState<'chat' | 'skills' | 'settings'>('chat')
   const [sidebarOpen, setSidebarOpen] = useState(() => readPref('sidebarOpen', true))
+  /** The sidebar is a drawer: picking something in it closes it. */
+  const drawer = useMedia(NARROW) && REMOTE
   const [browserWidth, setBrowserWidth] = useState(() => readPref('browserWidth', 520))
   /** The chat is folded into the agent orb over the browser, while the browser is open. */
   const [chatFolded, setChatFolded] = useState(() => readPref('chatFolded', false))
@@ -93,16 +112,20 @@ export default function App(): React.JSX.Element {
       ? waitingOn(chat, state.chats.filter((c) => c.startedBy === chat.id && c.running).length)
       : undefined
   // The browser panel belongs to the chat: each chat opens and closes its own.
-  const browserOpen = Boolean(chat?.browserOpen)
+  // It is a view on the Mac, which a page of the remote link cannot show.
+  const browserOpen = !REMOTE && Boolean(chat?.browserOpen)
   const toggleBrowser = useCallback((chatId: string | undefined, open?: boolean) => {
     if (!chatId) return
     const current = stateRef.current.chats.find((c) => c.id === chatId)
     window.api.browser.setOpen(chatId, open ?? !current?.browserOpen)
   }, [])
   // The code panel takes the browser's place in the chat: opening one closes the other.
-  const codeOpen = Boolean(chat?.codeOpen)
+  // A page of the remote link keeps it to itself, so it leaves the Mac's panels as they are.
+  const [pageCodeOpen, setPageCodeOpen] = useState(false)
+  const codeOpen = REMOTE ? pageCodeOpen && Boolean(chat) : Boolean(chat?.codeOpen)
   const toggleCode = (chatId: string | undefined, open?: boolean): void => {
     if (!chatId) return
+    if (REMOTE) return setPageCodeOpen((current) => open ?? !current)
     const current = stateRef.current.chats.find((c) => c.id === chatId)
     window.api.code.setOpen(chatId, open ?? !current?.codeOpen)
   }
@@ -120,21 +143,27 @@ export default function App(): React.JSX.Element {
 
   // Each chat has its own browser page; the panel shows the selected chat's.
   const chatId = chat?.id
-  useEffect(() => window.api.browser.setChat(chatId ?? null), [chatId])
+  useEffect(() => {
+    if (!REMOTE) window.api.browser.setChat(chatId ?? null)
+  }, [chatId])
   const project = state.projects.find((p) => p.id === chat?.projectId) ?? state.projects[0]
 
-  const newChat = useCallback(async (projectId: string) => {
-    const agent = readPref<AgentId>('lastAgent', 'opencode')
-    const created = await window.api.createChat(
-      projectId,
-      agent,
-      readPref(`settings:${agent}`, {}),
-      // New chats start in the permission mode picked last.
-      readPref('permissions', {})
-    )
-    setSelectedChatId(created.id)
-    setView('chat')
-  }, [])
+  const newChat = useCallback(
+    async (projectId: string) => {
+      const agent = readPref<AgentId>('lastAgent', 'opencode')
+      const created = await window.api.createChat(
+        projectId,
+        agent,
+        readPref(`settings:${agent}`, {}),
+        // New chats start in the permission mode picked last.
+        readPref('permissions', {})
+      )
+      setSelectedChatId(created.id)
+      setView('chat')
+      if (drawer) setSidebarOpen(false)
+    },
+    [drawer]
+  )
 
   // Menu bar commands. The handler reads the selected chat through a ref so the
   // subscription is made once.
@@ -192,13 +221,23 @@ export default function App(): React.JSX.Element {
         onSelectChat={(id) => {
           setSelectedChatId(id)
           setView('chat')
+          if (drawer) setSidebarOpen(false)
         }}
         onNewChat={() => setPicking(true)}
         onNewChatIn={newChat}
-        onShowSkills={() => setView((v) => (v === 'skills' ? 'chat' : 'skills'))}
-        onShowSettings={() => setView((v) => (v === 'settings' ? 'chat' : 'settings'))}
+        onShowSkills={() => {
+          setView((v) => (v === 'skills' ? 'chat' : 'skills'))
+          if (drawer) setSidebarOpen(false)
+        }}
+        onShowSettings={() => {
+          setView((v) => (v === 'settings' ? 'chat' : 'settings'))
+          if (drawer) setSidebarOpen(false)
+        }}
         onHide={() => setSidebarOpen(false)}
       />
+      {drawer && sidebarOpen && (
+        <div className="drawer-scrim" onClick={() => setSidebarOpen(false)} />
+      )}
       {/* Hidden, not unmounted, while folded: the chat keeps its place and its live output. */}
       <main className="main" ref={mainRef}>
         <header className="topbar">
@@ -283,14 +322,16 @@ export default function App(): React.JSX.Element {
           >
             <BranchIcon />
           </button>
-          <button
-            className={`icon-btn${browserOpen ? ' on' : ''}`}
-            title="Toggle browser (⇧⌘B)"
-            disabled={!chat}
-            onClick={() => toggleBrowser(chat?.id)}
-          >
-            <GlobeIcon />
-          </button>
+          {!REMOTE && (
+            <button
+              className={`icon-btn${browserOpen ? ' on' : ''}`}
+              title="Toggle browser (⇧⌘B)"
+              disabled={!chat}
+              onClick={() => toggleBrowser(chat?.id)}
+            >
+              <GlobeIcon />
+            </button>
+          )}
         </header>
         {view === 'skills' ? (
           <SkillsView key={project?.id} project={project} />
@@ -322,9 +363,13 @@ export default function App(): React.JSX.Element {
               <>
                 <h2>Open a project to start</h2>
                 <p>Chats run OpenCode, Cline or Command Code inside a project folder.</p>
-                <button className="btn primary" onClick={() => window.api.addProject()}>
-                  Open folder
-                </button>
+                {REMOTE ? (
+                  <p>Open one in Barebone on your Mac.</p>
+                ) : (
+                  <button className="btn primary" onClick={() => window.api.addProject()}>
+                    Open folder
+                  </button>
+                )}
               </>
             ) : (
               <>

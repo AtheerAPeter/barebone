@@ -125,15 +125,18 @@ export function ProjectStyle({
             <img src={image} width={14} height={14} alt="" />
           </button>
         )}
-        <button
-          title="Choose an image (PNG, SVG or JPG), saved in the project as .barebone/icon"
-          onClick={async () => {
-            const chosen = await window.api.chooseProjectIcon(project.id)
-            if (chosen !== undefined) setImage(project.id, chosen)
-          }}
-        >
-          <PlusIcon width={14} height={14} />
-        </button>
+        {/* The image is chosen with the Mac's file picker. */}
+        {!window.api.remote && (
+          <button
+            title="Choose an image (PNG, SVG or JPG), saved in the project as .barebone/icon"
+            onClick={async () => {
+              const chosen = await window.api.chooseProjectIcon(project.id)
+              if (chosen !== undefined) setImage(project.id, chosen)
+            }}
+          >
+            <PlusIcon width={14} height={14} />
+          </button>
+        )}
         {PROJECT_ICONS.map((name) => {
           const Glyph = GLYPHS[name]
           const on = project.icon === name || (!project.icon && !image && name === 'folder')

@@ -505,11 +505,16 @@ function SourceControl({
           isOpen={(c) => isOpen(c, false)}
           onOpen={(c) => onOpen(c, false)}
           actions={(changes) => [
-            {
-              title: changes.length > 1 ? 'Discard all changes' : 'Discard changes',
-              icon: <DiscardIcon width={14} height={14} />,
-              onClick: () => run('discard', () => window.api.git.discard(projectId, changes))
-            },
+            // Discarding asks first, in a dialog on the Mac.
+            ...(window.api.remote
+              ? []
+              : [
+                  {
+                    title: changes.length > 1 ? 'Discard all changes' : 'Discard changes',
+                    icon: <DiscardIcon width={14} height={14} />,
+                    onClick: () => run('discard', () => window.api.git.discard(projectId, changes))
+                  }
+                ]),
             {
               title: changes.length > 1 ? 'Stage all' : 'Stage',
               icon: <PlusIcon width={14} height={14} />,

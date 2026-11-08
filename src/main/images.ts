@@ -94,14 +94,29 @@ export function registerImageScheme(): void {
   ])
 }
 
+/**
+ * Where a requested chat image is on disk, once written; undefined for a name
+ * that is not one (so a request never reaches outside the images folder).
+ */
+export async function requestedImage(chatId: string, file: string): Promise<string | undefined> {
+  if (!CHAT_ID.test(chatId) || !FILE.test(file)) return undefined
+  return chatImagePath(chatId, file)
+}
+
+/** The type of a saved image, by its extension. */
+export function imageType(file: string): string {
+  const ext = file.slice(file.lastIndexOf('.') + 1)
+  return (
+    Object.keys(EXTENSIONS).find((type) => EXTENSIONS[type] === ext) ?? 'application/octet-stream'
+  )
+}
+
 /** Serve chat images to the window. Only its session has the scheme; the browser panel's pages do not. */
 export function handleImageRequests(): void {
   protocol.handle(IMAGE_SCHEME, async (request) => {
     const { host, pathname } = new URL(request.url)
-    const file = pathname.slice(1)
-    if (!CHAT_ID.test(host) || !FILE.test(file)) return new Response(null, { status: 404 })
-    const path = join(imagesDir, host, file)
-    await writing.get(path)
+    const path = await requestedImage(host, pathname.slice(1))
+    if (!path) return new Response(null, { status: 404 })
     return net.fetch(pathToFileURL(path).href)
   })
 }

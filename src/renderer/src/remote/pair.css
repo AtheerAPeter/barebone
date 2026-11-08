@@ -1,0 +1,78 @@
+/* The remote link's pairing page, in the app's colors (styles.css). */
+:root {
+  --accent: #2f6fed;
+  --accent-soft: rgba(47, 111, 237, 0.16);
+  --text: #0d0d0d;
+  --text-soft: #5d5d5d;
+  --text-muted: #737373;
+  --fill: rgba(0, 0, 0, 0.05);
+  --surface: #ffffff;
+  --danger: #d92d20;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent: #3b7bff;
+    --accent-soft: rgba(59, 123, 255, 0.25);
+    --text: #ececec;
+    --text-soft: #b4b4b4;
+    --text-muted: #8f8f8f;
+    --fill: rgba(255, 255, 255, 0.08);
+    --surface: #000000;
+    --danger: #ff6b5e;
+  }
+}
+* {
+  box-sizing: border-box;
+  margin: 0;
+}
+html,
+body {
+  height: 100%;
+}
+body {
+  font:
+    400 16px/1.45 -apple-system,
+    BlinkMacSystemFont,
+    system-ui,
+    sans-serif;
+  color: var(--text);
+  background: var(--surface);
+  -webkit-font-smoothing: antialiased;
+}
+.pair {
+  min-height: 100%;
+  max-width: 380px;
+  margin: 0 auto;
+  padding: max(48px, env(safe-area-inset-top)) 28px max(32px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+}
+.logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 15px;
+  background: var(--accent);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  font-weight: 700;
+  box-shadow: 0 6px 18px -6px rgba(47, 111, 237, 0.6);
+}
+h1 {
+  font-size: 22px;
+  font-weight: 600;
+}
+.sub {
+  color: var(--text-soft);
+  font-size: 14px;
+  margin-top: -10px;
+  text-align: center;
+}
+.sub.error {
+  color: var(--danger);
+}

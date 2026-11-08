@@ -71,7 +71,8 @@ export function useVoiceInput(onText: (text: string) => void): {
       if (!(await window.api.voice.keyHint())) {
         throw new Error('Add a Groq API key under Voice input in Settings (⌘,).')
       }
-      if (!(await window.api.voice.microphone())) {
+      // A browser through the remote link asks for the microphone itself, below.
+      if (!window.api.remote && !(await window.api.voice.microphone())) {
         throw new Error(
           'Barebone may not use the microphone. Allow it in System Settings, Privacy & Security, Microphone.'
         )

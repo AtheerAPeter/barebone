@@ -74,6 +74,10 @@ export function useSpeechPlayer(): {
       }
       return output
     }
+    // A phone's browser keeps audio silent until the user touches the page, and
+    // the first piece of a message comes with no touch: start the output on the first one.
+    const wake = (): void => void ensureOutput().context.resume()
+    if (window.api.remote) window.addEventListener('pointerdown', wake, { once: true })
     /** Where each chat's voice is recorded too, by chat id. */
     const taps = new Map<string, Set<MediaStreamAudioDestinationNode>>()
     /** Pieces scheduled and not yet ended, in order; the first plays now or is about to. */
@@ -230,6 +234,7 @@ export function useSpeechPlayer(): {
 
     return () => {
       tapper.current = undefined
+      window.removeEventListener('pointerdown', wake)
       offAudio()
       offStop()
       for (const piece of queue) clearTimeout(piece.cue)

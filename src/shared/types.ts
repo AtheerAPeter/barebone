@@ -284,6 +284,34 @@ export interface TelegramStatus {
   error?: string
 }
 
+/**
+ * The remote link (main/remote): Barebone in a browser, through zrok. `zrok`
+ * says whether zrok is joined to an account; `link` how the share is doing
+ * while it is on. Devices are paired by a QR code and listed newest first.
+ */
+export interface RemoteStatus {
+  zrok: 'disabled' | 'enabled'
+  on: boolean
+  link: 'off' | 'starting' | 'online' | 'error'
+  url?: string
+  error?: string
+  sessions: RemoteSession[]
+}
+
+export interface RemoteSession {
+  id: string
+  /** The browser and system, from its User-Agent: "iPhone · Safari". */
+  device: string
+  createdAt: number
+  lastSeenAt: number
+}
+
+/** A one-time link that pairs a device, shown as a QR code until it is used or expires. */
+export interface RemotePairing {
+  url: string
+  expiresAt: number
+}
+
 /** A file or image attached to a message: a path on disk, or pasted image data. */
 export interface Attachment {
   name: string
@@ -296,9 +324,15 @@ export interface Attachment {
 /** The scheme the window loads chat images with (see main/images.ts). */
 export const IMAGE_SCHEME = 'chat-image'
 
-/** Where the window loads one of a chat's saved images from. */
-export function imageUrl(chatId: string, file: string): string {
-  return `${IMAGE_SCHEME}://${chatId}/${file}`
+/** Where the remote link's server serves chat images (main/remote/server.ts). */
+export const REMOTE_IMAGES = '/images'
+
+/**
+ * Where the window loads one of a chat's saved images from: the app's own
+ * scheme, or the remote link's server in a browser.
+ */
+export function imageUrl(chatId: string, file: string, remote = false): string {
+  return remote ? `${REMOTE_IMAGES}/${chatId}/${file}` : `${IMAGE_SCHEME}://${chatId}/${file}`
 }
 
 export type Theme = 'system' | 'light' | 'dark'

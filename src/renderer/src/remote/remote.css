@@ -1,0 +1,139 @@
+/*
+ * The app in a browser, through the remote link (web.tsx): styles.css, plus
+ * what a page needs that the Mac window does not. A page has no window glass
+ * behind it, so its panels are solid; there are no traffic lights to make
+ * room for; and on a phone the sidebar is a drawer over the chat and the code
+ * panel a sheet over everything.
+ */
+
+html.remote {
+  --canvas: #f9f9f9;
+  --panel-main: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  html.remote {
+    --canvas: #0d0d0d;
+    --panel-main: #000000;
+  }
+}
+
+/* The visible height, which on a phone shrinks with its toolbars and keyboard. */
+html.remote,
+html.remote body,
+html.remote #root {
+  height: 100dvh;
+}
+
+html.remote body {
+  /* Replies can be selected and copied, as on any page. */
+  user-select: text;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html.remote .sidebar-hidden .topbar {
+  padding-left: 12px;
+}
+
+/* Lost the Mac: a line over the top, the page stays as it was. */
+.connection-bar {
+  position: fixed;
+  z-index: 100;
+  top: calc(env(safe-area-inset-top) + 8px);
+  left: 50%;
+  translate: -50%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--menu);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--menu-shadow);
+  font-size: 13px;
+  color: var(--text-soft);
+  white-space: nowrap;
+}
+
+/* Touch screens have no hover: what shows on hover shows always. */
+@media (hover: none) {
+  html.remote .chat-row .row-menu,
+  html.remote .project-row .project-new,
+  html.remote .code-actions {
+    opacity: 1;
+  }
+}
+
+/* A phone */
+@media (max-width: 700px) {
+  html.remote .topbar {
+    padding-top: env(safe-area-inset-top);
+    height: calc(48px + env(safe-area-inset-top));
+  }
+
+  html.remote .main {
+    min-width: 0;
+  }
+
+  /* The sidebar is a drawer over the chat. */
+  html.remote .sidebar {
+    position: fixed;
+    z-index: 50;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(320px, 86vw);
+    margin-left: 0;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    background: var(--canvas);
+    box-shadow: 10px 0 30px -10px rgba(0, 0, 0, 0.3);
+    transition:
+      translate var(--move) var(--ease),
+      visibility 0s linear 0s;
+  }
+
+  html.remote .sidebar.closed {
+    margin-left: 0;
+    translate: -100%;
+    box-shadow: none;
+    transition:
+      translate var(--move) var(--ease),
+      visibility 0s linear var(--move);
+  }
+
+  /* Its edge resizes it on the Mac; here it is as wide as the phone allows. */
+  html.remote .sidebar-edge {
+    display: none;
+  }
+
+  .drawer-scrim {
+    position: fixed;
+    z-index: 49;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.28);
+    animation: appear var(--move) var(--ease) both;
+  }
+
+  /* The code panel is a sheet over everything, closed with its own button. */
+  html.remote .side-panel {
+    position: fixed;
+    z-index: 40;
+    inset: 0;
+    width: auto !important;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    background: var(--panel-main);
+  }
+
+  html.remote .composer-wrap {
+    padding: 0 10px max(10px, env(safe-area-inset-bottom));
+  }
+
+  /* Below 16px, a phone zooms the page in when a field is tapped. */
+  html.remote textarea,
+  html.remote input,
+  html.remote select {
+    font-size: 16px;
+  }
+}

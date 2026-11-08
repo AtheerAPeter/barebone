@@ -17,6 +17,7 @@ import {
   VideoIcon
 } from './icons'
 import { ProvidersCard } from './ProvidersCard'
+import { RemoteLinkCard } from './RemoteLinkCard'
 import { SettingsCard, Switch, type SettingsTone } from './SettingsCard'
 
 /**
@@ -74,8 +75,10 @@ export function SettingsView({
         <KeyForm label="Groq API key" saved={window.api.voice} />
       </SettingsCard>
       <TelegramCard />
+      <RemoteLinkCard />
       <SpeechCard on={speech} />
-      <UpdatesCard />
+      {/* Updating quits and reopens the app: something to do on the Mac. */}
+      {!window.api.remote && <UpdatesCard />}
     </div>
   )
 }

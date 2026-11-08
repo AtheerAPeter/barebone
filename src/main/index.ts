@@ -1,6 +1,7 @@
 // First: moves the data folder of the app's former name before anything uses it.
 import './former-name'
 import { app, shell, BrowserWindow, ipcMain, dialog, nativeTheme } from 'electron'
+import { handle, handleAs, listen, MAC_ONLY, onCallerGone, type Caller } from './remote/registry'
 import { readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -39,6 +40,7 @@ import { registerWithCline, unregisterFromCline } from './cline-mcp'
 import { DeviceManager } from './devices'
 import { SERVER_NAME as DEVICES_SERVER } from './devices-mcp'
 import { TelegramBridge } from './telegram/bridge'
+import { RemoteLink } from './remote'
 import { exaKeyHint, setExaKey } from './exa-key'
 import { microphoneAccess, setVoiceKey, transcribe, voiceKeyHint } from './voice'
 import {
@@ -74,13 +76,23 @@ let quitting = false
 /** How long quitting waits for the agents and the browser to stop. */
 const QUIT_DEADLINE = 5000
 
-/** Tell the window; false when there is no window to tell. */
+/**
+ * Tell the window, and the pages of the remote link that show it; false when
+ * there is no window to tell.
+ */
 function send(channel: string, ...args: unknown[]): boolean {
+  remote.event(channel, args)
   // Nothing to tell before the window exists; it asks for the state it shows when it loads.
   if (!mainWindow || mainWindow.isDestroyed()) return false
   mainWindow.webContents.send(channel, ...args)
   return true
 }
+
+/** This app in a browser anywhere, through zrok (remote/index.ts). */
+const remote = new RemoteLink({
+  state: () => store.getState(),
+  statusChanged: (status) => send('remote:status', status)
+})
 
 /** Chats, projects or settings changed: the window and the Telegram bot show them anew. */
 function stateChanged(): void {
@@ -343,7 +355,7 @@ const devices = new DeviceManager()
 
 /** The device tools, for mobile apps: Settings turns them on and off. */
 function registerDevicesIpc(): void {
-  ipcMain.handle('mobile:set', (_e, on: boolean) => {
+  handle('mobile:set', (on: boolean) => {
     store.setMobile(on)
     stateChanged()
     // Cline keeps servers in its own settings: add the device tools there, or take them out.
@@ -355,7 +367,7 @@ function registerDevicesIpc(): void {
       )
     })
   })
-  ipcMain.handle('devices:checks', () => devices.checks())
+  handle('devices:checks', () => devices.checks())
 }
 
 /** The folder of a chat's project. */
@@ -389,19 +401,19 @@ async function confirm(message: string, detail: string, action: string): Promise
 
 /** Source control for the code panel (git.ts), by project. */
 function registerGitIpc(): void {
-  ipcMain.handle('code:setOpen', (_e, chatId: string, open: boolean) => setCodeOpen(chatId, open))
-  ipcMain.handle('walk:get', (_e, chatId: string) => walks.current(chatId) ?? null)
-  ipcMain.handle('walk:control', (_e, chatId: string, action: WalkControl, index?: number) =>
+  handle('code:setOpen', (chatId: string, open: boolean) => setCodeOpen(chatId, open))
+  handle('walk:get', (chatId: string) => walks.current(chatId) ?? null)
+  handle('walk:control', (chatId: string, action: WalkControl, index?: number) =>
     walks.control(chatId, action, index)
   )
 
-  ipcMain.handle('git:status', (_e, projectId: string): Promise<GitStatus> => {
+  handle('git:status', (projectId: string): Promise<GitStatus> => {
     const project = store.getState().projects.find((p) => p.id === projectId)
     return project ? git.status(project.path) : Promise.resolve({ repo: false })
   })
-  ipcMain.handle(
+  handle(
     'git:diff',
-    async (_e, projectId: string, change: GitChange, staged: boolean): Promise<CodeDoc> => {
+    async (projectId: string, change: GitChange, staged: boolean): Promise<CodeDoc> => {
       const root = await repoOf(projectId)
       const path = join(root, change.path)
       // A conflicted file has no stage to compare: it shows as it is, markers and all.
@@ -411,31 +423,35 @@ function registerGitIpc(): void {
       return { kind: 'diff', path, staged, ...(await git.diff(root, change, staged)) }
     }
   )
-  ipcMain.handle('git:stage', async (_e, projectId: string, changes: GitChange[]) =>
+  handle('git:stage', async (projectId: string, changes: GitChange[]) =>
     git.stage(await repoOf(projectId), changes)
   )
-  ipcMain.handle('git:unstage', async (_e, projectId: string, changes: GitChange[]) =>
+  handle('git:unstage', async (projectId: string, changes: GitChange[]) =>
     git.unstage(await repoOf(projectId), changes)
   )
-  ipcMain.handle('git:discard', async (_e, projectId: string, changes: GitChange[]) => {
-    const root = await repoOf(projectId)
-    const untracked = changes.filter((c) => c.kind === 'untracked').length
-    const one = changes.length === 1 ? basename(changes[0].path) : undefined
-    const sure = await confirm(
-      one
-        ? untracked
-          ? `Delete ${one}?`
-          : `Discard the changes in ${one}?`
-        : `Discard the changes in ${changes.length} files?`,
-      untracked
-        ? `${untracked === 1 ? 'A file that git does not track is' : `${untracked} files that git does not track are`} deleted, and cannot be brought back.`
-        : 'This cannot be undone.',
-      one && untracked ? 'Delete' : 'Discard'
-    )
-    if (sure) await git.discard(root, changes)
-    return sure
-  })
-  ipcMain.handle('git:commit', async (_e, projectId: string, message: string) => {
+  handle(
+    'git:discard',
+    async (projectId: string, changes: GitChange[]) => {
+      const root = await repoOf(projectId)
+      const untracked = changes.filter((c) => c.kind === 'untracked').length
+      const one = changes.length === 1 ? basename(changes[0].path) : undefined
+      const sure = await confirm(
+        one
+          ? untracked
+            ? `Delete ${one}?`
+            : `Discard the changes in ${one}?`
+          : `Discard the changes in ${changes.length} files?`,
+        untracked
+          ? `${untracked === 1 ? 'A file that git does not track is' : `${untracked} files that git does not track are`} deleted, and cannot be brought back.`
+          : 'This cannot be undone.',
+        one && untracked ? 'Delete' : 'Discard'
+      )
+      if (sure) await git.discard(root, changes)
+      return sure
+    },
+    MAC_ONLY
+  )
+  handleAs('git:commit', async (caller, projectId: string, message: string) => {
     const root = await repoOf(projectId)
     const repo = await git.status(root)
     if (!repo.repo) return false
@@ -444,6 +460,8 @@ function registerGitIpc(): void {
     const all = repo.staged.length === 0
     if (all) {
       if (!repo.unstaged.length) throw new Error('There are no changes to commit.')
+      // The offer is a dialog on the Mac, which a page of the remote link cannot answer.
+      if (caller !== 'window') throw new Error('Nothing is staged. Stage the changes to commit.')
       const { response } = await dialog.showMessageBox(mainWindow, {
         type: 'question',
         message: 'There are no staged changes to commit.',
@@ -457,148 +475,160 @@ function registerGitIpc(): void {
     await git.commit(root, message, all)
     return true
   })
-  ipcMain.handle('git:branches', async (_e, projectId: string) =>
-    git.branches(await repoOf(projectId))
-  )
-  ipcMain.handle('git:checkout', async (_e, projectId: string, branch: GitBranch) =>
+  handle('git:branches', async (projectId: string) => git.branches(await repoOf(projectId)))
+  handle('git:checkout', async (projectId: string, branch: GitBranch) =>
     git.checkout(await repoOf(projectId), branch)
   )
-  ipcMain.handle('git:createBranch', async (_e, projectId: string, name: string) =>
+  handle('git:createBranch', async (projectId: string, name: string) =>
     git.createBranch(await repoOf(projectId), name)
   )
-  ipcMain.handle('git:sync', async (_e, projectId: string) => git.sync(await repoOf(projectId)))
+  handle('git:sync', async (projectId: string) => git.sync(await repoOf(projectId)))
 
   // The open panel's repository is watched, so its list follows what changes on disk.
-  const watching = new Map<string, () => void>()
-  ipcMain.handle('git:watch', async (_e, projectId: string) => {
-    if (watching.has(projectId)) return
-    const root = await repoOf(projectId).catch(() => undefined)
-    if (!root || watching.has(projectId)) return
-    watching.set(
-      projectId,
-      git.watchRepo(root, () => send('git:changed', projectId))
-    )
-  })
-  ipcMain.handle('git:unwatch', (_e, projectId: string) => {
-    watching.get(projectId)?.()
+  // The window and pages of the remote link each open panels: a repository is
+  // watched while any of them has it open.
+  const watching = new Map<string, { stop?: () => void; by: Set<Caller> }>()
+  const unwatch = (projectId: string, caller: Caller): void => {
+    const watch = watching.get(projectId)
+    if (!watch?.by.delete(caller) || watch.by.size > 0) return
+    watch.stop?.()
     watching.delete(projectId)
+  }
+  handleAs('git:watch', async (caller, projectId: string) => {
+    const existing = watching.get(projectId)
+    if (existing) return void existing.by.add(caller)
+    const watch: { stop?: () => void; by: Set<Caller> } = { by: new Set([caller]) }
+    watching.set(projectId, watch)
+    const root = await repoOf(projectId).catch(() => undefined)
+    // Unwatched while the repository was looked up: nothing to start.
+    if (!root || watching.get(projectId) !== watch) return void watching.delete(projectId)
+    watch.stop = git.watchRepo(root, () => send('git:changed', projectId))
+  })
+  handleAs('git:unwatch', (caller, projectId: string) => unwatch(projectId, caller))
+  onCallerGone((caller) => {
+    for (const projectId of [...watching.keys()]) unwatch(projectId, caller)
   })
 }
 
 function registerIpc(browser: BuiltinBrowser): void {
-  ipcMain.handle('browser:setOpen', (_e, chatId: string, open: boolean) =>
-    setBrowserOpen(chatId, open)
+  handle(
+    'browser:setOpen',
+    (chatId: string, open: boolean) => setBrowserOpen(chatId, open),
+    MAC_ONLY
   )
-  ipcMain.handle('theme:set', (_e, theme: Theme) => setTheme(theme))
-  ipcMain.handle('instructions:set', (_e, text: string) => {
+  handle('theme:set', (theme: Theme) => setTheme(theme))
+  handle('instructions:set', (text: string) => {
     store.setInstructions(text)
     stateChanged()
   })
-  ipcMain.handle('annotations:set', (_e, on: boolean) => {
+  handle('annotations:set', (on: boolean) => {
     store.setAnnotations(on)
     stateChanged()
   })
-  ipcMain.handle('codeTours:set', (_e, on: boolean) => {
+  handle('codeTours:set', (on: boolean) => {
     store.setCodeTours(on)
     stateChanged()
   })
-  ipcMain.handle('recording:set', (_e, on: boolean) => {
+  handle('recording:set', (on: boolean) => {
     store.setRecording(on)
     stateChanged()
   })
   // Speech: turning it on downloads the voice when it is not on this Mac yet.
-  ipcMain.handle('speech:set', (_e, on: boolean) => {
+  handle('speech:set', (on: boolean) => {
     store.setSpeech(on)
     stateChanged()
     if (on) void speech.fetchModel()
     else speech.stop()
   })
-  ipcMain.handle('speech:status', () => speech.status())
-  ipcMain.handle('speech:download', () => void speech.fetchModel())
-  ipcMain.handle('speech:cancelDownload', () => speech.cancelDownload())
-  ipcMain.handle('speech:remove', async () => {
+  handle('speech:status', () => speech.status())
+  handle('speech:download', () => void speech.fetchModel())
+  handle('speech:cancelDownload', () => speech.cancelDownload())
+  handle('speech:remove', async () => {
     await speech.remove()
     store.setSpeech(false)
     stateChanged()
   })
-  ipcMain.handle('speech:sample', (_e, text: string, language: Language) => {
+  handle('speech:sample', (text: string, language: Language) => {
     speech.speak(undefined, text, language)
   })
-  ipcMain.handle('speech:stop', (_e, chatId?: string) => speech.stop(chatId))
-  ipcMain.on('speech:begun', (_e, id: string) => speech.begun(id))
-  ipcMain.on('speech:ended', (_e, id: string) => speech.ended(id))
-  ipcMain.handle('state:get', () => store.getState())
-  ipcMain.handle('app:version', () => app.getVersion())
-  ipcMain.handle('update:available', () => availableUpdate())
-  ipcMain.handle('update:check', () => checkForUpdates())
-  ipcMain.handle('update:install', () => installUpdate())
-  ipcMain.handle('exa:keyHint', () => exaKeyHint())
-  ipcMain.handle('exa:setKey', (_e, key: string | null) => setExaKey(key))
-  ipcMain.handle('voice:keyHint', () => voiceKeyHint())
-  ipcMain.handle('voice:setKey', (_e, key: string | null) => setVoiceKey(key))
-  ipcMain.handle('voice:microphone', () => microphoneAccess())
-  ipcMain.handle('telegram:keyHint', () => telegram.tokenHint())
-  ipcMain.handle('telegram:setKey', (_e, token: string | null) => telegram.setToken(token))
-  ipcMain.handle('telegram:status', () => telegram.status())
-  ipcMain.handle('telegram:link', (_e, chatId: string | null) => telegram.link(chatId))
-  ipcMain.handle('voice:transcribe', (_e, audio: Uint8Array, mimeType: string) =>
-    transcribe(audio, mimeType)
-  )
-  ipcMain.handle('providers:list', () => customProviders())
-  ipcMain.handle('providers:save', async (_e, input: CustomProviderInput) => {
+  handle('speech:stop', (chatId?: string) => speech.stop(chatId))
+  listen('speech:begun', (id: string) => speech.begun(id))
+  listen('speech:ended', (id: string) => speech.ended(id))
+  handle('state:get', () => store.getState())
+  handle('app:version', () => app.getVersion())
+  handle('update:available', () => availableUpdate())
+  handle('update:check', () => checkForUpdates(), MAC_ONLY)
+  handle('update:install', () => installUpdate(), MAC_ONLY)
+  handle('exa:keyHint', () => exaKeyHint())
+  handle('exa:setKey', (key: string | null) => setExaKey(key))
+  handle('voice:keyHint', () => voiceKeyHint())
+  handle('voice:setKey', (key: string | null) => setVoiceKey(key))
+  handle('voice:microphone', () => microphoneAccess(), MAC_ONLY)
+  handle('telegram:keyHint', () => telegram.tokenHint())
+  handle('telegram:setKey', (token: string | null) => telegram.setToken(token))
+  handle('telegram:status', () => telegram.status())
+  handle('telegram:link', (chatId: string | null) => telegram.link(chatId))
+  handle('voice:transcribe', (audio: Uint8Array, mimeType: string) => transcribe(audio, mimeType))
+  handle('providers:list', () => customProviders())
+  handle('providers:save', async (input: CustomProviderInput) => {
     const saved = saveCustomProvider(input)
     await agents.customProvidersChanged()
     return saved
   })
-  ipcMain.handle('providers:remove', async (_e, id: string) => {
+  handle('providers:remove', async (id: string) => {
     removeCustomProvider(id)
     await agents.customProvidersChanged()
   })
-  ipcMain.handle('providers:check', (_e, id: string) => checkCustomProvider(id))
+  handle('providers:check', (id: string) => checkCustomProvider(id))
 
-  ipcMain.handle('project:add', async () => {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openDirectory', 'createDirectory'],
-      buttonLabel: 'Add project'
-    })
-    const path = result.filePaths[0]
-    if (result.canceled || !path) return null
-    const existing = store.getState().projects.find((p) => p.path === path)
-    if (existing) return existing
-    const project = { id: crypto.randomUUID(), name: basename(path), path, createdAt: Date.now() }
-    store.addProject(project)
-    stateChanged()
-    return project
-  })
+  handle(
+    'project:add',
+    async () => {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory', 'createDirectory'],
+        buttonLabel: 'Add project'
+      })
+      const path = result.filePaths[0]
+      if (result.canceled || !path) return null
+      const existing = store.getState().projects.find((p) => p.path === path)
+      if (existing) return existing
+      const project = { id: crypto.randomUUID(), name: basename(path), path, createdAt: Date.now() }
+      store.addProject(project)
+      stateChanged()
+      return project
+    },
+    MAC_ONLY
+  )
 
-  ipcMain.handle('project:remove', (_e, projectId: string) => {
+  handle('project:remove', (projectId: string) => {
     store.removeProject(projectId)
     stateChanged()
   })
 
-  ipcMain.handle(
+  handle(
     'project:setStyle',
-    (_e, projectId: string, style: Partial<Pick<Project, 'color' | 'icon'>>) => {
+    (projectId: string, style: Partial<Pick<Project, 'color' | 'icon'>>) => {
       store.updateProject(projectId, style)
       stateChanged()
     }
   )
-  ipcMain.handle('project:icon', (_e, projectId: string) =>
-    projectIcon(store.getProject(projectId).path)
+  handle('project:icon', (projectId: string) => projectIcon(store.getProject(projectId).path))
+  handle(
+    'project:chooseIcon',
+    async (projectId: string) => {
+      const icon = await chooseProjectIcon(mainWindow, store.getProject(projectId).path)
+      if (icon === undefined) return undefined
+      // The chosen image shows in place of any other icon.
+      store.updateProject(projectId, { icon: undefined })
+      stateChanged()
+      return icon
+    },
+    MAC_ONLY
   )
-  ipcMain.handle('project:chooseIcon', async (_e, projectId: string) => {
-    const icon = await chooseProjectIcon(mainWindow, store.getProject(projectId).path)
-    if (icon === undefined) return undefined
-    // The chosen image shows in place of any other icon.
-    store.updateProject(projectId, { icon: undefined })
-    stateChanged()
-    return icon
-  })
 
-  ipcMain.handle(
+  handle(
     'chat:create',
     (
-      _e,
       projectId: string,
       agent: AgentId,
       settings: Record<string, string>,
@@ -610,10 +640,10 @@ function registerIpc(browser: BuiltinBrowser): void {
     }
   )
 
-  ipcMain.handle('chat:delete', (_e, chatId: string) => deleteChat(chatId))
+  handle('chat:delete', (chatId: string) => deleteChat(chatId))
 
   // A chat the user leaves before sending anything is of no use, so it goes.
-  ipcMain.handle('chat:leave', async (_e, chatId: string) => {
+  handle('chat:leave', async (chatId: string) => {
     const chat = store.getState().chats.find((c) => c.id === chatId)
     if (!chat || chat.running || chat.draft || store.getMessages(chatId).length > 0) return
     await deleteChat(chatId)
@@ -621,110 +651,102 @@ function registerIpc(browser: BuiltinBrowser): void {
 
   // The composer saves its draft before it is left (Composer.tsx), so a chat
   // with only a draft is kept by chat:leave above.
-  ipcMain.handle('chat:draft', (_e, chatId: string, text: string) => {
+  handle('chat:draft', (chatId: string, text: string) => {
     if (!store.getState().chats.some((c) => c.id === chatId)) return
     store.updateChat(chatId, { draft: text || undefined })
     stateChanged()
   })
 
-  ipcMain.handle('chat:rename', (_e, chatId: string, title: string) =>
-    agents.renameChat(chatId, title)
-  )
-  ipcMain.handle('chat:pin', (_e, chatId: string, pinned: boolean) => {
+  handle('chat:rename', (chatId: string, title: string) => agents.renameChat(chatId, title))
+  handle('chat:pin', (chatId: string, pinned: boolean) => {
     store.updateChat(chatId, { pinned: pinned || undefined })
     stateChanged()
   })
-  ipcMain.handle('chat:messages', (_e, chatId: string) => store.getMessages(chatId))
+  handle('chat:messages', (chatId: string) => store.getMessages(chatId))
 
-  ipcMain.handle(
-    'chat:setAgent',
-    (_e, chatId: string, agent: AgentId, settings: Record<string, string>) =>
-      agents.changeAgent(chatId, agent, settings)
+  handle('chat:setAgent', (chatId: string, agent: AgentId, settings: Record<string, string>) =>
+    agents.changeAgent(chatId, agent, settings)
   )
-  ipcMain.handle('chat:open', (_e, chatId: string) => agents.open(chatId))
+  handle('chat:open', (chatId: string) => agents.open(chatId))
 
   // Fire and forget: progress arrives through chat:item and state:changed events.
-  ipcMain.handle('chat:send', (_e, chatId: string, text: string, attachments?: Attachment[]) => {
+  handle('chat:send', (chatId: string, text: string, attachments?: Attachment[]) => {
     void agents.send(chatId, text, attachments)
   })
-  ipcMain.handle('files:pick', async (): Promise<Attachment[]> => {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openFile', 'multiSelections'],
-      buttonLabel: 'Attach'
-    })
-    return result.canceled ? [] : result.filePaths.map((path) => ({ name: basename(path), path }))
-  })
-  ipcMain.handle('files:thumbnail', (_e, path: string) => thumbnail(path))
-  ipcMain.handle(
+  handle(
+    'files:pick',
+    async (): Promise<Attachment[]> => {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openFile', 'multiSelections'],
+        buttonLabel: 'Attach'
+      })
+      return result.canceled ? [] : result.filePaths.map((path) => ({ name: basename(path), path }))
+    },
+    MAC_ONLY
+  )
+  handle('files:thumbnail', (path: string) => thumbnail(path))
+  handle(
     'chat:setPermissions',
-    (_e, chatId: string, permissions: Pick<Chat, 'bypassPermissions' | 'projectOnly'>) =>
+    (chatId: string, permissions: Pick<Chat, 'bypassPermissions' | 'projectOnly'>) =>
       agents.setPermissions(chatId, permissions)
   )
-  ipcMain.handle('chat:cancel', (_e, chatId: string) => cancelChat(chatId))
-  ipcMain.handle('chat:takeWaiting', (_e, chatId: string, id: string) =>
-    agents.takeWaiting(chatId, id)
-  )
-  ipcMain.handle('chat:stopCommand', (_e, chatId: string, pid: number) =>
-    agents.stopCommand(chatId, pid)
-  )
-  ipcMain.handle('chat:stopSubagent', (_e, chatId: string, id: string) =>
-    agents.stopSubagent(chatId, id)
-  )
-  ipcMain.handle('chat:clearTimer', (_e, chatId: string) => {
+  handle('chat:cancel', (chatId: string) => cancelChat(chatId))
+  handle('chat:takeWaiting', (chatId: string, id: string) => agents.takeWaiting(chatId, id))
+  handle('chat:stopCommand', (chatId: string, pid: number) => agents.stopCommand(chatId, pid))
+  handle('chat:stopSubagent', (chatId: string, id: string) => agents.stopSubagent(chatId, id))
+  handle('chat:clearTimer', (chatId: string) => {
     agents.clearTimer(chatId)
   })
-  ipcMain.handle('chat:setOption', (_e, chatId: string, optionId: string, value: string) =>
+  handle('chat:setOption', (chatId: string, optionId: string, value: string) =>
     agents.setOption(chatId, optionId, value)
   )
-  ipcMain.handle('chat:permission', (_e, chatId: string, permissionId: string, optionId: string) =>
+  handle('chat:permission', (chatId: string, permissionId: string, optionId: string) =>
     agents.resolvePermission(chatId, permissionId, optionId)
   )
-  ipcMain.handle(
-    'chat:answerForm',
-    (_e, chatId: string, formId: string, answers: FormAnswers | null) =>
-      agents.answerForm(chatId, formId, answers)
+  handle('chat:answerForm', (chatId: string, formId: string, answers: FormAnswers | null) =>
+    agents.answerForm(chatId, formId, answers)
   )
 
-  ipcMain.handle('agents:status', (_e, agent: AgentId) => agents.status(agent))
-  ipcMain.handle('agents:models', (_e, agent: AgentId, projectId: string) =>
-    agents.models(agent, projectId)
-  )
+  handle('agents:status', (agent: AgentId) => agents.status(agent))
+  handle('agents:models', (agent: AgentId, projectId: string) => agents.models(agent, projectId))
 
-  ipcMain.on('browser:setChat', (_e, chatId: string | null) =>
-    browser.setActiveChat(chatId ?? undefined)
+  listen(
+    'browser:setChat',
+    (chatId: string | null) => browser.setActiveChat(chatId ?? undefined),
+    MAC_ONLY
   )
-  ipcMain.on('browser:setBounds', (_e, rect: Rect | null) => browser.setBounds(rect))
-  ipcMain.on('browser:setHidden', (_e, hidden: boolean) => browser.setPanelHidden(hidden))
-  ipcMain.handle('browser:capture', () => browser.capturePanel())
-  ipcMain.handle('browser:navigate', (_e, url: string) =>
-    browser.navigate(url).catch(() => undefined)
+  listen('browser:setBounds', (rect: Rect | null) => browser.setBounds(rect), MAC_ONLY)
+  listen('browser:setHidden', (hidden: boolean) => browser.setPanelHidden(hidden), MAC_ONLY)
+  handle('browser:capture', () => browser.capturePanel(), MAC_ONLY)
+  handle(
+    'browser:navigate',
+    (url: string) => browser.navigate(url).catch(() => undefined),
+    MAC_ONLY
   )
-  ipcMain.handle('browser:back', () => browser.back())
-  ipcMain.handle('browser:forward', () => browser.forward())
-  ipcMain.handle('browser:reload', () => browser.reload())
-  ipcMain.handle('browser:selectTab', (_e, tabId: string) => browser.selectActiveChatTab(tabId))
-  ipcMain.handle('browser:closeTab', (_e, tabId: string) => browser.closeActiveChatTab(tabId))
-  ipcMain.handle('browser:newTab', () => browser.newActiveChatTab())
-  ipcMain.handle('browser:fillPanel', () => browser.fillPanel())
-  ipcMain.on('browser:menu', (_e, x: number, y: number) => browser.showMenu(x, y))
-  ipcMain.handle('browser:state', () => browser.state())
+  handle('browser:back', () => browser.back(), MAC_ONLY)
+  handle('browser:forward', () => browser.forward(), MAC_ONLY)
+  handle('browser:reload', () => browser.reload(), MAC_ONLY)
+  handle('browser:selectTab', (tabId: string) => browser.selectActiveChatTab(tabId), MAC_ONLY)
+  handle('browser:closeTab', (tabId: string) => browser.closeActiveChatTab(tabId), MAC_ONLY)
+  handle('browser:newTab', () => browser.newActiveChatTab(), MAC_ONLY)
+  handle('browser:fillPanel', () => browser.fillPanel(), MAC_ONLY)
+  listen('browser:menu', (x: number, y: number) => browser.showMenu(x, y), MAC_ONLY)
+  handle('browser:state', () => browser.state(), MAC_ONLY)
 
-  ipcMain.handle('files:list', (_e, projectPath: string) => listProjectFiles(projectPath))
-  ipcMain.handle('prompts:history', (_e, projectId: string) => store.promptHistory(projectId))
-  ipcMain.handle('skills:list', (_e, projectPath?: string) => skills.listSkills(projectPath))
-  ipcMain.handle('skills:read', (_e, path: string, projectPath?: string) =>
-    skills.readSkill(path, projectPath)
-  )
-  ipcMain.handle('skills:create', (_e, name: string, scope: SkillScope, projectPath?: string) =>
+  handle('files:list', (projectPath: string) => listProjectFiles(projectPath))
+  handle('prompts:history', (projectId: string) => store.promptHistory(projectId))
+  handle('skills:list', (projectPath?: string) => skills.listSkills(projectPath))
+  handle('skills:read', (path: string, projectPath?: string) => skills.readSkill(path, projectPath))
+  handle('skills:create', (name: string, scope: SkillScope, projectPath?: string) =>
     skills.createSkill(name, scope, projectPath)
   )
-  ipcMain.handle('skills:save', (_e, path: string, content: string, projectPath?: string) =>
+  handle('skills:save', (path: string, content: string, projectPath?: string) =>
     skills.saveSkill(path, content, projectPath)
   )
-  ipcMain.handle('skills:delete', (_e, path: string, projectPath?: string) =>
+  handle('skills:delete', (path: string, projectPath?: string) =>
     skills.deleteSkill(path, projectPath)
   )
-  ipcMain.handle('skills:reveal', (_e, path: string) => shell.showItemInFolder(path))
+  handle('skills:reveal', (path: string) => shell.showItemInFolder(path), MAC_ONLY)
 }
 
 // One instance only: a second one would share the same data files and browser profile.
@@ -788,6 +810,7 @@ app.whenReady().then(async () => {
   )
   registerIpc(browser)
   telegram.start()
+  remote.start()
   providePhone({
     on: () => telegram.sendsFiles(),
     sendFile: (chatId, path, caption) => telegram.sendFile(chatId, path, caption)
@@ -860,6 +883,7 @@ app.on('before-quit', (event) => {
   quitting = true
   event.preventDefault()
   telegram.stop()
+  const unlinked = remote.stop()
   const stopped = agents.stopAll()
   // A failed save (a full disk) must not keep the app from quitting.
   try {
@@ -875,7 +899,12 @@ app.on('before-quit', (event) => {
   speech.dispose()
   // Waited for up to a limit: one that never settles (an MCP server that never
   // answers) would otherwise keep the app open, and the updater replaces it.
-  const waits = { agents: stopped, browser: browser?.flush(), recordings: recorded }
+  const waits = {
+    agents: stopped,
+    browser: browser?.flush(),
+    recordings: recorded,
+    remote: unlinked
+  }
   const unfinished = new Set(Object.keys(waits))
   const settled = Object.entries(waits).map(([name, wait]) =>
     Promise.resolve(wait)
