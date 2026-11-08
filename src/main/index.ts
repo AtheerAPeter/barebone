@@ -126,7 +126,7 @@ async function deleteChat(chatId: string): Promise<void> {
   walks.forget(chatId)
 }
 
-/** Control from Telegram: chats on the user's phone, each in a topic of its own. */
+/** Control from Telegram: the linked chat and the chats it starts, on the user's phone. */
 const telegram = new TelegramBridge({
   send: (chatId, text, attachments, id) =>
     agents.send(chatId, text, attachments, undefined, false, id),
@@ -141,6 +141,7 @@ const telegram = new TelegramBridge({
     stateChanged()
     return chat
   },
+  deleteChat,
   renameChat: (chatId, title) => agents.renameChat(chatId, title),
   openChat: (chatId) => agents.open(chatId),
   agentStatus: (agent) => agents.status(agent),
@@ -539,8 +540,7 @@ function registerIpc(browser: BuiltinBrowser): void {
   ipcMain.handle('telegram:keyHint', () => telegram.tokenHint())
   ipcMain.handle('telegram:setKey', (_e, token: string | null) => telegram.setToken(token))
   ipcMain.handle('telegram:status', () => telegram.status())
-  ipcMain.handle('telegram:openTopic', (_e, chatId: string) => telegram.openTopic(chatId))
-  ipcMain.handle('telegram:closeTopic', (_e, chatId: string) => telegram.closeTopic(chatId))
+  ipcMain.handle('telegram:link', (_e, chatId: string | null) => telegram.link(chatId))
   ipcMain.handle('voice:transcribe', (_e, audio: Uint8Array, mimeType: string) =>
     transcribe(audio, mimeType)
   )

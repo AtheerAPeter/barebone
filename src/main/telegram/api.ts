@@ -28,8 +28,6 @@ export interface TelegramUser {
   id: number
   username?: string
   first_name: string
-  /** Whether topics are on in the bot's private chats (BotFather's Threaded Mode); getMe only. */
-  has_topics_enabled?: boolean
 }
 
 export interface TelegramMessage {
@@ -37,9 +35,7 @@ export interface TelegramMessage {
   /** When it was sent, in seconds since the epoch. */
   date: number
   chat: { id: number; type: string }
-  /** The topic it is in, in a private chat with topics on. */
-  message_thread_id?: number
-  /** Set on the message that tells a topic was made: the user made it, or the bot. */
+  /** Set on the message that tells a topic was made, while the bot is in Threaded Mode. */
   forum_topic_created?: { name: string }
   from?: TelegramUser
   text?: string
@@ -58,12 +54,11 @@ export interface TelegramUpdate {
     id: string
     from: TelegramUser
     data?: string
-    message?: { message_id: number; chat: { id: number }; message_thread_id?: number }
+    message?: { message_id: number; chat: { id: number } }
   }
   /** The user pressed Stop on a draft the bot was streaming. */
   stopped_message_generation?: {
     chat: { id: number }
-    message_thread_id?: number
     draft_id: number
   }
 }

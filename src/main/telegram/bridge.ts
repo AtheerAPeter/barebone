@@ -52,15 +52,14 @@ import {
 } from './format'
 
 /**
- * Control from Telegram: a bot the user made with @BotFather carries their
- * chats to their phone, each in a topic of its own (the bot's Threaded Mode).
- * What they write in a topic goes to its chat. Its answers come as rich
- * messages, streamed as a draft with a Stop button while written, and each
- * run of its tool calls as one message that keeps up with them. The chats a
- * chat starts (`@chats`) get a card each
- * in its topic, edited in place. Questions (permissions, forms) come as
- * buttons, screenshots and videos as media. A pinned message lists the chats
- * that work or need the user, as the sidebar does, and opens their topics.
+ * Control from Telegram: a bot the user made with @BotFather carries one of
+ * their chats, the linked one, to their phone. What they write to the bot
+ * goes to that chat. Its answers come as rich messages, streamed as a draft
+ * with a Stop button while written, and each run of its tool calls as one
+ * message that keeps up with them. The chats it starts (`@chats`) get a card
+ * each, edited in place. Questions (permissions, forms) come as buttons,
+ * screenshots and videos as media. A pinned message lists the chats that work
+ * or need the user, as the sidebar does; tapping one links it.
  *
  * The bot reads its messages with getUpdates (long polling), so nothing on the
  * Mac listens for connections. It answers only the Telegram user who paired
@@ -73,7 +72,7 @@ const LATE_S = 60
 /** The least time between two calls that send to the chat: Telegram allows about one a second. */
 const CALL_GAP_MS = 1000
 
-/** How often a card, the list of chats or a topic's name is edited, at most. */
+/** How often a card, a steps message or the list of chats is edited, at most. */
 const EDIT_EVERY_MS = 2500
 
 /** How often a streamed answer's draft is updated. */
@@ -104,14 +103,8 @@ const PICK_MODELS = 10
 /** The most text the list of chats (/chats) takes; chats past it are counted, not listed. */
 const SIDEBAR_TEXT = 3600
 
-/** A topic's longest name. */
-const TOPIC_NAME = 128
-
 /** Indents a chat another chat started under it, as Telegram drops leading spaces. */
 const NESTED = '    ↳ '
-
-/** The thread Telegram puts messages outside every topic in; sending to it is refused. */
-const GENERAL_THREAD = 1
 
 /** Sends that wait go in this order: what asks the user first, then answers, then updates. */
 const ASK = 0
@@ -127,11 +120,7 @@ const MARK_WAITING = '🫡'
 const MARK_STARTED = '👀'
 const MARK_END: Record<TurnEnd['outcome'], string> = { done: '👌', failed: '💔', stopped: '🤷' }
 
-const TOPICS_OFF =
-  'Turn on topics for this bot first: in @BotFather, open the bot’s settings and turn on <b>Threaded Mode</b>. Each chat then gets a topic of its own here. Send me anything once it is on.'
-
-const NO_CHAT_HERE =
-  'Write in a chat’s topic to talk to it. /new starts a chat, /projects opens another, /chats lists the ones working.'
+const NOT_LINKED = 'No chat is linked. Send /projects to pick one or start a new one.'
 
 const MODELS_OUT_OF_DATE = 'This list is out of date. Send /model again.'
 
@@ -141,6 +130,7 @@ export interface BridgeHost {
   send(chatId: string, text: string, attachments: Attachment[], id: string): Promise<void>
   /** A new chat in a project, with the agent, model and permissions of `like`. */
   createChat(projectId: string, like: Chat): Chat
+  deleteChat(chatId: string): Promise<void>
   renameChat(chatId: string, title: string): void
   /** The chat's session options (its model, ...), its session opened for them. */
   openChat(chatId: string): Promise<OpenChatResult>
@@ -158,14 +148,13 @@ export interface BridgeHost {
 /** What a button does, kept here so its callback data is a short token. */
 type Action =
   | { kind: 'permission'; chatId: string; permissionId: string; optionId: string }
-  | { kind: 'message' | 'stop' | 'open'; chatId: string }
+  | { kind: 'message' | 'stop' | 'link'; chatId: string }
   | { kind: 'late'; send: boolean; messageId: number }
   | { kind: 'pick'; form: string; field: string; value: string }
   | { kind: 'ask'; form: string; field: string }
   | { kind: 'formSend' | 'formDecline' | 'formOpen'; form: string }
   | { kind: 'projects' }
-  | { kind: 'project'; projectId: string }
-  | { kind: 'newChat'; projectId: string; thread?: number }
+  | { kind: 'project' | 'newChat'; projectId: string }
   | { kind: 'sources' }
   | { kind: 'source'; key: string; page: number }
   | { kind: 'model'; key: string; value: string }
@@ -192,7 +181,7 @@ interface Source {
   option: AgentOption
 }
 
-/** The models a chat can switch to, read when /model is sent in its topic. */
+/** The models the linked chat can switch to, read when /model is sent. */
 interface Catalog {
   chatId: string
   /** The key of the source the chat is on. */
@@ -205,12 +194,9 @@ type ToolItem = Extract<ChatItem, { kind: 'tool' }>
 type PermissionItem = Extract<ChatItem, { kind: 'permission' }>
 type FormItem = Extract<ChatItem, { kind: 'form' }>
 
-/** A chat followed in a topic of its own, and what was shown of it there. */
-interface TopicView {
+/** The linked chat, and what was shown of it. */
+interface LinkedView {
   chatId: string
-  thread: number
-  /** The topic's name as last set, so it is edited only when that changes. */
-  name?: string
   /** Its items shown so far: only a new one ends the answer being written, not a change to an old one. */
   readonly seen: Set<string>
   readonly posted: Set<string>
@@ -226,7 +212,7 @@ interface TopicView {
   readonly cards: Map<string, Card>
 }
 
-/** A run of a chat's tool calls between two of its messages, shown as one message. */
+/** A run of the linked chat's tool calls between two of its messages, shown as one message. */
 interface Steps {
   ids: string[]
   startedAt: number
@@ -235,7 +221,7 @@ interface Steps {
   shown?: string
 }
 
-/** The card of a chat a topic's chat started. */
+/** The card of a chat the linked chat started. */
 interface Card {
   title: string
   messageId?: number
@@ -252,12 +238,6 @@ interface FormState {
   messageId?: number
 }
 
-/** A topic the user made that is no chat yet: its name, and the message first written in it. */
-interface Unclaimed {
-  name?: string
-  message?: TelegramMessage
-}
-
 export class TelegramBridge {
   private api?: BotApi
   private abort?: AbortController
@@ -268,10 +248,8 @@ export class TelegramBridge {
   /** A passing trouble, such as Telegram out of reach. */
   private trouble?: string
   private commandsSet = false
-  /** Whether the bot's topics are on, once getMe told. */
-  private topicsOn?: boolean
 
-  /** Bumped when the bot stops: what is queued for before is dropped. */
+  /** Bumped when the bot stops or the linked chat changes: what is queued for before is dropped. */
   private generation = 0
   private readonly pending: {
     priority: Priority
@@ -294,29 +272,29 @@ export class TelegramBridge {
   private nextToken = 0
   private readonly replies = new Map<number, ReplyTarget>()
   private readonly late = new Map<number, TelegramMessage>()
-  private readonly unclaimed = new Map<number, Unclaimed>()
 
-  /** The chats followed in topics, by chat ID. */
-  private readonly views = new Map<string, TopicView>()
-  /** Topics being made, so a second tap waits for the first. */
-  private readonly opening = new Map<string, Promise<TopicView>>()
+  /** The linked chat, while one is. */
+  private view?: LinkedView
+  private linkedTitle?: string
+  /** Chats started from Telegram: one left before it was sent anything goes, as in the window. */
+  private readonly started = new Set<string>()
   private readonly forms = new Map<string, FormState>()
   private readonly sentImages = new Set<string>()
   private readonly chatOptions = new Map<string, AgentOption[]>()
   /** The models read for the last /model, which its buttons pick from. */
   private catalog?: Catalog
   private nextDraft = 1
-  /** Set when Telegram refuses rich messages: turns then come in plainer HTML. */
+  /** Set when Telegram refuses rich messages: answers then come in plainer HTML. */
   private noRich = false
   private richFailures = 0
-  /** Set when Telegram refuses drafts: turns then show only once they end. */
+  /** Set when Telegram refuses drafts: answers then come only once written. */
   private noDrafts = false
   /** The user's messages sent to chats, by the ID of the item each becomes; their reactions tell how they go. */
   private readonly followed = new Map<
     string,
     { chatId: string; messageId: number; started: boolean }
   >()
-  /** "Needs you" messages for chats that have no topic, by chat ID; undefined while being sent. */
+  /** "Needs you" messages for chats not shown here, by chat ID; undefined while being sent. */
   private readonly alerts = new Map<string, number | undefined>()
   /** What the list of chats (/chats) shows now, so it is edited only when that changes. */
   private sidebarShown?: string
@@ -326,12 +304,12 @@ export class TelegramBridge {
   // --- Status and setup --------------------------------------------------------
 
   status(): TelegramStatus {
-    const { token, owner } = telegramConfig()
+    const { token, owner, linkedChatId } = telegramConfig()
     if (!token) return { state: 'off' }
     const base = {
       bot: this.bot,
-      topicChatIds: [...this.views.keys()],
-      ...(owner && this.topicsOn === false ? { topicsOff: true } : {})
+      linkedChatId,
+      linkedTitle: linkedChatId ? this.linkedTitle : undefined
     }
     if (this.fatal) return { ...base, state: 'error', error: this.fatal }
     return owner
@@ -360,12 +338,12 @@ export class TelegramBridge {
       }
     }
     this.stop()
-    // A new bot starts over: it pairs again, and the old bot's topics and list aren't its own.
+    // A new bot starts over: it pairs again, links no chat, and can't edit the old bot's list.
     updateTelegramConfig({
       token,
       owner: undefined,
-      topics: undefined,
       linkedChatId: undefined,
+      topics: undefined,
       offset: undefined,
       sidebarMessageId: undefined
     })
@@ -376,13 +354,21 @@ export class TelegramBridge {
 
   /** Start reading the bot's messages, when a token is saved. */
   start(): void {
-    const { token, owner, topics } = telegramConfig()
+    const { token, owner, linkedChatId, topics } = telegramConfig()
     this.fatal = undefined
     this.trouble = undefined
-    this.topicsOn = undefined
     if (!token) {
       this.publish()
       return
+    }
+    // The topics of version 1.1 are no longer used: the chat that has one (the one used
+    // last) is linked instead, when none is.
+    if (topics) {
+      const latest = Object.keys(topics)
+        .map((id) => this.chat(id))
+        .filter((c): c is Chat => Boolean(c))
+        .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+      updateTelegramConfig({ topics: undefined, linkedChatId: linkedChatId ?? latest?.id })
     }
     this.api = new BotApi(token)
     this.abort = new AbortController()
@@ -390,17 +376,15 @@ export class TelegramBridge {
     // Anyone who finds the bot can message it, and pairing gives control of the chats, so the
     // secret is too long to guess: 128 bits, in the characters a /start deep link takes.
     this.code = owner ? undefined : randomBytes(16).toString('base64url')
-    for (const [chatId, thread] of Object.entries(topics ?? {})) {
-      const chat = this.chat(chatId)
-      if (!chat) continue
-      // Named after the chat when it was made, and renamed with it since.
-      const view = newView(chatId, thread)
-      view.name = this.topicName(chat)
-      this.views.set(chatId, view)
-    }
-    this.sidebarShown = undefined
+    const linked = telegramConfig().linkedChatId
+    const chat = linked ? this.chat(linked) : undefined
+    this.view = chat ? newView(chat.id) : undefined
+    this.linkedTitle = chat?.title
     this.publish()
     void this.poll(this.api, this.abort.signal)
+    // The list of chats was last edited before Barebone quit: bring it up to date.
+    this.sidebarShown = undefined
+    this.showSidebar()
   }
 
   /** Stop reading and sending; nothing queued goes out. */
@@ -409,101 +393,51 @@ export class TelegramBridge {
     this.abort = undefined
     this.api = undefined
     this.commandsSet = false
-    this.generation++
-    for (const timer of this.timers) clearTimeout(timer)
-    this.timers.clear()
-    this.due.clear()
-    this.pending.length = 0
-    this.views.clear()
-    this.opening.clear()
-    this.forms.clear()
-    this.replies.clear()
+    this.forgetChats()
     this.late.clear()
-    this.unclaimed.clear()
     this.alerts.clear()
     this.followed.clear()
-    this.sentImages.clear()
-    this.catalog = undefined
   }
 
-  private publish(): void {
-    this.host.statusChanged(this.status())
-  }
-
-  // --- Topics --------------------------------------------------------------------
-
-  /** Follow a chat in Telegram, from the sidebar's menu: it gets a topic, or keeps its own. */
-  async openTopic(chatId: string): Promise<void> {
-    await this.topicFor(chatId)
-  }
-
-  /** Stop following a chat in Telegram: its topic goes, with its messages. */
-  closeTopic(chatId: string): void {
-    this.removeTopic(chatId, true)
-  }
-
-  /**
-   * The topic of a chat, made when it has none; a chat another chat started
-   * is shown in its lead's. `thread` is a topic the user made, to use for it.
-   */
-  private topicFor(chatId: string, thread?: number): Promise<TopicView> {
-    if (!this.api || !telegramConfig().owner) {
-      return Promise.reject(new Error('Pair with the bot first, in Settings.'))
+  /** Make a chat the one the bot controls, or none (null). */
+  link(chatId: string | null): void {
+    const { owner, linkedChatId } = telegramConfig()
+    if (!owner) throw new Error('Pair with the bot first, in Settings.')
+    if (chatId === linkedChatId) return
+    const chat = chatId ? store.getChat(chatId) : undefined
+    if (chat?.startedBy) {
+      throw new Error(
+        'A chat another chat started can’t be linked, as it can’t start chats itself.'
+      )
     }
-    if (this.topicsOn === false) {
-      return Promise.reject(new Error('Turn on Threaded Mode for the bot in @BotFather first.'))
-    }
-    const asked = this.chat(chatId)
-    const chat = asked?.startedBy ? this.chat(asked.startedBy) : asked
-    if (!chat) return Promise.reject(new Error('That chat is gone.'))
-    const view = this.views.get(chat.id)
-    if (view) return Promise.resolve(view)
-    let opening = this.opening.get(chat.id)
-    if (!opening) {
-      opening = this.makeTopic(chat, thread).finally(() => this.opening.delete(chat.id))
-      this.opening.set(chat.id, opening)
-    }
-    return opening
-  }
-
-  private async makeTopic(chat: Chat, thread?: number): Promise<TopicView> {
-    const api = this.api!
-    let name: string | undefined
-    if (thread === undefined) {
-      name = this.topicName(chat)
-      const topic = await api.call<{ message_thread_id: number }>('createForumTopic', {
-        chat_id: telegramConfig().owner!.chatId,
-        name
-      })
-      thread = topic.message_thread_id
-    }
-    if (api !== this.api) throw new Error('The Telegram bot stopped.')
-    const view = newView(chat.id, thread)
-    // A topic the user made keeps their name until the chat is renamed.
-    view.name = name ?? this.topicName(chat)
-    this.views.set(chat.id, view)
-    updateTelegramConfig({ topics: { ...telegramConfig().topics, [chat.id]: thread } })
+    const before = this.linkedTitle
+    updateTelegramConfig({ linkedChatId: chatId ?? undefined })
+    this.forgetChats()
+    this.view = chat ? newView(chat.id) : undefined
+    this.linkedTitle = chat?.title
     this.publish()
-    this.introduce(view)
+    if (chat) {
+      const project = store.getState().projects.find((p) => p.id === chat.projectId)
+      this.say(
+        `Now controlling <b>${escapeHtml(chat.title)}</b>${project ? ` in ${escapeHtml(project.name)}` : ''}. What you send here goes to that chat. /status tells how it is doing.`
+      )
+      this.catchUp()
+    } else if (before) {
+      this.say(`Stopped controlling <b>${escapeHtml(before)}</b>.`)
+    }
+    if (linkedChatId) this.dropIfUnused(linkedChatId)
     this.stateChanged()
-    return view
   }
 
-  /** The first message of a topic, then what its chat is doing and asking now. */
-  private introduce(view: TopicView): void {
-    const chat = this.chat(view.chatId)
-    if (!chat) return
-    const project = store.getState().projects.find((p) => p.id === chat.projectId)?.name
-    const about = [project, modelLabel(chat.agent, this.chatOptions.get(chat.id) ?? [])]
-    this.say(
-      `<b>${escapeHtml(chat.title)}</b>\n<i>${escapeHtml(about.filter(Boolean).join(' · '))}</i>\nWhat you write in this topic goes to this chat. /status tells how it is doing.`,
-      view.thread,
-      SILENT
-    )
+  /** What the newly linked chat is doing and asking now. */
+  private catchUp(): void {
+    const view = this.view
+    const chat = view && this.chat(view.chatId)
+    if (!view || !chat) return
     const items = taskItems(chat.id)
     for (const item of items) {
       view.seen.add(item.id)
-      if (item.kind === 'permission') this.showPermission(view, chat.id, item)
+      if (item.kind === 'permission') this.showPermission(chat.id, item)
       if (item.kind === 'form') this.showForm(chat.id, item)
     }
     // The calls it made on its task so far, as one run that goes on.
@@ -520,107 +454,41 @@ export class TelegramBridge {
     }
   }
 
-  /** Forget a chat's topic, and delete it too unless the user did. */
-  private removeTopic(chatId: string, deleteTopic: boolean): void {
-    const view = this.views.get(chatId)
-    const thread = view?.thread ?? telegramConfig().topics?.[chatId]
-    this.views.delete(chatId)
-    const topics = { ...telegramConfig().topics }
-    delete topics[chatId]
-    updateTelegramConfig({ topics })
-    for (const [key, form] of this.forms) {
-      if (form.chatId === chatId || this.chat(form.chatId)?.startedBy === chatId) {
-        this.forms.delete(key)
-      }
-    }
-    this.publish()
-    if (deleteTopic && thread !== undefined) this.deleteTopic(thread)
-  }
-
-  /** Delete a topic in Telegram, with its messages. */
-  private deleteTopic(thread: number): void {
-    const owner = telegramConfig().owner
-    if (!this.api || !owner) return
-    this.enqueue(
-      () =>
-        this.api!.call('deleteForumTopic', {
-          chat_id: owner.chatId,
-          message_thread_id: thread
-        }).catch((error) => console.error('Telegram: could not delete a topic:', error)),
-      UPDATE
-    )
-  }
-
-  /** The topic was deleted in Telegram: the chat is no longer followed. */
-  private lostTopic(thread: number): void {
-    const view = this.viewOf(thread)
-    if (view) this.removeTopic(view.chatId, false)
-  }
-
-  private viewOf(thread: number | undefined): TopicView | undefined {
-    if (thread === undefined) return undefined
-    for (const view of this.views.values()) if (view.thread === thread) return view
-    return undefined
-  }
-
-  /** The topic a chat's messages go to: its own, or that of the chat that started it. */
-  private threadFor(chatId: string): number | undefined {
+  /** A chat started from Telegram and left before it was sent anything is of no use, so it goes. */
+  private dropIfUnused(chatId: string): void {
+    if (!this.started.delete(chatId)) return
     const chat = this.chat(chatId)
-    if (!chat) return undefined
-    return (
-      this.views.get(chat.id)?.thread ??
-      (chat.startedBy ? this.views.get(chat.startedBy)?.thread : undefined)
-    )
+    if (!chat || chat.running || chat.draft || store.getMessages(chatId).length > 0) return
+    this.host
+      .deleteChat(chatId)
+      .catch((error) => console.error('Telegram: could not delete an unused chat:', error))
   }
 
-  /**
-   * A topic's name: its chat's title. It carries no status, as Telegram posts
-   * a line in the topic each time its name changes.
-   */
-  private topicName(chat: Chat): string {
-    return cut(chat.title, TOPIC_NAME)
+  private publish(): void {
+    this.host.statusChanged(this.status())
   }
 
-  private showTopicName(view: TopicView): void {
-    this.later(`name:${view.chatId}`, EDIT_EVERY_MS, async () => {
-      const chat = this.chat(view.chatId)
-      if (!chat || this.views.get(chat.id) !== view) return
-      const name = this.topicName(chat)
-      if (name === view.name) return
-      try {
-        await this.api!.call('editForumTopic', {
-          chat_id: telegramConfig().owner!.chatId,
-          message_thread_id: view.thread,
-          name
-        })
-      } catch (error) {
-        if (!(error instanceof TelegramError) || !/not.?modified/i.test(error.message)) throw error
-      }
-      view.name = name
-    })
+  /** Forget what was shown of the linked chat and its chats, and drop what is queued. */
+  private forgetChats(): void {
+    this.generation++
+    for (const timer of this.timers) clearTimeout(timer)
+    this.timers.clear()
+    this.due.clear()
+    this.pending.length = 0
+    this.view = undefined
+    this.forms.clear()
+    this.sentImages.clear()
+    this.replies.clear()
+    this.catalog = undefined
+    // The list of chats isn't about the linked chat: it goes on, and its pending edit was dropped.
+    this.showSidebar()
   }
 
-  /** Whether the bot's topics are on, asked again: the user may have just turned them on. */
-  private async checkTopics(api: BotApi, signal?: AbortSignal): Promise<boolean> {
-    const me = await api.call<TelegramUser>('getMe', {}, signal)
-    this.bot = me.username
-    const on = me.has_topics_enabled === true
-    const was = this.topicsOn
-    this.topicsOn = on
-    if (on !== was) this.publish()
-    if (on && !was) this.moveLinkedChat()
-    return on
-  }
-
-  /** The chat the bot controlled before chats had topics gets one. */
-  private moveLinkedChat(): void {
-    const { linkedChatId } = telegramConfig()
-    if (!linkedChatId) return
-    updateTelegramConfig({ linkedChatId: undefined })
-    if (!this.chat(linkedChatId)) return
-    this.topicFor(linkedChatId).catch((error) =>
-      console.error('Telegram: could not give the linked chat a topic:', error)
-    )
+  /** Whether a chat is shown here: the linked chat, or one it started. */
+  private follows(chatId: string): boolean {
+    const linked = this.view?.chatId
+    if (!linked) return false
+    return chatId === linked || this.chat(chatId)?.startedBy === linked
   }
 
   // --- Reading updates ---------------------------------------------------------
@@ -629,24 +497,23 @@ export class TelegramBridge {
     let backoff = 1000
     while (!signal.aborted) {
       try {
-        if (this.topicsOn === undefined) {
-          await this.checkTopics(api, signal)
-          // Topics of chats deleted while Barebone was closed go, and the rest show how their chats are.
-          this.stateChanged()
+        if (!this.bot) {
+          this.bot = (await api.call<TelegramUser>('getMe', {}, signal)).username
+          this.publish()
         }
         if (!this.commandsSet) {
           await api.call(
             'setMyCommands',
             {
               commands: [
-                { command: 'status', description: 'How this topic’s chat is doing' },
-                { command: 'stop', description: 'Stop this chat and the chats it started' },
-                { command: 'new', description: 'Start a new chat in this project' },
-                { command: 'projects', description: 'Open another chat or project' },
                 { command: 'chats', description: 'See which chats are working or need you' },
+                { command: 'status', description: 'How the linked chat is doing' },
+                { command: 'stop', description: 'Stop the linked chat and the chats it started' },
+                { command: 'new', description: 'Start a new chat in this project' },
+                { command: 'projects', description: 'Switch to another project or chat' },
                 { command: 'model', description: 'Switch the model or provider' },
                 { command: 'thinking', description: 'Change the thinking level' },
-                { command: 'rename', description: 'Rename this chat' }
+                { command: 'rename', description: 'Rename the linked chat' }
               ]
             },
             signal
@@ -697,15 +564,14 @@ export class TelegramBridge {
     const { owner } = telegramConfig()
     const stopped = update.stopped_message_generation
     if (stopped) {
-      const view =
-        owner?.chatId === stopped.chat.id ? this.viewOf(stopped.message_thread_id) : undefined
-      if (view) await this.stopChat(view.chatId)
+      // Stop on the answer being written.
+      if (owner?.chatId === stopped.chat.id && this.view) await this.stopChat(this.view.chatId)
       return
     }
     const query = update.callback_query
     if (query) {
       if (query.from.id !== owner?.userId) return
-      await this.onButton(query.id, query.data, query.message?.message_id, threadOf(query.message))
+      await this.onButton(query.id, query.data, query.message?.message_id)
       return
     }
     const message = update.message
@@ -715,22 +581,11 @@ export class TelegramBridge {
       return
     }
     if (message.from.id !== owner.userId) return
-    if (!this.topicsOn && !(await this.checkTopics(this.api!))) {
-      this.say(TOPICS_OFF)
-      return
-    }
-    const thread = threadOf(message)
-    if (message.forum_topic_created) {
-      // A topic the user made. Telegram makes it with its first message, which comes next
-      // and decides what it becomes (see onMessage).
-      if (thread !== undefined && !this.viewOf(thread)) {
-        this.unclaimed.set(thread, { name: message.forum_topic_created.name })
-      }
-      return
-    }
+    // Topics made while the bot was in Threaded Mode say nothing to it.
+    if (message.forum_topic_created) return
     if (Date.now() / 1000 - message.date > LATE_S) {
       this.late.set(message.message_id, message)
-      this.say('Barebone was offline when you sent this. Send it now?', thread, {
+      this.say('Barebone was offline when you sent this. Send it now?', {
         reply_parameters: { message_id: message.message_id, allow_sending_without_reply: true },
         reply_markup: this.keyboard([
           [
@@ -754,104 +609,75 @@ export class TelegramBridge {
     updateTelegramConfig({ owner: { userId: message.from!.id, chatId: message.chat.id } })
     this.code = undefined
     this.publish()
-    this.say(
-      this.topicsOn
-        ? 'Paired with Barebone. Send /projects to open a chat or start a new one: each chat gets a topic of its own here.'
-        : `Paired with Barebone. ${TOPICS_OFF}`
-    )
+    this.say('Paired with Barebone. Send /projects to pick a chat to control or start a new one.')
   }
 
   private async onMessage(message: TelegramMessage): Promise<void> {
-    let thread = threadOf(message)
     const text = (message.text ?? message.caption ?? '').trim()
     const target = message.reply_to_message && this.replies.get(message.reply_to_message.message_id)
     if (target && text) {
       this.replies.delete(message.reply_to_message!.message_id)
       if (target.kind === 'field') this.answerField(target.form, target.field, text)
-      else if (target.kind === 'rename') this.rename(target.chatId, text, thread)
+      else if (target.kind === 'rename') this.rename(target.chatId, text)
       else void this.sendTo(target.chatId, text, [], message)
       return
     }
     const command = text.match(/^\/(\w+)(?:@\w+)?(?:\s+([\s\S]*))?$/)
     const arg = command?.[2]?.trim() ?? ''
-    const chatId = this.viewOf(thread)?.chatId
-    if (thread !== undefined && !chatId) {
-      if (command) {
-        // With topics on, Telegram has nowhere to write outside them: a message there
-        // makes a topic. A command isn't meant as one, so it is answered outside every
-        // topic, and the topic it made goes.
-        this.dropTopic(thread)
-        thread = undefined
-      } else {
-        // A topic that is no chat: one the user made, or whose chat is gone. What they
-        // first wrote goes to the chat they start for it.
-        const unclaimed = this.unclaimed.get(thread)
-        if (unclaimed?.message) {
-          this.say('Pick the project above first, then write again.', thread)
-          return
-        }
-        this.unclaimed.set(thread, { ...unclaimed, message })
-        this.offerChat(thread)
-        return
-      }
-    }
+    const chatId = this.view?.chatId
     switch (command?.[1]) {
       case 'start':
         this.say(
-          chatId
-            ? `Paired. This topic is <b>${escapeHtml(this.chat(chatId)!.title)}</b>.`
-            : NO_CHAT_HERE,
-          thread
+          this.linkedTitle
+            ? `Paired. Controlling <b>${escapeHtml(this.linkedTitle)}</b>.`
+            : NOT_LINKED
         )
         return
       case 'projects':
-        this.showPicker(this.projectsView(), thread)
+        this.showPicker(this.projectsView())
         return
       case 'chats':
         this.openSidebar()
         return
       case 'new': {
         const chat = chatId ? this.chat(chatId) : undefined
-        // Outside a chat's topic, the project is picked first.
+        // With no chat linked, the project is picked first.
         if (!chat) {
-          this.showPicker(this.projectsView(), thread)
+          this.showPicker(this.projectsView())
           return
         }
-        const note = await this.startChat(chat.projectId, { like: chat })
-        if (note) this.say(escapeHtml(note), thread)
+        const note = this.startChat(chat.projectId)
+        if (note) this.say(escapeHtml(note))
         return
       }
-      case 'status':
-        this.say(chatId ? this.statusText(chatId) : this.sidebarView().html, thread)
-        return
     }
     if (!chatId) {
-      this.say(NO_CHAT_HERE)
+      this.say(NOT_LINKED)
       return
     }
     switch (command?.[1]) {
+      case 'status':
+        this.say(this.statusText(chatId))
+        return
       case 'stop':
-        if (!(await this.stopChat(chatId))) this.say('It isn’t working.', thread)
+        if (!(await this.stopChat(chatId))) this.say('It isn’t working.')
         return
       case 'rename':
-        if (arg) this.rename(chatId, arg, thread)
+        if (arg) this.rename(chatId, arg)
         else {
           const title = escapeHtml(this.chat(chatId)!.title)
-          this.ask(`New name for <b>${title}</b>:`, { kind: 'rename', chatId }, thread)
+          this.ask(`New name for <b>${title}</b>:`, { kind: 'rename', chatId })
         }
         return
       case 'model':
         // Read in the background: the agents can take a few seconds to list their models.
-        this.showModels(chatId, arg.toLowerCase(), thread).catch((error) =>
-          this.say(escapeHtml(`Couldn’t read the models: ${(error as Error).message}`), thread)
+        this.showModels(chatId, arg.toLowerCase()).catch((error) =>
+          this.say(escapeHtml(`Couldn’t read the models: ${(error as Error).message}`))
         )
         return
       case 'thinking':
-        this.showThinking(chatId, thread).catch((error) =>
-          this.say(
-            escapeHtml(`Couldn’t read the thinking levels: ${(error as Error).message}`),
-            thread
-          )
+        this.showThinking(chatId).catch((error) =>
+          this.say(escapeHtml(`Couldn’t read the thinking levels: ${(error as Error).message}`))
         )
         return
     }
@@ -864,10 +690,10 @@ export class TelegramBridge {
           message.voice.mime_type ?? 'audio/ogg'
         )
         if (!heard) {
-          this.say('Nothing was heard in that voice note.', thread)
+          this.say('Nothing was heard in that voice note.')
           return
         }
-        this.say(`🎙 <i>${escapeHtml(heard)}</i>`, thread, {
+        this.say(`🎙 <i>${escapeHtml(heard)}</i>`, {
           ...SILENT,
           reply_parameters: { message_id: message.message_id, allow_sending_without_reply: true }
         })
@@ -891,11 +717,11 @@ export class TelegramBridge {
         attachments.push({ name, path, ...(file.mime_type ? { mimeType: file.mime_type } : {}) })
       }
     } catch (error) {
-      this.say(escapeHtml((error as Error).message), thread)
+      this.say(escapeHtml((error as Error).message))
       return
     }
     if (!prompt && attachments.length === 0) {
-      this.say('Barebone takes text, photos, files and voice notes.', thread)
+      this.say('Barebone takes text, photos, files and voice notes.')
       return
     }
     void this.sendTo(chatId, prompt, attachments, message)
@@ -916,7 +742,7 @@ export class TelegramBridge {
   ): Promise<void> {
     const chat = this.chat(chatId)
     if (!chat) {
-      this.say('That chat is gone.', threadOf(from))
+      this.say('That chat is gone.')
       return
     }
     const id = randomUUID()
@@ -931,7 +757,7 @@ export class TelegramBridge {
     await this.host.send(chatId, marked, attachments, id).catch((error) => {
       this.followed.delete(id)
       this.react(from.message_id, MARK_END.failed)
-      this.say(escapeHtml((error as Error).message), threadOf(from))
+      this.say(escapeHtml((error as Error).message))
     })
   }
 
@@ -944,13 +770,13 @@ export class TelegramBridge {
     return stopping.length > 0
   }
 
-  private rename(chatId: string, title: string, thread?: number): void {
+  private rename(chatId: string, title: string): void {
     if (!this.chat(chatId)) {
-      this.say('That chat is gone.', thread)
+      this.say('That chat is gone.')
       return
     }
     this.host.renameChat(chatId, title)
-    this.say(`Renamed to <b>${escapeHtml(title.trim())}</b>.`, thread, SILENT)
+    this.say(`Renamed to <b>${escapeHtml(title.trim())}</b>.`, SILENT)
   }
 
   private react(messageId: number, emoji: string): void {
@@ -965,7 +791,7 @@ export class TelegramBridge {
     )
   }
 
-  /** A chat's status, for /status in its topic. */
+  /** The linked chat's status, for /status. */
   private statusText(chatId: string): string {
     const chat = this.chat(chatId)!
     const { projects, chats } = store.getState()
@@ -1044,26 +870,17 @@ export class TelegramBridge {
     return { inline_keyboard: rows.filter((row) => row.length > 0) }
   }
 
-  private async onButton(
-    queryId: string,
-    data?: string,
-    messageId?: number,
-    thread?: number
-  ): Promise<void> {
+  private async onButton(queryId: string, data?: string, messageId?: number): Promise<void> {
     const action = data ? this.actions.get(data) : undefined
     let note: string | undefined = action ? undefined : 'This button is out of date.'
-    if (action) note = await this.act(action, messageId, thread)
+    if (action) note = await this.act(action, messageId)
     await this.api
       ?.call('answerCallbackQuery', { callback_query_id: queryId, ...(note ? { text: note } : {}) })
       .catch(() => undefined)
   }
 
   /** Do what a button says; returns a short note to show, if any. */
-  private async act(
-    action: Action,
-    messageId?: number,
-    thread?: number
-  ): Promise<string | undefined> {
+  private async act(action: Action, messageId?: number): Promise<string | undefined> {
     switch (action.kind) {
       case 'permission':
         this.host.resolvePermission(action.chatId, action.permissionId, action.optionId)
@@ -1074,30 +891,28 @@ export class TelegramBridge {
       case 'message': {
         const chat = this.chat(action.chatId)
         if (!chat) return 'That chat is gone.'
-        this.ask(
-          `Message for <b>${escapeHtml(chat.title)}</b>:`,
-          { kind: 'message', chatId: chat.id },
-          thread
-        )
+        this.ask(`Message for <b>${escapeHtml(chat.title)}</b>:`, {
+          kind: 'message',
+          chatId: chat.id
+        })
         return undefined
       }
-      case 'open': {
-        const had = this.threadFor(action.chatId) !== undefined
-        let view: TopicView
-        try {
-          view = await this.topicFor(action.chatId)
-        } catch (error) {
-          return (error as Error).message
-        }
-        // A picker goes once used; the list of chats stays, and a "needs you" goes once answered.
+      case 'link': {
+        const asked = this.chat(action.chatId)
+        // A chat another chat started is shown with its lead: linking the lead shows it.
+        const chat = asked?.startedBy ? this.chat(asked.startedBy) : asked
+        if (!chat) return 'That chat is gone.'
+        if (chat.id === telegramConfig().linkedChatId) return 'Already controlling it.'
+        this.link(chat.id)
+        // A picker goes once used. The list of chats stays and ticks the chat now linked;
+        // a "needs you" goes by itself once the chat is shown here.
         if (
           messageId !== telegramConfig().sidebarMessageId &&
           ![...this.alerts.values()].includes(messageId)
         ) {
           this.removeMessage(messageId)
         }
-        const title = cut(this.chat(view.chatId)?.title ?? '', 60)
-        return had ? `It’s in the “${title}” topic.` : `Opened the “${title}” topic.`
+        return undefined
       }
       case 'late': {
         const message = this.late.get(action.messageId)
@@ -1114,44 +929,44 @@ export class TelegramBridge {
       case 'formSend':
       case 'formDecline':
       case 'formOpen':
-        return this.formAction(action, thread)
+        return this.formAction(action)
       case 'projects':
-        this.showPicker(this.projectsView(), thread, messageId)
+        this.showPicker(this.projectsView(), messageId)
         return undefined
       case 'project': {
         const view = this.projectView(action.projectId)
         if (!view) return 'That project is gone.'
-        this.showPicker(view, thread, messageId)
+        this.showPicker(view, messageId)
         return undefined
       }
       case 'newChat': {
-        const name =
-          action.thread !== undefined ? this.unclaimed.get(action.thread)?.name : undefined
-        const note = await this.startChat(action.projectId, { thread: action.thread, name })
+        const note = this.startChat(action.projectId)
         if (!note) this.removeMessage(messageId)
         return note
       }
       case 'sources': {
         const catalog = this.liveCatalog()
         if (!catalog) return MODELS_OUT_OF_DATE
-        this.showPicker(this.sourcesView(catalog), thread, messageId)
+        this.showPicker(this.sourcesView(catalog), messageId)
         return undefined
       }
       case 'source': {
         const catalog = this.liveCatalog()
         const view = catalog && this.modelsView(catalog, action.key, action.page)
         if (!view) return MODELS_OUT_OF_DATE
-        this.showPicker(view, thread, messageId)
+        this.showPicker(view, messageId)
         return undefined
       }
       case 'model':
-        return this.pickModel(action.key, action.value, messageId, thread)
+        return this.pickModel(action.key, action.value, messageId)
       case 'thinking': {
-        if (!this.chat(action.chatId)) return 'That chat is gone.'
+        if (action.chatId !== telegramConfig().linkedChatId) {
+          return 'This list is out of date. Send /thinking again.'
+        }
         try {
           await this.host.setOption(action.chatId, action.optionId, action.value)
         } catch (error) {
-          this.say(escapeHtml((error as Error).message), thread)
+          this.say(escapeHtml((error as Error).message))
           return undefined
         }
         const done = `Thinking level: <b>${escapeHtml(action.name)}</b>.`
@@ -1163,30 +978,18 @@ export class TelegramBridge {
 
   // --- Picking a chat ----------------------------------------------------------
 
-  /**
-   * The projects, as the sidebar lists them. In a topic the user made, picking
-   * one starts a chat there; elsewhere it lists the project's chats.
-   */
-  private projectsView(thread?: number): Picker {
+  /** The projects, as the sidebar lists them; the linked chat's is ticked. */
+  private projectsView(): Picker {
     const { projects } = store.getState()
     if (projects.length === 0) return { html: 'No projects yet. Add one on the Mac.', rows: [] }
+    const linkedChatId = telegramConfig().linkedChatId
+    const current = linkedChatId ? this.chat(linkedChatId)?.projectId : undefined
     const buttons = projects.map((p) =>
-      this.button(
-        p.name,
-        thread !== undefined
-          ? { kind: 'newChat', projectId: p.id, thread }
-          : { kind: 'project', projectId: p.id }
-      )
+      this.button(`${p.id === current ? '✓ ' : ''}${p.name}`, { kind: 'project', projectId: p.id })
     )
     const rows: InlineButton[][] = []
     for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2))
-    return {
-      html:
-        thread !== undefined
-          ? 'This topic isn’t a chat yet. Pick the project to start one in:'
-          : 'Pick a project:',
-      rows
-    }
+    return { html: 'Pick a project:', rows }
   }
 
   /** A project's latest chats the user started, newest first, and a button for a new one. */
@@ -1194,34 +997,35 @@ export class TelegramBridge {
     const { projects, chats } = store.getState()
     const project = projects.find((p) => p.id === projectId)
     if (!project) return undefined
+    const linkedChatId = telegramConfig().linkedChatId
     const own = chats
       .filter((c) => c.projectId === projectId && !c.startedBy)
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, PICK_CHATS)
     const rows = own.map((c) => [
       this.button(
-        `${this.views.has(c.id) ? '💬 ' : ''}${c.title}${c.running ? ' · working' : ''}`,
-        { kind: 'open', chatId: c.id }
+        `${c.id === linkedChatId ? '✓ ' : ''}${c.title}${c.running ? ' · working' : ''}`,
+        { kind: 'link', chatId: c.id }
       )
     ])
     rows.push([
       this.button('+ New chat', { kind: 'newChat', projectId }, 'primary'),
       this.button('‹ Projects', { kind: 'projects' })
     ])
-    const lead = own.length ? 'Open a chat in its topic, or start a new one:' : 'No chats yet.'
+    const lead = own.length ? 'Pick a chat or start a new one:' : 'No chats yet.'
     return { html: `<b>${escapeHtml(project.name)}</b>\n${lead}`, rows }
   }
 
   /** Show a picker, in place of the one tapped when there is one. */
-  private showPicker(view: Picker, thread?: number, messageId?: number): void {
+  private showPicker(view: Picker, messageId?: number): void {
     this.enqueue(async () => {
       if (messageId) {
         await this.edit(messageId, view.html, view.rows)
       } else {
-        await this.sendText({ html: view.html, plain: view.html.replace(/<[^>]+>/g, '') }, thread, {
-          ...SILENT,
-          reply_markup: this.keyboard(view.rows)
-        })
+        await this.sendText(
+          { html: view.html, plain: view.html.replace(/<[^>]+>/g, '') },
+          { ...SILENT, reply_markup: this.keyboard(view.rows) }
+        )
       }
     }, ASK)
   }
@@ -1240,45 +1044,28 @@ export class TelegramBridge {
   }
 
   /**
-   * Start a new chat in a project and give it a topic: `thread`, a topic the
-   * user made, or a new one. It takes the agent, model and permissions of
-   * `like`, or else of the latest chat the user started: what the window picks
-   * for new chats is kept in the window. Returns why it could not, if it could not.
+   * Start a new chat in a project and control it. It takes the agent, model
+   * and permissions of the linked chat, or else of the latest chat the user
+   * started: what the window picks for new chats is kept in the window.
+   * Returns why it could not, if it could not.
    */
-  private async startChat(
-    projectId: string,
-    { like, thread, name }: { like?: Chat; thread?: number; name?: string } = {}
-  ): Promise<string | undefined> {
+  private startChat(projectId: string): string | undefined {
     const { projects, chats } = store.getState()
     if (!projects.some((p) => p.id === projectId)) return 'That project is gone.'
     const latest = (list: Chat[]): Chat | undefined =>
       list
         .filter((c) => !c.startedBy)
         .reduce<Chat | undefined>((a, c) => (!a || c.updatedAt > a.updatedAt ? c : a), undefined)
-    const template = like ?? latest(chats.filter((c) => c.projectId === projectId)) ?? latest(chats)
-    if (!template) return 'Start a chat on the Mac first: new chats here take its agent and model.'
-    const chat = this.host.createChat(projectId, template)
-    if (name) this.host.renameChat(chat.id, name)
-    try {
-      await this.topicFor(chat.id, thread)
-    } catch (error) {
-      return (error as Error).message
-    }
-    const first = thread !== undefined ? this.unclaimed.get(thread)?.message : undefined
-    if (thread !== undefined) this.unclaimed.delete(thread)
-    if (first) await this.onMessage(first)
+    const linkedChatId = telegramConfig().linkedChatId
+    const like =
+      (linkedChatId ? this.chat(linkedChatId) : undefined) ??
+      latest(chats.filter((c) => c.projectId === projectId)) ??
+      latest(chats)
+    if (!like) return 'Start a chat on the Mac first: new chats here take its agent and model.'
+    const chat = this.host.createChat(projectId, like)
+    this.started.add(chat.id)
+    this.link(chat.id)
     return undefined
-  }
-
-  /** Delete a topic that is no chat, made by a command written outside every topic. */
-  private dropTopic(thread: number): void {
-    this.unclaimed.delete(thread)
-    this.deleteTopic(thread)
-  }
-
-  /** Offer to start a chat in a topic that is no chat. */
-  private offerChat(thread: number): void {
-    this.showPicker(this.projectsView(thread), thread)
   }
 
   // --- The list of chats -------------------------------------------------------
@@ -1297,7 +1084,6 @@ export class TelegramBridge {
       const view = this.sidebarView()
       const id = await this.sendText(
         { html: view.html, plain: view.html.replace(/<[^>]+>/g, '') },
-        undefined,
         { ...SILENT, reply_markup: this.keyboard(view.rows) }
       )
       if (!id) return
@@ -1360,10 +1146,11 @@ export class TelegramBridge {
    * the sidebar lists them by status: a chat working because a chat it started
    * works counts as working, and a chat whose lead works is listed under it.
    * The first line sums them up, as it is all the pinned bar shows. Each chat
-   * has a button that opens its topic (a chat another chat started, its lead's).
+   * has a button that links it (a chat another chat started, its lead).
    */
   private sidebarView(): Picker {
     const { projects, chats } = store.getState()
+    const linkedChatId = telegramConfig().linkedChatId
     const names = new Map(projects.map((p) => [p.id, p.name]))
     const { started, startedWorking, working, leadWorking, mark } = activity(chats)
     const newest = [...chats].sort((a, b) => b.updatedAt - a.updatedAt)
@@ -1420,40 +1207,48 @@ export class TelegramBridge {
       }
     }
     if (left) parts.push(`\n<i>${left} more on the Mac.</i>`)
-    const rows = listed.map((c) => [
-      this.button(`${mark(c)} ${c.title}`, { kind: 'open', chatId: c.id })
-    ])
-    if (rows.length) parts.push('\n<i>Tap a chat to open its topic.</i>')
+    const rows = listed.map((c) => {
+      const lead = c.startedBy ?? c.id
+      return [
+        this.button(`${lead === linkedChatId ? '✓ ' : ''}${mark(c)} ${c.title}`, {
+          kind: 'link',
+          chatId: c.id
+        })
+      ]
+    })
+    if (rows.length) parts.push('\n<i>Tap a chat to control it here.</i>')
     return { html: parts.join('\n'), rows }
   }
 
   /**
-   * A chat that needs the user and isn't in any topic gets one message that
-   * buzzes, with a button that opens its topic; it goes once the chat is
-   * answered or opened.
+   * A chat that needs the user and isn't shown here gets one message that
+   * buzzes, with a button that links it; it goes once the chat is answered
+   * or linked.
    */
   private showAlerts(): void {
     const { chats, projects } = store.getState()
-    const followed = (chat: Chat): boolean => this.threadFor(chat.id) !== undefined
     for (const chat of chats) {
-      if (!chat.waiting || followed(chat) || this.alerts.has(chat.id)) continue
+      if (!chat.waiting || this.follows(chat.id) || this.alerts.has(chat.id)) continue
       this.alerts.set(chat.id, undefined)
       const project = projects.find((p) => p.id === chat.projectId)?.name
       const html = `🟡 <b>${escapeHtml(cut(chat.title, 60))}</b> needs you${project ? `\n<i>${escapeHtml(project)}</i>` : ''}`
       this.enqueue(async () => {
         if (!this.alerts.has(chat.id)) return
-        const id = await this.sendText({ html, plain: html.replace(/<[^>]+>/g, '') }, undefined, {
-          reply_markup: this.keyboard([
-            [this.button('Open', { kind: 'open', chatId: chat.id }, 'primary')]
-          ])
-        })
+        const id = await this.sendText(
+          { html, plain: html.replace(/<[^>]+>/g, '') },
+          {
+            reply_markup: this.keyboard([
+              [this.button('Control it', { kind: 'link', chatId: chat.id }, 'primary')]
+            ])
+          }
+        )
         if (this.alerts.has(chat.id)) this.alerts.set(chat.id, id)
         else this.removeMessage(id)
       }, ASK)
     }
     for (const [chatId, messageId] of this.alerts) {
       const chat = this.chat(chatId)
-      if (chat?.waiting && !followed(chat)) continue
+      if (chat?.waiting && !this.follows(chat.id)) continue
       this.alerts.delete(chatId)
       this.removeMessage(messageId)
     }
@@ -1461,14 +1256,15 @@ export class TelegramBridge {
 
   // --- Picking a model and thinking level --------------------------------------
 
-  /** Read the models a chat can switch to, then show them, or the ones `query` finds. */
-  private async showModels(chatId: string, query: string, thread?: number): Promise<void> {
+  /** Read the models the linked chat can switch to, then show them, or the ones `query` finds. */
+  private async showModels(chatId: string, query: string): Promise<void> {
     const chat = this.chat(chatId)
     if (!chat) return
-    this.typing(thread)
+    this.typing()
     const catalog = await this.readModels(chat)
+    if (telegramConfig().linkedChatId !== chatId) return
     this.catalog = catalog
-    this.showPicker(query ? this.searchView(catalog, query) : this.sourcesView(catalog), thread)
+    this.showPicker(query ? this.searchView(catalog, query) : this.sourcesView(catalog))
   }
 
   /** Every installed agent's models, as the window's model picker reads them when it opens. */
@@ -1502,17 +1298,17 @@ export class TelegramBridge {
     return { chatId: chat.id, current, options, sources }
   }
 
-  /** The models read last, while their chat is still there. */
+  /** The models read for the chat that is still linked. */
   private liveCatalog(): Catalog | undefined {
     const catalog = this.catalog
-    return catalog && this.chat(catalog.chatId) ? catalog : undefined
+    return catalog?.chatId === telegramConfig().linkedChatId ? catalog : undefined
   }
 
   /** Every agent and provider with models, the chat's own ticked. */
   private sourcesView(catalog: Catalog): Picker {
     const chat = this.chat(catalog.chatId)
     const now = chat
-      ? `<b>${escapeHtml(chat.title)}</b> is on <b>${escapeHtml(modelLabel(chat.agent, catalog.options))}</b>.\n`
+      ? `Now on <b>${escapeHtml(modelLabel(chat.agent, catalog.options))}</b>.\n`
       : ''
     if (catalog.sources.length === 0) return { html: `${now}No agent listed its models.`, rows: [] }
     const buttons = catalog.sources.map((s) =>
@@ -1578,15 +1374,14 @@ export class TelegramBridge {
   }
 
   /**
-   * Put the chat on a model, as the window's model picker does: on its own
-   * agent by setting the provider, then the model; on another agent by
+   * Put the linked chat on a model, as the window's model picker does: on its
+   * own agent by setting the provider, then the model; on another agent by
    * switching to it, which the agent refuses while the chat works.
    */
   private async pickModel(
     key: string,
     value: string,
-    messageId?: number,
-    thread?: number
+    messageId?: number
   ): Promise<string | undefined> {
     const catalog = this.liveCatalog()
     const chat = catalog && this.chat(catalog.chatId)
@@ -1609,30 +1404,31 @@ export class TelegramBridge {
         }
       }
     } catch (error) {
-      this.say(escapeHtml((error as Error).message), thread)
+      this.say(escapeHtml((error as Error).message))
       return undefined
     }
     this.catalog = undefined
     const done = `Now on <b>${escapeHtml(`${sourceName(source)} · ${picked.name}`)}</b>.`
     if (messageId) this.enqueue(() => this.edit(messageId, done, []), ASK)
-    else this.say(done, thread)
+    else this.say(done)
     return undefined
   }
 
-  /** The thinking levels the chat's model offers, read from its session. */
-  private async showThinking(chatId: string, thread?: number): Promise<void> {
+  /** The thinking levels the linked chat's model offers, read from its session. */
+  private async showThinking(chatId: string): Promise<void> {
     const chat = this.chat(chatId)
     if (!chat) return
-    this.typing(thread)
+    this.typing()
     const { options, error } = await this.host.openChat(chatId)
+    if (telegramConfig().linkedChatId !== chatId) return
     if (error) {
-      this.say(escapeHtml(`Couldn’t open the chat: ${error}`), thread)
+      this.say(escapeHtml(`Couldn’t open the chat: ${error}`))
       return
     }
     const on = modelLabel(chat.agent, options)
     const thinking = options.find((o) => o.category === 'thought_level')
     if (!thinking) {
-      this.say(`<b>${escapeHtml(on)}</b> has no thinking levels to pick.`, thread)
+      this.say(`<b>${escapeHtml(on)}</b> has no thinking levels to pick.`)
       return
     }
     const buttons = thinking.values.map((v) =>
@@ -1646,28 +1442,23 @@ export class TelegramBridge {
     )
     const rows: InlineButton[][] = []
     for (let i = 0; i < buttons.length; i += 3) rows.push(buttons.slice(i, i + 3))
-    this.showPicker({ html: `Thinking level for <b>${escapeHtml(on)}</b>:`, rows }, thread)
+    this.showPicker({ html: `Thinking level for <b>${escapeHtml(on)}</b>:`, rows })
   }
 
   /** Show "typing…" while something slow is read for the user. */
-  private typing(thread?: number): void {
+  private typing(): void {
     const chatId = telegramConfig().owner?.chatId
     if (!this.api || chatId === undefined) return
-    this.api
-      .call('sendChatAction', {
-        chat_id: chatId,
-        action: 'typing',
-        ...(thread !== undefined ? { message_thread_id: thread } : {})
-      })
-      .catch(() => undefined)
+    this.api.call('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => undefined)
   }
 
   /** Ask the user to reply to a message; the reply goes where `target` says. */
-  private ask(html: string, target: ReplyTarget, thread?: number): void {
+  private ask(html: string, target: ReplyTarget): void {
     this.enqueue(async () => {
-      const id = await this.sendText({ html, plain: html.replace(/<[^>]+>/g, '') }, thread, {
-        reply_markup: { force_reply: true, input_field_placeholder: 'Reply here' }
-      })
+      const id = await this.sendText(
+        { html, plain: html.replace(/<[^>]+>/g, '') },
+        { reply_markup: { force_reply: true, input_field_placeholder: 'Reply here' } }
+      )
       if (id) this.replies.set(id, target)
     }, ASK)
   }
@@ -1678,15 +1469,15 @@ export class TelegramBridge {
   item(chatId: string, item: ChatItem): void {
     if (!this.api || !telegramConfig().owner) return
     if (item.kind === 'user') this.markStarted(item.id)
+    const view = this.view
     const chat = this.chat(chatId)
-    if (!chat) return
-    const own = this.views.get(chatId)
-    if (own) {
-      this.topicItem(own, item)
+    if (!view || !chat) return
+    if (chatId === view.chatId) {
+      this.linkedItem(view, item)
+    } else if (chat.startedBy === view.chatId) {
+      this.workerItem(view, chat, item)
     } else {
-      const lead = chat.startedBy ? this.views.get(chat.startedBy) : undefined
-      if (!lead) return
-      this.workerItem(lead, chat, item)
+      return
     }
     if ((item.kind === 'text' || item.kind === 'tool') && item.images?.length) {
       this.sendImages(chatId, item.images)
@@ -1699,31 +1490,39 @@ export class TelegramBridge {
 
   /** Chats were added, changed or removed, or a turn began or ended. */
   stateChanged(): void {
-    const { owner, topics } = telegramConfig()
-    if (!this.api || !owner) return
+    if (!this.api || !telegramConfig().owner) return
     this.showSidebar()
-    if (this.topicsOn !== true) return
-    // A chat deleted, on the Mac or while Barebone was closed, takes its topic with it.
-    for (const chatId of Object.keys(topics ?? {})) {
-      if (!this.chat(chatId)) this.removeTopic(chatId, true)
-    }
-    const { chats } = store.getState()
-    for (const view of this.views.values()) {
-      this.showTopicName(view)
-      for (const chat of chats) {
-        if (chat.startedBy === view.chatId && chat.running && !view.cards.has(chat.id)) {
-          view.cards.set(chat.id, { title: chat.title })
-        }
-      }
-      for (const chatId of view.cards.keys()) this.showCard(view, chatId)
-    }
     this.showAlerts()
+    const view = this.view
+    if (!view) return
+    const linked = this.chat(view.chatId)
+    if (!linked) {
+      const title = this.linkedTitle
+      updateTelegramConfig({ linkedChatId: undefined })
+      this.forgetChats()
+      this.linkedTitle = undefined
+      this.publish()
+      this.say(
+        `<b>${escapeHtml(title ?? 'The linked chat')}</b> was deleted, so no chat is linked now.`
+      )
+      return
+    }
+    if (linked.title !== this.linkedTitle) {
+      this.linkedTitle = linked.title
+      this.publish()
+    }
+    for (const chat of store.getState().chats) {
+      if (chat.startedBy === linked.id && chat.running && !view.cards.has(chat.id)) {
+        view.cards.set(chat.id, { title: chat.title })
+      }
+    }
+    for (const chatId of view.cards.keys()) this.showCard(view, chatId)
   }
 
   /**
    * A chat's turn ended, and how (undefined when it goes on in the next one):
-   * the user's messages it took are marked, its last answer is sent, and its
-   * steps messages say they are done.
+   * the user's messages it took are marked, and for the linked chat its last
+   * answer is sent and its steps messages say they are done.
    */
   turnEnded(chatId: string, end: TurnEnd | undefined): void {
     if (!end) return
@@ -1732,8 +1531,8 @@ export class TelegramBridge {
       this.followed.delete(id)
       this.react(sent.messageId, MARK_END[end.outcome])
     }
-    const view = this.views.get(chatId)
-    if (!view) return
+    const view = this.view
+    if (view?.chatId !== chatId) return
     // Its last answer is the one that buzzes: the turn is done.
     this.endText(view, true)
     const now = Date.now()
@@ -1747,32 +1546,29 @@ export class TelegramBridge {
 
   /** A video an agent recorded was saved. */
   video(chatId: string, video: Recorded): void {
-    const thread = this.threadFor(chatId)
-    if (!this.api || thread === undefined) return
+    if (!this.api || !this.follows(chatId)) return
     const caption = this.tagOf(chatId)
     if (video.bytes > MAX_UPLOAD) {
       this.say(
         `${caption ? `<b>${escapeHtml(caption)}</b>: ` : ''}a ${(video.bytes / 1e6).toFixed(1)} MB video is over Telegram’s 50 MB limit for bots. It is on the Mac at <code>${escapeHtml(video.path)}</code>.`,
-        thread,
         SILENT
       )
       return
     }
-    this.sendMedia('sendVideo', 'video', video.path, thread, caption).catch((error) =>
-      this.say(escapeHtml(`Couldn’t send a video: ${(error as Error).message}`), thread, SILENT)
+    this.sendMedia('sendVideo', 'video', video.path, caption).catch((error) =>
+      this.say(escapeHtml(`Couldn’t send a video: ${(error as Error).message}`), SILENT)
     )
   }
 
-  /** Whether send_file can be offered: a user is paired, and topics are on. */
+  /** Whether send_file can be offered: a user is paired. */
   sendsFiles(): boolean {
-    return Boolean(this.api && telegramConfig().owner && this.topicsOn)
+    return Boolean(this.api && telegramConfig().owner)
   }
 
-  /** Send a file a chat's agent picked (send_file) to the chat's topic. */
+  /** Send a file a chat's agent picked (send_file) to the user's phone. */
   async sendFile(chatId: string, path: string, caption?: string): Promise<string> {
     const chat = this.chat(chatId)
-    const thread = chat ? this.threadFor(chat.id) : undefined
-    if (!chat || thread === undefined || !this.api) {
+    if (!chat || !this.api || !this.follows(chat.id)) {
       throw new Error(
         'The user doesn’t follow this chat in Telegram, so there is nowhere to send it. Tell them where the file is instead.'
       )
@@ -1799,13 +1595,13 @@ export class TelegramBridge {
       PHOTOS.has(ext) && info.size <= MAX_PHOTO ? 'photo' : VIDEOS.has(ext) ? 'video' : 'document'
     const method = { photo: 'sendPhoto', video: 'sendVideo', document: 'sendDocument' }[kind]
     const label = [this.tagOf(chatId), caption].filter(Boolean).join(': ')
-    await this.sendMedia(method, kind, file, thread, label || undefined)
+    await this.sendMedia(method, kind, file, label || undefined)
     return `Sent ${basename(file)} to the user's phone, as a ${kind === 'document' ? 'file' : kind}.`
   }
 
-  // --- A chat's topic ------------------------------------------------------------
+  // --- The linked chat ---------------------------------------------------------
 
-  private topicItem(view: TopicView, item: ChatItem): void {
+  private linkedItem(view: LinkedView, item: ChatItem): void {
     const fresh = !view.seen.has(item.id)
     view.seen.add(item.id)
     switch (item.kind) {
@@ -1813,7 +1609,7 @@ export class TelegramBridge {
         if (!fresh) return
         // A message written on the Mac shows here too, so the answer that follows makes sense.
         if (!item.from && !this.followed.has(item.id) && !item.text.startsWith('Remote:')) {
-          this.say(`🖥 <i>${escapeHtml(cut(item.text, 500))}</i>`, view.thread, SILENT, UPDATE)
+          this.say(`🖥 <i>${escapeHtml(cut(item.text, 500))}</i>`, SILENT, UPDATE)
         }
         return
       case 'text':
@@ -1845,7 +1641,7 @@ export class TelegramBridge {
       }
       case 'permission':
         if (fresh) this.endText(view, false)
-        this.showPermission(view, view.chatId, item)
+        this.showPermission(view.chatId, item)
         return
       case 'form':
         if (fresh) this.endText(view, false)
@@ -1857,10 +1653,7 @@ export class TelegramBridge {
         if (view.posted.has(item.id)) return
         view.posted.add(item.id)
         for (const out of plainMessages(item.kind === 'error' ? `⚠️ ${item.text}` : item.text)) {
-          this.enqueue(
-            () => this.sendText(out, view.thread, item.kind === 'error' ? {} : SILENT),
-            ANSWER
-          )
+          this.enqueue(() => this.sendText(out, item.kind === 'error' ? {} : SILENT), ANSWER)
         }
         return
       default:
@@ -1872,30 +1665,30 @@ export class TelegramBridge {
    * The answer being written is final: a later item came, or the turn ended.
    * Only the turn's last answer buzzes; the ones between its steps come silently.
    */
-  private endText(view: TopicView, last: boolean): void {
+  private endText(view: LinkedView, last: boolean): void {
     if (view.text) this.postText(view, view.text.id, last)
     view.text = undefined
   }
 
   /** Send an answer as rich messages, or in plainer HTML where Telegram refuses those. */
-  private postText(view: TopicView, id: string, notify: boolean): void {
+  private postText(view: LinkedView, id: string, notify: boolean): void {
     if (view.posted.has(id)) return
     view.posted.add(id)
     const extra = notify ? {} : SILENT
     this.enqueue(async () => {
-      if (this.views.get(view.chatId) !== view) return
+      if (this.view !== view) return
       const item = store.findItem(view.chatId, id)
       if (item?.kind !== 'text' || !item.text.trim()) return
       if (!this.noRich) {
         try {
-          for (const html of richMessages(item.text)) await this.sendRich(html, view.thread, extra)
+          for (const html of richMessages(item.text)) await this.sendRich(html, extra)
           this.richFailures = 0
           return
         } catch (error) {
           if (!this.richRefused(error)) throw error
         }
       }
-      for (const out of markdownMessages(item.text)) await this.sendText(out, view.thread, extra)
+      for (const out of markdownMessages(item.text)) await this.sendText(out, extra)
     }, ANSWER)
   }
 
@@ -1903,15 +1696,14 @@ export class TelegramBridge {
    * The answer so far, as a draft with a Stop button: Telegram shows it as it
    * is written, until the message is sent.
    */
-  private async draft(view: TopicView, id: string): Promise<void> {
+  private async draft(view: LinkedView, id: string): Promise<void> {
     const item = store.findItem(view.chatId, id)
-    if (this.noDrafts || this.views.get(view.chatId) !== view) return
+    if (this.noDrafts || this.view !== view) return
     if (item?.kind !== 'text' || view.posted.has(id) || view.text?.id !== id) return
     const tail = item.text.length > 4000 ? `…${item.text.slice(-3999)}` : item.text
     if (!tail.trim()) return
     const params = {
       chat_id: telegramConfig().owner!.chatId,
-      message_thread_id: view.thread,
       draft_id: view.text.draftId,
       can_stop: true
     }
@@ -1938,10 +1730,10 @@ export class TelegramBridge {
   }
 
   /** Show a run of tool calls, editing its message as the calls go. */
-  private showSteps(view: TopicView, steps: Steps): void {
-    const key = `steps:${view.chatId}:${steps.startedAt}:${steps.ids[0]}`
+  private showSteps(view: LinkedView, steps: Steps): void {
+    const key = `steps:${steps.startedAt}:${steps.ids[0]}`
     this.later(key, steps.messageId ? EDIT_EVERY_MS : 0, async () => {
-      if (this.views.get(view.chatId) !== view) return
+      if (this.view !== view) return
       const items = steps.ids
         .map((id) => store.findItem(view.chatId, id))
         .filter((i): i is ToolItem => i?.kind === 'tool')
@@ -1954,21 +1746,18 @@ export class TelegramBridge {
       if (steps.messageId) {
         if ((await this.edit(steps.messageId, html, [])) === 'gone') steps.messageId = undefined
       } else {
-        steps.messageId = await this.sendText(
-          { html, plain: html.replace(/<[^>]+>/g, '') },
-          view.thread,
-          SILENT
-        )
+        steps.messageId = await this.sendText({ html, plain: html.replace(/<[^>]+>/g, '') }, SILENT)
       }
     })
   }
 
-  /** Something was sent to a topic, which hides the draft of its answer: show it again. */
-  private redraw(thread: number | undefined): void {
-    const view = this.viewOf(thread)
+  /** Something was sent, which hides the draft of the answer being written: show it again. */
+  private redraw(): void {
+    const view = this.view
     const text = view?.text
-    if (view && text)
+    if (view && text) {
       this.later(`draft:${text.id}`, DRAFT_EVERY_MS, () => this.draft(view, text.id))
+    }
   }
 
   /**
@@ -1983,29 +1772,27 @@ export class TelegramBridge {
     return true
   }
 
-  private showPermission(
-    view: TopicView,
-    chatId: string,
-    item: PermissionItem,
-    tag?: string
-  ): void {
-    if (item.auto) return
+  private showPermission(chatId: string, item: PermissionItem, tag?: string): void {
+    const view = this.view
+    if (item.auto || !view) return
     const asked = view.asked.get(item.id)
     if (item.resolved === undefined && asked === undefined && !view.posted.has(item.id)) {
       view.posted.add(item.id)
       this.enqueue(async () => {
+        if (this.view !== view) return
         const now = store.findItem(chatId, item.id)
         if (now?.kind !== 'permission' || now.resolved !== undefined) return
         const html = permissionText(now, tag)
-        const id = await this.sendText({ html, plain: html.replace(/<[^>]+>/g, '') }, view.thread, {
-          reply_markup: this.keyboard(this.permissionButtons(chatId, now))
-        })
+        const id = await this.sendText(
+          { html, plain: html.replace(/<[^>]+>/g, '') },
+          { reply_markup: this.keyboard(this.permissionButtons(chatId, now)) }
+        )
         if (!id) return
         view.asked.set(item.id, id)
         // Answered on the Mac while it was being sent.
         const after = store.findItem(chatId, item.id)
         if (after?.kind === 'permission' && after.resolved !== undefined) {
-          this.showPermission(view, chatId, after, tag)
+          this.showPermission(chatId, after, tag)
         }
       }, ASK)
     } else if (item.resolved !== undefined && asked !== undefined) {
@@ -2063,7 +1850,6 @@ export class TelegramBridge {
         } else {
           form.messageId = await this.sendText(
             { html, plain: html.replace(/<[^>]+>/g, '') },
-            this.threadFor(form.chatId),
             { reply_markup: this.keyboard(rows) }
           )
         }
@@ -2119,8 +1905,7 @@ export class TelegramBridge {
   }
 
   private formAction(
-    action: Extract<Action, { kind: 'pick' | 'ask' | 'formSend' | 'formDecline' | 'formOpen' }>,
-    thread?: number
+    action: Extract<Action, { kind: 'pick' | 'ask' | 'formSend' | 'formDecline' | 'formOpen' }>
   ): string | undefined {
     const form = this.forms.get(action.form)
     const item = form && store.findItem(form.chatId, form.formId)
@@ -2147,11 +1932,11 @@ export class TelegramBridge {
       case 'ask': {
         const field = item.fields.find((f) => f.key === action.field)
         if (!field) return undefined
-        this.ask(
-          `Your answer to <b>${escapeHtml(field.title)}</b>:`,
-          { kind: 'field', form: action.form, field: field.key },
-          thread
-        )
+        this.ask(`Your answer to <b>${escapeHtml(field.title)}</b>:`, {
+          kind: 'field',
+          form: action.form,
+          field: field.key
+        })
         return undefined
       }
       case 'formSend':
@@ -2171,9 +1956,8 @@ export class TelegramBridge {
   private answerField(key: string, fieldKey: string, text: string): void {
     const form = this.forms.get(key)
     const item = form && store.findItem(form.chatId, form.formId)
-    const thread = form && this.threadFor(form.chatId)
     if (!form || item?.kind !== 'form' || item.resolved !== undefined) {
-      this.say('That question was answered already.', thread)
+      this.say('That question was answered already.')
       return
     }
     const field = item.fields.find((f) => f.key === fieldKey)
@@ -2182,8 +1966,7 @@ export class TelegramBridge {
       const value = Number(text.replace(',', '.'))
       if (!Number.isFinite(value) || (field.type === 'integer' && !Number.isInteger(value))) {
         this.say(
-          `<b>${escapeHtml(field.title)}</b> takes ${field.type === 'integer' ? 'a whole number' : 'a number'}.`,
-          thread
+          `<b>${escapeHtml(field.title)}</b> takes ${field.type === 'integer' ? 'a whole number' : 'a number'}.`
         )
         return
       }
@@ -2194,26 +1977,26 @@ export class TelegramBridge {
     this.renderForm(key, this.tagOf(form.chatId))
   }
 
-  /** How a chat's messages are labelled: chats another chat started by their title; one in its own topic not at all. */
+  /** How a chat's messages are labelled: chats the linked chat started by their title; the linked chat not at all. */
   private tagOf(chatId: string): string | undefined {
-    return this.views.has(chatId) ? undefined : this.chat(chatId)?.title
+    return chatId === telegramConfig().linkedChatId ? undefined : this.chat(chatId)?.title
   }
 
-  // --- The chats a topic's chat started ----------------------------------------
+  // --- The chats it started ----------------------------------------------------
 
-  private workerItem(lead: TopicView, chat: Chat, item: ChatItem): void {
-    if (!lead.cards.has(chat.id)) lead.cards.set(chat.id, { title: chat.title })
+  private workerItem(view: LinkedView, chat: Chat, item: ChatItem): void {
+    if (!view.cards.has(chat.id)) view.cards.set(chat.id, { title: chat.title })
     // Questions come as messages of their own, which buzz; the card only says it asks.
     if (item.kind === 'form') this.showForm(chat.id, item, chat.title)
-    if (item.kind === 'permission') this.showPermission(lead, chat.id, item, chat.title)
-    this.showCard(lead, chat.id)
+    if (item.kind === 'permission') this.showPermission(chat.id, item, chat.title)
+    this.showCard(view, chat.id)
   }
 
-  private showCard(view: TopicView, chatId: string): void {
+  private showCard(view: LinkedView, chatId: string): void {
     const card = view.cards.get(chatId)
     if (!card) return
     this.later(`card:${chatId}`, card.messageId ? EDIT_EVERY_MS : 500, async () => {
-      if (this.views.get(view.chatId) !== view) return
+      if (this.view !== view) return
       const chat = this.chat(chatId)
       const shownCard = chat ? this.cardView(chat, card) : undefined
       const html = shownCard
@@ -2234,7 +2017,6 @@ export class TelegramBridge {
       } else if (chat) {
         card.messageId = await this.sendText(
           { html, plain: html.replace(/<[^>]+>/g, '') },
-          view.thread,
           { ...SILENT, reply_markup: this.keyboard(rows) }
         )
       }
@@ -2291,8 +2073,6 @@ export class TelegramBridge {
   }
 
   private sendImages(chatId: string, files: string[]): void {
-    const thread = this.threadFor(chatId)
-    if (thread === undefined) return
     const caption = this.tagOf(chatId)
     for (const file of files) {
       const key = `${chatId}/${file}`
@@ -2305,16 +2085,11 @@ export class TelegramBridge {
             photo ? 'sendPhoto' : 'sendDocument',
             photo ? 'photo' : 'document',
             path,
-            thread,
             caption
           )
         })
         .catch((error) =>
-          this.say(
-            escapeHtml(`Couldn’t send an image: ${(error as Error).message}`),
-            thread,
-            SILENT
-          )
+          this.say(escapeHtml(`Couldn’t send an image: ${(error as Error).message}`), SILENT)
         )
     }
   }
@@ -2322,8 +2097,8 @@ export class TelegramBridge {
   // --- Sending -----------------------------------------------------------------
 
   /**
-   * Run a send once the ones before it of the same or a higher priority are
-   * done and Telegram's pace allows; dropped if the bot stopped since.
+   * Run a send once Telegram's pace allows, the ones of a higher priority
+   * first; dropped if the bot stopped or the linked chat changed since.
    */
   private enqueue(task: () => Promise<unknown>, priority: Priority = UPDATE): void {
     this.pending.push({ priority, generation: this.generation, task })
@@ -2381,25 +2156,16 @@ export class TelegramBridge {
     this.timers.add(timer)
   }
 
-  /** A message of the bridge's own, queued: in a topic, or outside them all. */
-  private say(html: string, thread?: number, extra: object = {}, priority: Priority = ASK): void {
+  /** A message of the bridge's own, queued. */
+  private say(html: string, extra: object = {}, priority: Priority = ASK): void {
     this.enqueue(
-      () => this.sendText({ html, plain: html.replace(/<[^>]+>/g, '') }, thread, extra),
+      () => this.sendText({ html, plain: html.replace(/<[^>]+>/g, '') }, extra),
       priority
     )
   }
 
-  /**
-   * Send a photo, video or file to a topic, after the media sent before it;
-   * resolves once Telegram has it.
-   */
-  private sendMedia(
-    method: string,
-    field: string,
-    path: string,
-    thread: number,
-    caption?: string
-  ): Promise<void> {
+  /** Send a photo, video or file after the media sent before it; resolves once Telegram has it. */
+  private sendMedia(method: string, field: string, path: string, caption?: string): Promise<void> {
     const generation = this.generation
     const run = this.media.then(async () => {
       if (generation !== this.generation || !this.api) throw new Error('The Telegram bot stopped.')
@@ -2408,68 +2174,43 @@ export class TelegramBridge {
       try {
         await this.api.upload(method, field, path, {
           chat_id: telegramConfig().owner!.chatId,
-          message_thread_id: thread,
           disable_notification: true,
           ...(method === 'sendVideo' ? { supports_streaming: true } : {}),
           ...(caption ? { caption: cut(caption, MAX_CAPTION) } : {})
         })
-      } catch (error) {
-        if (lostThread(error)) this.lostTopic(thread)
-        throw error
       } finally {
         this.lastMedia = Date.now()
       }
-      this.redraw(thread)
+      this.redraw()
     })
     this.media = run.catch(() => undefined)
     return run
   }
 
   /** Send a message; when Telegram cannot read its HTML, as plain text. Returns its id. */
-  private async sendText(
-    out: OutText,
-    thread?: number,
-    extra: object = {}
-  ): Promise<number | undefined> {
+  private async sendText(out: OutText, extra: object = {}): Promise<number | undefined> {
     const chatId = telegramConfig().owner?.chatId
     if (!this.api || chatId === undefined) return undefined
-    const params = {
-      chat_id: chatId,
-      link_preview_options: { is_disabled: true },
-      ...(thread !== undefined ? { message_thread_id: thread } : {}),
-      ...extra
-    }
+    const params = { chat_id: chatId, link_preview_options: { is_disabled: true }, ...extra }
+    let sent: { message_id: number }
     try {
-      let sent: { message_id: number }
-      try {
-        sent = await this.api.call('sendMessage', { ...params, text: out.html, parse_mode: 'HTML' })
-      } catch (error) {
-        if (!unreadableHtml(error)) throw error
-        sent = await this.api.call('sendMessage', { ...params, text: out.plain })
-      }
-      this.redraw(thread)
-      return sent.message_id
+      sent = await this.api.call('sendMessage', { ...params, text: out.html, parse_mode: 'HTML' })
     } catch (error) {
-      if (thread === undefined || !lostThread(error)) throw error
-      this.lostTopic(thread)
-      return undefined
+      if (!unreadableHtml(error)) throw error
+      sent = await this.api.call('sendMessage', { ...params, text: out.plain })
     }
+    this.redraw()
+    return sent.message_id
   }
 
-  /** Send a rich message to a topic (core.telegram.org/bots/api#sendrichmessage). */
-  private async sendRich(html: string, thread: number, extra: object = {}): Promise<void> {
-    try {
-      await this.api!.call('sendRichMessage', {
-        chat_id: telegramConfig().owner!.chatId,
-        message_thread_id: thread,
-        rich_message: { html },
-        ...extra
-      })
-      this.redraw(thread)
-    } catch (error) {
-      if (!lostThread(error)) throw error
-      this.lostTopic(thread)
-    }
+  /** Send a rich message (core.telegram.org/bots/api#sendrichmessage). */
+  private async sendRich(html: string, extra: object = {}): Promise<void> {
+    await this.api!.call('sendRichMessage', {
+      chat_id: telegramConfig().owner!.chatId,
+      rich_message: { html },
+      ...extra
+    })
+    this.redraw()
   }
 
   /** Edit a message's text and buttons; 'gone' when the user deleted it. */
@@ -2511,10 +2252,9 @@ export class TelegramBridge {
   }
 }
 
-function newView(chatId: string, thread: number): TopicView {
+function newView(chatId: string): LinkedView {
   return {
     chatId,
-    thread,
     seen: new Set(),
     posted: new Set(),
     asked: new Map(),
@@ -2524,16 +2264,7 @@ function newView(chatId: string, thread: number): TopicView {
   }
 }
 
-/** The topic a message is in; none for one outside every topic. */
-function threadOf(message?: { message_thread_id?: number }): number | undefined {
-  const thread = message?.message_thread_id
-  return thread && thread !== GENERAL_THREAD ? thread : undefined
-}
-
-/**
- * How chats are doing, as the sidebar tells: a chat works while a chat it
- * started works.
- */
+/** How chats are doing, as the sidebar tells: a chat works while a chat it started works. */
 function activity(chats: Chat[]): {
   started: Map<string, Chat[]>
   startedWorking: (chat: Chat) => number
@@ -2579,13 +2310,6 @@ function modelLabel(agent: AgentId, options: AgentOption[]): string {
 function unreadableHtml(error: unknown): boolean {
   return (
     error instanceof TelegramError && error.code === 400 && /parse entities/i.test(error.message)
-  )
-}
-
-/** Telegram refused a send because its topic is gone: the user deleted it. */
-function lostThread(error: unknown): boolean {
-  return (
-    error instanceof TelegramError && error.code === 400 && /thread not found/i.test(error.message)
   )
 }
 

@@ -4,8 +4,8 @@ import { dirname, join } from 'node:path'
 
 /**
  * What Control from Telegram keeps between launches: the bot token, who the
- * bot answers (the one Telegram user who paired with it), each chat's topic,
- * and the next update to read. Kept in its own file, readable only by the
+ * bot answers (the one Telegram user who paired with it), which chat it
+ * controls, and the next update to read. Kept in its own file, readable only by the
  * user, since the token controls the bot; the window only sees the token's
  * last four characters.
  */
@@ -13,13 +13,12 @@ export interface TelegramConfig {
   token?: string
   /** The paired Telegram user, and their private chat with the bot. */
   owner?: { userId: number; chatId: number }
-  /** The topic of each chat followed in Telegram (its message_thread_id), by chat ID. */
-  topics?: Record<string, number>
-  /**
-   * The one chat the bot controlled before chats had topics. The first launch
-   * with topics on gives it a topic, then drops it.
-   */
   linkedChatId?: string
+  /**
+   * Each chat's topic, from version 1.1, when chats had topics of their own.
+   * The next launch links the one used last, if none is, and drops these.
+   */
+  topics?: Record<string, number>
   /** getUpdates' offset: the update after the last one handled. */
   offset?: number
   /**

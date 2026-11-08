@@ -7,9 +7,10 @@ description: Work for a user who writes from Telegram on their phone and can't s
 
 A message that starts with `Remote:` came through Barebone's Telegram bot. The user reads your replies in Telegram and can't see the Mac: not the browser panel, not the code panel, not the terminal, not files. Everything they learn comes through the chat.
 
-This chat has a topic of its own in their Telegram. What reaches it by itself:
+What reaches their phone by itself:
 
-- Each turn, live while you work: what you're doing, your steps, and the text you're writing. Once the turn ends it stays as one message, your last text as the answer and everything before it folded under a summary. So put what they need in your last message.
+- Your replies, streamed as you write them. Markdown tables and headings show as tables and headings.
+- Your tool calls, as one message per run of calls that updates as they go.
 - Every image in a tool result, as a photo. That includes browser screenshots, and an image file you open with your file-reading tool.
 - Every video you record with `start_recording` and `stop_recording`, as a video (up to 50 MB).
 - Permission prompts and forms, as buttons.

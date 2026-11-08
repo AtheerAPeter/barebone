@@ -142,38 +142,35 @@ function KeyForm({
   )
 }
 
-/** Control from Telegram: the bot token, pairing, and the chats that have topics. */
+/** Control from Telegram: the bot token, pairing, and which chat the bot controls. */
 function TelegramCard(): React.JSX.Element {
   const status = useTelegramStatus()
   const bot = status?.bot ? `@${status.bot}` : 'your bot'
-  const topics = status?.topicChatIds?.length ?? 0
   return (
     <SettingsCard icon={<TelegramIcon />} tone="blue" title="Control from Telegram">
       <p>
-        Guide your chats from your phone, each in a topic of its own. In Telegram, send{' '}
-        <code>/newbot</code> to @BotFather and paste the token it gives you here. Then, in
-        BotFather, open the bot&apos;s settings and turn on Threaded Mode. Choose Open in Telegram
-        in a chat&apos;s menu in the sidebar, or send the bot <code>/projects</code>. Bot chats in
-        Telegram are not end-to-end encrypted. Barebone has to be open on a Mac that is awake.
+        Guide a chat from your phone. In Telegram, send <code>/newbot</code> to @BotFather and paste
+        the token it gives you here. Then choose Control from Telegram in a chat&apos;s menu in the
+        sidebar. What you send the bot goes to that chat, and chats it starts with{' '}
+        <code>@chats</code> show as cards that keep up with what they do. Bot chats in Telegram are
+        not end-to-end encrypted. Barebone has to be open on a Mac that is awake.
       </p>
       <KeyForm label="Telegram bot token" saved={window.api.telegram} />
       {status?.state === 'pairing' && status.bot && status.code && (
         <TelegramPairing bot={status.bot} code={status.code} />
       )}
-      {status?.state === 'ready' &&
-        (status.topicsOff ? (
-          <div className="msg-error">
-            Paired with {bot}, but its topics are off. In @BotFather, open the bot&apos;s settings
-            and turn on Threaded Mode, then send the bot a message.
-          </div>
-        ) : (
-          <p>
-            Paired with {bot}.{' '}
-            {topics
-              ? `${topics} ${topics === 1 ? 'chat has a topic' : 'chats have topics'} there.`
-              : 'No chat has a topic yet.'}
-          </p>
-        ))}
+      {status?.state === 'ready' && (
+        <p>
+          Paired with {bot}.{' '}
+          {status.linkedTitle ? (
+            <>
+              It controls <b>{status.linkedTitle}</b>.
+            </>
+          ) : (
+            'No chat is linked yet.'
+          )}
+        </p>
+      )}
       {status?.error && <div className="msg-error">{status.error}</div>}
     </SettingsCard>
   )
