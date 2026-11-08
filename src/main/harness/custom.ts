@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { userDataPath } from '../runtime'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -27,7 +27,7 @@ interface Stored extends Omit<CustomProvider, 'keyHint'> {
   apiKey?: string
 }
 
-const file = join(app.getPath('userData'), 'data', 'providers.json')
+const file = join(userDataPath(), 'data', 'providers.json')
 
 const SIGN_IN = 'Add a provider in Settings (⌘,), then send your message again.'
 

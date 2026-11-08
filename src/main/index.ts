@@ -1,5 +1,7 @@
 // First: moves the data folder of the app's former name before anything uses it.
 import './former-name'
+// Then: where the data folder is, for the modules that read it as they load.
+import './electron-runtime'
 import { app, shell, BrowserWindow, ipcMain, dialog, nativeTheme } from 'electron'
 import { readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
@@ -37,7 +39,7 @@ import {
 import { SERVER_NAME as CHATS_SERVER } from './chats-mcp'
 import { registerWithCline, unregisterFromCline } from './cline-mcp'
 import { DeviceManager } from './devices'
-import { SERVER_NAME as DEVICES_SERVER } from './devices-mcp'
+import { buildDevicesServer, SERVER_NAME as DEVICES_SERVER } from './devices-mcp'
 import { TelegramBridge } from './telegram/bridge'
 import { exaKeyHint, setExaKey } from './exa-key'
 import { microphoneAccess, setVoiceKey, transcribe, voiceKeyHint } from './voice'
@@ -58,7 +60,7 @@ import { listProjectFiles } from './files'
 import * as git from './git'
 import { WalkPlayer } from './walkthrough'
 import { chooseProjectIcon, projectIcon } from './project-icon'
-import { handleImageRequests, registerImageScheme, thumbnail } from './images'
+import { handleImageRequests, registerImageScheme, thumbnail } from './image-scheme'
 import { availableUpdate, checkForUpdates, installUpdate, watchForUpdates } from './updates'
 
 let mainWindow: BrowserWindow
@@ -122,6 +124,9 @@ async function deleteChat(chatId: string): Promise<void> {
 
 /** Control from Telegram: the linked chat and the chats it starts, on the user's phone. */
 const telegram = new TelegramBridge({
+  machine: 'the Mac',
+  linksOpen: 'on the Mac',
+  transcribe,
   send: (chatId, text, attachments) => agents.send(chatId, text, attachments),
   createChat: (projectId, like) => {
     const chat = store.createChat({
@@ -173,7 +178,7 @@ function createWindow(): BuiltinBrowser {
   })
 
   // A sheet attached in the same tick as show() is never drawn; the show event comes after.
-  mainWindow.once('show', () => store.reportDamagedState(mainWindow))
+  mainWindow.once('show', () => reportDamagedState(mainWindow))
   mainWindow.on('ready-to-show', () => mainWindow.show())
   // As in other Mac apps, closing the window hides it and the app stays in the
   // Dock: chats keep running, and the window comes back as it was. Quitting
@@ -279,6 +284,17 @@ function createWindow(): BuiltinBrowser {
   })
 
   return browser
+}
+
+/** Say that the saved projects and chats could not be read, if so (see store.ts loadState). */
+function reportDamagedState(window: BrowserWindow): void {
+  const kept = store.takeDamagedState()
+  if (!kept) return
+  void dialog.showMessageBox(window, {
+    type: 'warning',
+    message: 'Barebone could not read its saved projects and chats',
+    detail: `The file was damaged, so the app started without them. The damaged file was kept at:\n\n${kept}\n\nEach chat's messages are stored separately and were not touched.`
+  })
 }
 
 /**
@@ -788,14 +804,14 @@ app.whenReady().then(async () => {
   // On by default: the voice downloads in the background the first time.
   if (store.speechOn()) void speech.fetchModel()
   watchForUpdates((version) => send('update:available', version))
-  const endpoint = await startBrowserMcp(
+  const endpoint = await startBrowserMcp({
     browser,
-    {
+    routing: {
       chatForBrowserId: (id) => store.getState().chats.find((c) => c.id.startsWith(id))?.id,
       fallbackChat: () => agents.latestActiveChat()
     },
-    agents,
-    {
+    chats: agents,
+    speech: {
       // Offered once the voice is on this Mac, so an agent never speaks into a missing one.
       on: () => store.speechOn() && speech.status().state === 'ready',
       speak: (chatId, text, language, pace) => {
@@ -810,7 +826,7 @@ app.whenReady().then(async () => {
       said: (chatId) => speech.said(chatId)
     },
     recorder,
-    {
+    walkthroughs: {
       projectPath: projectPathOf,
       start: (chatId, walk, language, pace) => {
         setCodeOpen(chatId, true)
@@ -818,17 +834,15 @@ app.whenReady().then(async () => {
         walks.start(chatId, walk, language, pace)
       }
     },
-    {
-      manager: devices,
-      routing: {
+    devices: () =>
+      buildDevicesServer(devices, {
         chatFor: (id) =>
           (id ? store.getState().chats.find((c) => c.id.startsWith(id))?.id : undefined) ??
           agents.latestActiveChat(),
         projectPath: projectPathOf,
         allowCommand: (chatId, title, command) => agents.allowCommand(chatId, title, { command })
-      }
-    }
-  )
+      })
+  })
   // Only when cline is installed; failures are logged and the app works without it.
   // One at a time: each rewrites cline's settings file.
   agents.status('cline').then(async ({ available }) => {

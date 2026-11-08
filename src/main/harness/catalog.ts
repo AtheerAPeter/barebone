@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { userDataPath } from '../runtime'
 import { join } from 'node:path'
 import { readFile, rename, writeFile } from 'node:fs/promises'
 
@@ -22,8 +22,7 @@ interface Saved<T> {
 }
 
 /** Where a saved model list is kept. */
-export const catalogFile = (name: string): string =>
-  join(app.getPath('userData'), `${name}-models.json`)
+export const catalogFile = (name: string): string => join(userDataPath(), `${name}-models.json`)
 
 /**
  * `key` names what the list is fetched for, such as a provider's address and

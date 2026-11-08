@@ -36,6 +36,8 @@ With `@chats`, each chat it starts gets a card: its agent and model, what it is 
 
 The app reads the bot's messages by asking Telegram for them (long polling), so nothing on the Mac takes incoming connections. Barebone has to be open on a Mac that is awake. A message that reaches it more than a minute after you sent it (the Mac was asleep, or the app closed) does not run by itself: the bot asks whether to send it now. Bot chats in Telegram are not end-to-end encrypted, so what the chats show passes through Telegram's servers. The token is kept in `telegram.json`, readable only by you, and the window only sees its last four characters.
 
+To have the chats run when the Mac is off, run Barebone on a Linux server with the `barebone` command and control it only from Telegram: see [docs/server.md](docs/server.md).
+
 ## Keyboard shortcuts
 
 | Shortcut | Action |

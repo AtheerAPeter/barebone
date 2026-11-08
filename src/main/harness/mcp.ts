@@ -1,4 +1,4 @@
-import { app, shell } from 'electron'
+import { appVersion, openExternal, userDataPath } from '../runtime'
 import { createHash } from 'node:crypto'
 import { readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
@@ -6,7 +6,7 @@ import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import { SERVER_NAME as BROWSER_SERVER } from '../browser-mcp'
 import { SERVER_NAME as CHATS_SERVER } from '../chats-mcp'
-import { SERVER_NAME as DEVICES_SERVER } from '../devices-mcp'
+import { SERVER_NAME as DEVICES_SERVER } from '../devices-guidance'
 import { loadShellPath } from '../shell-env'
 import { McpOAuth, waitForRedirect } from './mcp-auth'
 import { MAX_BYTES, type Tool } from './tools'
@@ -178,7 +178,7 @@ export const serverHash = (server: McpEntry): string =>
   createHash('sha256').update(keyOf(server)).digest('hex')
 
 /** The project servers the user agreed to start, by trustHash. */
-const trustedFile = join(app.getPath('userData'), 'mcp-trusted.json')
+const trustedFile = join(userDataPath(), 'mcp-trusted.json')
 
 function readTrusted(): string[] {
   try {
@@ -302,7 +302,7 @@ async function connect(server: McpServer): Promise<Connection> {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js')
   const timeout = server.timeout?.connect ?? CONNECT_TIMEOUT_MS
   const attempt = async (transport: Transport, output?: () => string): Promise<Connection> => {
-    const client = new Client({ name: 'barebone', version: app.getVersion() })
+    const client = new Client({ name: 'barebone', version: appVersion() })
     try {
       await client.connect(transport, { timeout })
       return {
@@ -498,7 +498,7 @@ export function signIn(problem: McpProblem, signal: AbortSignal): Promise<void> 
     pending = (async () => {
       const code = await waitForRedirect(
         required.oauth,
-        () => shell.openExternal(required.oauth.authorizationUrl!.href),
+        () => openExternal(required.oauth.authorizationUrl!.href),
         signal
       )
       await required.finish(code)

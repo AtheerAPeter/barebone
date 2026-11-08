@@ -14,7 +14,7 @@ import {
   type BrowserMcpEndpoint
 } from '../browser-mcp'
 import { chatKey, SERVER_NAME as CHATS_SERVER, speechOffered } from '../chats-mcp'
-import { SERVER_NAME as DEVICES_SERVER } from '../devices-mcp'
+import { SERVER_NAME as DEVICES_SERVER } from '../devices-guidance'
 import { exaKey } from '../exa-key'
 import { getState } from '../store'
 import { loadShellPath } from '../shell-env'

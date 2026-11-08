@@ -6,11 +6,16 @@ import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import type { AddressInfo } from 'node:net'
-import { app, clipboard, ClipboardItem, nativeImage, type WebContents } from 'electron'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { McpServer as AcpMcpServer } from '@agentclientprotocol/sdk'
 import { z } from 'zod'
-import { normalizeUrl, type BuiltinBrowser, type ChatPage, type PageDialog } from './browser'
+import {
+  normalizeUrl,
+  type BrowserPage,
+  type ChatBrowsers,
+  type EditCommand,
+  type PageDialog
+} from './browser-tools'
 import {
   buildChatsServer,
   formatDuration,
@@ -23,15 +28,11 @@ import {
   type ChatsApi,
   type SpeechApi
 } from './chats-mcp'
-import type { DeviceManager } from './devices'
-import {
-  buildDevicesServer,
-  SERVER_NAME as DEVICES_SERVER,
-  type DevicesRouting
-} from './devices-mcp'
+import { SERVER_NAME as DEVICES_SERVER } from './devices-guidance'
 import { withTimeout, type Modifier } from './page-driver'
 import { COLORS, type Color, type Shape, type Target } from './page-overlay'
-import type { PageRecorder } from './recording'
+import type { Recorded } from './recording'
+import { userDataPath } from './runtime'
 import { BROWSER_TUTORIAL_SKILL } from './skills'
 import { getState } from './store'
 import { buildWalkthrough, type WalkthroughApi } from './walkthrough'
@@ -100,7 +101,7 @@ export function browserId(chatId: string): string {
 /** How long navigate waits for a page to load before reading what has loaded. */
 const NAVIGATION_TIMEOUT = 15_000
 
-const endpointFile = join(app.getPath('userData'), 'browser-mcp.json')
+const endpointFile = join(userDataPath(), 'browser-mcp.json')
 
 export interface BrowserMcpEndpoint {
   url: string
@@ -154,7 +155,7 @@ function dialogNote(dialog: PageDialog): string {
 }
 
 /** Mentions a dialog the page opened, for the end of a tool result. */
-function dialogSuffix(page: ChatPage): string {
+function dialogSuffix(page: BrowserPage): string {
   return page.dialog ? ` ${dialogNote(page.dialog)}` : ''
 }
 
@@ -164,7 +165,7 @@ function dialogSuffix(page: ChatPage): string {
  * returned instead, and the operation finishes once the dialog is answered.
  */
 async function untilDialog<T>(
-  page: ChatPage,
+  page: BrowserPage,
   work: () => Promise<T>
 ): Promise<{ value: T } | { dialog: PageDialog }> {
   if (page.dialog) return { dialog: page.dialog }
@@ -192,23 +193,23 @@ async function untilAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T |
 }
 
 /** Give an action time to start a navigation, then wait for it to load (at most 10s). */
-async function settle(page: ChatPage): Promise<void> {
+async function settle(page: BrowserPage): Promise<void> {
   await sleep(300)
   const deadline = Date.now() + 10_000
-  while (page.contents.isLoadingMainFrame() && !page.dialog && Date.now() < deadline) {
+  while (page.loading() && !page.dialog && Date.now() < deadline) {
     await sleep(100)
   }
 }
 
 /** The page as an ARIA snapshot, with its address and title on top. */
-async function snapshot(page: ChatPage, note = ''): Promise<ToolResult> {
+async function snapshot(page: BrowserPage, note = ''): Promise<ToolResult> {
   const result = await untilDialog(page, () => page.driver.snapshot())
   if ('dialog' in result) return text(dialogNote(result.dialog))
   return shown(page, result.value, note)
 }
 
-function shown(page: ChatPage, tree: string, note: string): ToolResult {
-  const header = `Tab: ${page.id}\nURL: ${page.contents.getURL()}\nTitle: ${page.contents.getTitle()}`
+function shown(page: BrowserPage, tree: string, note: string): ToolResult {
+  const header = `Tab: ${page.id}\nURL: ${page.address()}\nTitle: ${page.title()}`
   return text(`${header}${note ? `\n${note}` : ''}\n\n${tree}`)
 }
 
@@ -223,7 +224,7 @@ const CHANGE_POLL_MS = 250
  * canvas, so an unchanged tree is not watched for them.
  */
 async function changed(
-  page: ChatPage,
+  page: BrowserPage,
   done: string,
   see: 'snapshot' | 'screenshot'
 ): Promise<ToolResult> {
@@ -234,7 +235,7 @@ async function changed(
     const { changes, full } = result.value
     // A document the agent has not seen: all of it is new.
     if (changes === undefined) return shown(page, full, done)
-    const at = `${done} Now at ${page.contents.getURL()}.`
+    const at = `${done} Now at ${page.address()}.`
     if (changes) {
       return text(
         `${at} What changed on the page since you last saw it (unchanged elements show as [unchanged]):\n\n${changes}`
@@ -255,54 +256,26 @@ function filePath(path: string): string {
   return resolve(path.replace(/^~(?=\/|$)/, homedir()))
 }
 
-async function pressKey(page: ChatPage, key: string, modifiers: Modifier[] = []): Promise<void> {
-  const contents = page.contents
+async function pressKey(page: BrowserPage, key: string, modifiers: Modifier[] = []): Promise<void> {
   // Editing shortcuts are menu commands on macOS; synthetic key events never reach
   // the menu, so run the command itself.
   if (modifiers.length === 1 && modifiers[0] === 'cmd' && key.length === 1) {
-    const command = { a: 'selectAll', c: 'copy', v: 'paste', x: 'cut', z: 'undo' }[
-      key.toLowerCase()
-    ]
+    const command = (
+      { a: 'selectAll', c: 'copy', v: 'paste', x: 'cut', z: 'undo' } as Record<string, EditCommand>
+    )[key.toLowerCase()]
     if (command) {
-      contents[command as 'selectAll' | 'copy' | 'paste' | 'cut' | 'undo']()
+      await page.edit(command)
       return
     }
   }
   await page.driver.press(key, modifiers)
 }
 
-/**
- * Paste an image into the focused element, the way a user would with ⌘V. The
- * user's clipboard is put back afterwards.
- */
-async function pasteImage(page: WebContents, path: string): Promise<void> {
-  const file = filePath(path)
-  const image = nativeImage.createFromPath(file)
-  if (image.isEmpty()) throw new Error(`Not an image file, or not found: ${file}`)
-  // Copy the user's clipboard out; Electron only writes newly built items.
-  const previous = await Promise.all(
-    (await clipboard.read()).map(
-      async (item) =>
-        new ClipboardItem(
-          Object.fromEntries(
-            await Promise.all(item.types.map(async (type) => [type, await item.getType(type)]))
-          )
-        )
-    )
-  )
-  const png = new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' })
-  await clipboard.write([new ClipboardItem({ 'image/png': png })])
-  page.paste()
-  // Let the page read the clipboard before restoring it.
-  await new Promise((done) => setTimeout(done, 1000))
-  await clipboard.write(previous)
-}
-
 /** Open a URL in a tab and return its snapshot; a slow, redirected or file URL is not an error. */
-async function load(page: ChatPage, url: string): Promise<ToolResult> {
-  const before = page.contents.getURL()
+async function load(page: BrowserPage, url: string): Promise<ToolResult> {
+  const before = page.address()
   const target = normalizeUrl(url)
-  const loading = untilDialog(page, () => page.contents.loadURL(target))
+  const loading = untilDialog(page, () => page.navigate(target))
   let note = ''
   try {
     const result = await withTimeout(loading, NAVIGATION_TIMEOUT, () => new Error('timeout'))
@@ -315,7 +288,7 @@ async function load(page: ChatPage, url: string): Promise<ToolResult> {
       // Another navigation took over (a redirect or the page's script), or
       // the URL turned out to be a file, which downloads instead.
       await settle(page)
-      if (page.contents.getURL() === before) {
+      if (page.address() === before) {
         note = `The page did not change. If ${target} is a file, it was downloaded (see downloads).`
       }
     } else {
@@ -472,16 +445,38 @@ export interface BrowserRouting {
   fallbackChat(): string | undefined
 }
 
+/** Videos of tabs, recorded in the app's window (recording.ts). */
+export interface Recorder<Page extends BrowserPage> {
+  recording(chatId: string): boolean
+  /** Record what the chat does from now until the returned function is called. */
+  hold(chatId: string): () => void
+  start(chatId: string, tab: Page, path: string): Promise<void>
+  stop(chatId: string): Promise<Recorded>
+}
+
+/**
+ * What the servers work with. What Barebone has not where it runs (a server
+ * has no window, voice or code panel) is left out, with the tools that use it.
+ */
+export interface BrowserMcpHost<Page extends BrowserPage> {
+  browser: ChatBrowsers<Page>
+  routing: BrowserRouting
+  /** The chats' server's (chats-mcp.ts). */
+  chats: ChatsApi
+  speech?: SpeechApi
+  recorder?: Recorder<Page>
+  walkthroughs?: WalkthroughApi
+  /** The device tools' server, served at /devices while Settings has them on. */
+  devices?: () => Promise<McpServer>
+}
+
 /**
  * Tools for one request. The chat comes from the `browser` argument (every chat
  * is told its ID in each prompt), or from `pathChat` when a per-chat address is
  * used, or falls back to the only running chat.
  */
-async function buildServer(
-  browser: BuiltinBrowser,
-  routing: BrowserRouting,
-  recorder: PageRecorder,
-  walkthroughs: WalkthroughApi,
+async function buildServer<Page extends BrowserPage>(
+  { browser, routing, recorder, walkthroughs }: BrowserMcpHost<Page>,
   pathChat: string | undefined
 ): Promise<McpServer> {
   // The MCP SDK takes ~150 ms to load; it loads with the first request, not at launch.
@@ -509,7 +504,7 @@ async function buildServer(
    */
   const told = async (chatId: string): Promise<void> => {
     await narrations.get(chatId)
-    if (recorder.recording(chatId)) await offeredSpeech()?.said(chatId)
+    if (recorder?.recording(chatId)) await offeredSpeech()?.said(chatId)
   }
 
   /**
@@ -522,7 +517,7 @@ async function buildServer(
   const act = async (
     id: string | undefined,
     tab: string | undefined,
-    work: (page: ChatPage) => Promise<ToolResult>,
+    work: (page: Page) => Promise<ToolResult>,
     { duringDialog = false, afterVoice = true, recorded = afterVoice } = {}
   ): Promise<ToolResult> => {
     const chatId = chatFor(id)
@@ -530,7 +525,7 @@ async function buildServer(
     const page = await browser.ensureReady(chatId, tab)
     if (page.dialog && !duringDialog) return text(`Nothing was done. ${dialogNote(page.dialog)}`)
     const before = new Set(browser.tabs(chatId).tabs)
-    const release = recorded ? recorder.hold(chatId) : undefined
+    const release = recorded ? recorder?.hold(chatId) : undefined
     try {
       const result = await page.automate(() => work(page))
       return withOpenedTabs(chatId, before, result)
@@ -540,18 +535,14 @@ async function buildServer(
   }
 
   /** Say which tabs an action opened (links to a new tab, window.open, popups). */
-  const withOpenedTabs = (
-    chatId: string,
-    before: Set<ChatPage>,
-    result: ToolResult
-  ): ToolResult => {
+  const withOpenedTabs = (chatId: string, before: Set<Page>, result: ToolResult): ToolResult => {
     const { tabs, active } = browser.tabs(chatId)
     const opened = tabs.filter((tab) => !before.has(tab))
     const first = result.content[0]
     if (!opened.length || first?.type !== 'text') return result
     const notes = opened.map(
       (tab) =>
-        `It opened tab ${tab.id} (${tab.contents.getURL() || 'loading'})${tab === active ? ', now the active tab' : ' in the background'}.`
+        `It opened tab ${tab.id} (${tab.address() || 'loading'})${tab === active ? ', now the active tab' : ' in the background'}.`
     )
     return {
       content: [{ ...first, text: `${first.text} ${notes.join(' ')}` }, ...result.content.slice(1)]
@@ -564,15 +555,15 @@ async function buildServer(
    * which acts on what snapshots cannot show).
    */
   const acted = async (
-    page: ChatPage,
+    page: BrowserPage,
     done: string,
     before: string,
     see: 'snapshot' | 'screenshot' = 'snapshot'
   ): Promise<ToolResult> => {
     await settle(page)
     if (page.dialog) return text(`${done} ${dialogNote(page.dialog)}`)
-    if (page.contents.getURL() !== before || page.contents.isLoadingMainFrame()) {
-      const note = page.contents.isLoadingMainFrame()
+    if (page.address() !== before || page.loading()) {
+      const note = page.loading()
         ? 'The page is still loading; this is what has loaded so far.'
         : 'The page changed.'
       return snapshot(page, `${done} ${note}`)
@@ -609,7 +600,7 @@ async function buildServer(
     },
     ({ ref, browser: id, tab }) =>
       act(id, tab, async (page) => {
-        const before = page.contents.getURL()
+        const before = page.address()
         await page.driver.checkRef(ref)
         const result = await untilDialog(page, () => page.driver.click(ref))
         if ('dialog' in result) return text(`Clicked ${ref}. ${dialogNote(result.dialog)}`)
@@ -626,7 +617,7 @@ async function buildServer(
     },
     ({ ref, browser: id, tab }) =>
       act(id, tab, async (page) => {
-        const before = page.contents.getURL()
+        const before = page.address()
         await page.driver.checkRef(ref)
         const result = await untilDialog(page, () => page.driver.hover(ref))
         if ('dialog' in result) return text(`Hovered ${ref}. ${dialogNote(result.dialog)}`)
@@ -648,7 +639,7 @@ async function buildServer(
     },
     ({ ref, text: value, submit, browser: id, tab }) =>
       act(id, tab, async (page) => {
-        const before = page.contents.getURL()
+        const before = page.address()
         await page.driver.checkRef(ref)
         const result = await untilDialog(page, () => page.driver.fill(ref, value))
         if ('dialog' in result) {
@@ -673,7 +664,7 @@ async function buildServer(
     },
     ({ ref, values, browser: id, tab }) =>
       act(id, tab, async (page) => {
-        const before = page.contents.getURL()
+        const before = page.address()
         await page.driver.checkRef(ref)
         const result = await untilDialog(page, () => page.driver.select(ref, values))
         if ('dialog' in result) {
@@ -700,7 +691,7 @@ async function buildServer(
     },
     ({ key, modifiers, browser: id, tab }) =>
       act(id, tab, async (page) => {
-        const before = page.contents.getURL()
+        const before = page.address()
         await pressKey(page, key, modifiers)
         return acted(page, `Pressed ${[...(modifiers ?? []), key].join('+')}.`, before)
       })
@@ -721,7 +712,7 @@ async function buildServer(
         id,
         tab,
         async (page) => {
-          const before = page.contents.getURL()
+          const before = page.address()
           const dialog = page.dialog
           if (!dialog) return text('No dialog is open.')
           if (!dialog.answer) return text(dialogNote(dialog))
@@ -741,8 +732,8 @@ async function buildServer(
     },
     ({ path, browser: id, tab }) =>
       act(id, tab, async (page) => {
-        const before = page.contents.getURL()
-        await pasteImage(page.contents, path)
+        const before = page.address()
+        await page.pasteImage(filePath(path))
         return acted(page, 'Pasted the image.', before)
       })
   )
@@ -798,7 +789,7 @@ async function buildServer(
     },
     ({ x, y, button, clicks, browser: id, tab }) =>
       act(id, tab, async (page) => {
-        const before = page.contents.getURL()
+        const before = page.address()
         const how = `${clicks === 2 ? 'Double-clicked' : clicks === 3 ? 'Triple-clicked' : 'Clicked'}${button && button !== 'left' ? ` the ${button} button` : ''}`
         const result = await untilDialog(page, () =>
           page.driver.clickAt({ x, y }, button ?? 'left', clicks ?? 1)
@@ -840,7 +831,7 @@ async function buildServer(
     },
     ({ fromX, fromY, toX, toY, browser: id, tab }) =>
       act(id, tab, async (page) => {
-        const before = page.contents.getURL()
+        const before = page.address()
         const done = `Dragged from (${fromX}, ${fromY}) to (${toX}, ${toY}).`
         const result = await untilDialog(page, () =>
           page.driver.drag({ x: fromX, y: fromY }, { x: toX, y: toY })
@@ -859,7 +850,7 @@ async function buildServer(
     },
     ({ text: value, browser: id, tab }) =>
       act(id, tab, async (page) => {
-        const before = page.contents.getURL()
+        const before = page.address()
         const result = await untilDialog(page, () => page.driver.typeText(value))
         if ('dialog' in result) return text(`Typed the text. ${dialogNote(result.dialog)}`)
         return acted(page, `Typed ${value.length} characters.`, before, 'screenshot')
@@ -871,8 +862,8 @@ async function buildServer(
     { description: 'Go back in browser history.', inputSchema: { ...pageArgs } },
     ({ browser: id, tab }) =>
       act(id, tab, async (page) => {
-        const before = page.contents.getURL()
-        if (page.contents.navigationHistory.canGoBack()) page.contents.navigationHistory.goBack()
+        const before = page.address()
+        await page.back()
         return acted(page, 'Went back.', before)
       })
   )
@@ -893,7 +884,7 @@ async function buildServer(
         const files = paths.map(filePath)
         const missing = files.filter((file) => !existsSync(file))
         if (missing.length) throw new Error(`File not found: ${missing.join(', ')}`)
-        const before = page.contents.getURL()
+        const before = page.address()
         await page.driver.checkRef(ref)
         const result = await untilDialog(page, () => page.driver.upload(ref, files))
         if ('dialog' in result) return text(dialogNote(result.dialog))
@@ -912,7 +903,7 @@ async function buildServer(
       const { tabs, active } = browser.tabs(chatFor(id))
       const lines = tabs.map(
         (tab) =>
-          `${tab.id}${tab === active ? ' (active)' : ''}\t${tab.contents.getTitle() || 'Untitled'}\t${tab.contents.getURL() || tab.url || 'about:blank'}`
+          `${tab.id}${tab === active ? ' (active)' : ''}\t${tab.title() || 'Untitled'}\t${tab.address() || tab.url || 'about:blank'}`
       )
       return text(lines.join('\n'))
     }
@@ -1013,10 +1004,8 @@ async function buildServer(
         id,
         tab,
         async (page) => {
-          if (browser.windowHidden) {
-            throw new Error(
-              "Barebone's window is closed or minimized, so pages cannot be captured now. Use snapshot to read the page."
-            )
+          if (browser.captureBlocked) {
+            throw new Error(`${browser.captureBlocked} Use snapshot to read the page.`)
           }
           const result = await untilDialog(page, () => page.driver.screenshot())
           if ('dialog' in result) return text(dialogNote(result.dialog))
@@ -1059,7 +1048,7 @@ async function buildServer(
           width !== undefined && height !== undefined
             ? { width, height, mobile: mobile ?? false }
             : undefined
-        const before = page.contents.getURL()
+        const before = page.address()
         await browser.setViewport(chatFor(id), page, viewport)
         if (!viewport) return acted(page, 'The page fills the panel again.', before)
         const shown =
@@ -1096,16 +1085,12 @@ async function buildServer(
         async (page) => {
           if (!isAbsolute(path)) throw new Error(`"path" must be absolute: ${path}`)
           const result = await untilDialog(page, () =>
-            page.contents.printToPDF({
-              pageSize: pageSize ?? 'A4',
-              landscape: landscape ?? false,
-              printBackground: true
-            })
+            page.pdf(pageSize ?? 'A4', landscape ?? false)
           )
           if ('dialog' in result) return text(dialogNote(result.dialog))
           await mkdir(dirname(path), { recursive: true })
           await writeFile(path, result.value)
-          return text(`Saved ${page.contents.getURL()} as a PDF to ${path}.`)
+          return text(`Saved ${page.address()} as a PDF to ${path}.`)
         },
         { afterVoice: false }
       )
@@ -1247,7 +1232,7 @@ async function buildServer(
               return text('Stopped before the step was shown.')
             }
             // In the chat's video, with its voice when it has one.
-            const release = recorder.hold(chatId)
+            const release = recorder?.hold(chatId)
             const result = await untilDialog(page, () =>
               page.driver.overlay({
                 type: 'step',
@@ -1268,7 +1253,7 @@ async function buildServer(
                 spoken?.stop()
                 throw error
               })
-              .finally(release)
+              .finally(() => release?.())
             if ('dialog' in result) {
               spoken?.stop()
               return text(dialogNote(result.dialog))
@@ -1354,58 +1339,61 @@ async function buildServer(
         })
     )
 
-    server.registerTool(
-      'wait_for_click',
-      {
-        description: `Wait for the user to click on the page, for feedback in a tutorial: show them what to click (show_step), then call this. It returns their first click: what they clicked and, with ref, whether it was that element. One wait lasts at most ${CLICK_WAIT_SECONDS}s; when it ends without a click, call it again to keep waiting, or ask in the chat. It watches the page, or the iframe that holds ref.`,
-        inputSchema: {
-          ref: z
-            .string()
-            .optional()
-            .describe('The element the user should click, from the latest snapshot'),
-          seconds: z
-            .number()
-            .int()
-            .min(5)
-            .max(CLICK_WAIT_SECONDS)
-            .optional()
-            .describe(`How long to wait; ${CLICK_WAIT_SECONDS} if left out`),
-          ...pageArgs
-        }
-      },
-      ({ ref, seconds, browser: id, tab }, { signal }) =>
-        act(
-          id,
-          tab,
-          async (page) => {
-            const before = page.contents.getURL()
-            const wait = seconds ?? CLICK_WAIT_SECONDS
-            const result = await untilDialog(page, () =>
-              page.awaitUser(() => page.driver.waitForClick(ref, wait * 1000, signal))
-            )
-            if ('dialog' in result) return text(dialogNote(result.dialog))
-            const click = result.value
-            if ('ended' in click) {
-              if (click.ended === 'navigated') {
-                return acted(page, 'The page changed before the user clicked.', before)
-              }
-              if (click.ended === 'cancelled') return text('Stopped waiting.')
-              return text(
-                `The user did not click within ${wait}s. Call wait_for_click again to keep waiting, or ask them in the chat.`
+    // Only where the user sees the page and can click in it.
+    if (browser.watched) {
+      server.registerTool(
+        'wait_for_click',
+        {
+          description: `Wait for the user to click on the page, for feedback in a tutorial: show them what to click (show_step), then call this. It returns their first click: what they clicked and, with ref, whether it was that element. One wait lasts at most ${CLICK_WAIT_SECONDS}s; when it ends without a click, call it again to keep waiting, or ask in the chat. It watches the page, or the iframe that holds ref.`,
+          inputSchema: {
+            ref: z
+              .string()
+              .optional()
+              .describe('The element the user should click, from the latest snapshot'),
+            seconds: z
+              .number()
+              .int()
+              .min(5)
+              .max(CLICK_WAIT_SECONDS)
+              .optional()
+              .describe(`How long to wait; ${CLICK_WAIT_SECONDS} if left out`),
+            ...pageArgs
+          }
+        },
+        ({ ref, seconds, browser: id, tab }, { signal }) =>
+          act(
+            id,
+            tab,
+            async (page) => {
+              const before = page.address()
+              const wait = seconds ?? CLICK_WAIT_SECONDS
+              const result = await untilDialog(page, () =>
+                page.awaitUser(() => page.driver.waitForClick(ref, wait * 1000, signal))
               )
-            }
-            const done =
-              ref === undefined
-                ? `The user clicked ${click.clicked}.`
-                : click.onTarget
-                  ? `The user clicked ${ref} (${click.clicked}), as asked.`
-                  : `The user clicked ${click.clicked}, not ${ref}.`
-            return acted(page, done, before)
-          },
-          // What the user does is in the video.
-          { afterVoice: false, recorded: true }
-        )
-    )
+              if ('dialog' in result) return text(dialogNote(result.dialog))
+              const click = result.value
+              if ('ended' in click) {
+                if (click.ended === 'navigated') {
+                  return acted(page, 'The page changed before the user clicked.', before)
+                }
+                if (click.ended === 'cancelled') return text('Stopped waiting.')
+                return text(
+                  `The user did not click within ${wait}s. Call wait_for_click again to keep waiting, or ask them in the chat.`
+                )
+              }
+              const done =
+                ref === undefined
+                  ? `The user clicked ${click.clicked}.`
+                  : click.onTarget
+                    ? `The user clicked ${ref} (${click.clicked}), as asked.`
+                    : `The user clicked ${click.clicked}, not ${ref}.`
+              return acted(page, done, before)
+            },
+            // What the user does is in the video.
+            { afterVoice: false, recorded: true }
+          )
+      )
+    }
 
     server.registerTool(
       'clear_annotations',
@@ -1423,7 +1411,7 @@ async function buildServer(
   }
 
   // Walkthroughs of code in the code panel; only listed when Settings turns them on.
-  if (getState().codeTours) {
+  if (walkthroughs && getState().codeTours) {
     const voice = speechOffered()
     server.registerTool(
       'walkthrough',
@@ -1516,7 +1504,7 @@ async function buildServer(
   }
 
   // Videos of a tab; only listed when Settings turns them on.
-  if (getState().recording) {
+  if (recorder && getState().recording) {
     const drawing = getState().annotations === true
     const voice = speechOffered()
     server.registerTool(
@@ -1568,16 +1556,10 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'))
 }
 
-export async function startBrowserMcp(
-  browser: BuiltinBrowser,
-  routing: BrowserRouting,
-  chats: ChatsApi,
-  speech: SpeechApi,
-  recorder: PageRecorder,
-  walkthroughs: WalkthroughApi,
-  devices: { manager: DeviceManager; routing: DevicesRouting }
+export async function startBrowserMcp<Page extends BrowserPage>(
+  host: BrowserMcpHost<Page>
 ): Promise<BrowserMcpEndpoint> {
-  provideSpeech(speech)
+  if (host.speech) provideSpeech(host.speech)
   const saved = readSaved()
   const token = saved?.token ?? randomBytes(24).toString('hex')
   const http = createServer(async (req, res) => {
@@ -1589,17 +1571,19 @@ export async function startBrowserMcp(
     // "/devices" the device tools', while Settings has them on.
     const match = req.url?.match(/^\/mcp(?:\/([\w-]+))?\/?$/)
     const forChats = /^\/chats\/?$/.test(req.url ?? '')
-    const forDevices = /^\/devices\/?$/.test(req.url ?? '') && getState().mobile === true
+    const devices = host.devices
+    const forDevices =
+      devices !== undefined && /^\/devices\/?$/.test(req.url ?? '') && getState().mobile === true
     if (req.method !== 'POST' || (!match && !forChats && !forDevices)) {
       res.writeHead(req.method !== 'POST' ? 405 : 404).end()
       return
     }
     // Stateless mode: a fresh server and transport per request.
     const server = forChats
-      ? await buildChatsServer(chats)
+      ? await buildChatsServer(host.chats)
       : forDevices
-        ? await buildDevicesServer(devices.manager, devices.routing)
-        : await buildServer(browser, routing, recorder, walkthroughs, match![1])
+        ? await devices()
+        : await buildServer(host, match![1])
     const { StreamableHTTPServerTransport } =
       await import('@modelcontextprotocol/sdk/server/streamableHttp.js')
     const transport = new StreamableHTTPServerTransport({

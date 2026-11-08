@@ -16,6 +16,7 @@ import {
   type ScreenRead
 } from './devices'
 import { startCommand } from './metro'
+import { DEVICES_GUIDANCE, SERVER_NAME } from './devices-guidance'
 
 /**
  * The device tools: an MCP server, next to the browser's (browser-mcp.ts,
@@ -29,10 +30,7 @@ import { startCommand } from './metro'
  * not for seconds, and errors the app logs come back with the action.
  */
 
-export const SERVER_NAME = 'harness_devices'
-
-export const DEVICES_GUIDANCE =
-  "These tools drive the iOS simulators and Android emulators and phones on this computer, which the user watches in the Simulator app and the emulator's window. Use them to run and test mobile apps (React Native, Expo or native) as a user would, instead of osascript, screen capture, or `xcrun simctl`, `axe` and `adb` commands. Name a device \"ios\" or \"android\" (the booted one of that platform) or by name, or \"both\" where a tool takes it. A phone plugged in over USB shows up in devices once it allows USB debugging. screen returns a screenshot and the elements on it, with refs (e1, e2…) and center points. Every action (tap, swipe, type, press, app) waits until the screen stops changing, before and after, and returns the new screen, so never sleep or take another screenshot after one; it says when the screen did not change. Tap elements by ref or text; use x and y, in the screenshot's points (the same on both platforms), only for what has no element. Notification banners and some system sheets are not in the element list: find them in the screenshot. Use wait_for to wait for text to appear or go (a reply streaming in, a screen loading), not sleep. After changing app code, check the change in the running app, on both platforms when it runs on both: Metro hot-reloads most edits, and metro reload reloads the apps. logs shows the apps' logs, crashes and Metro's output; actions report errors the app logged meanwhile. Start Metro with the metro tool so its output (on iOS, the app's console output too) reaches logs. In Expo Go, open a project with app open_url at exp://127.0.0.1:<Metro's port>; a development build opens by its own scheme or by launching it. Android devices reach this computer's localhost only on forwarded ports: Metro's is, and devices forward adds another, like a backend's. When a device hangs or shows that something is not responding, use devices restart (cold for an emulator). screen save_to saves a screenshot for a merge request or the user. The apps may be signed in to real accounts: test only with actions safe to repeat, and never pay, delete real data or message other people unless the user asked."
+export { SERVER_NAME, DEVICES_GUIDANCE } from './devices-guidance'
 
 type ToolResult = {
   content: ({ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string })[]

@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { userDataPath } from '../runtime'
 import { randomUUID } from 'node:crypto'
 import { chmodSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
@@ -22,7 +22,7 @@ import type { RemoteServer } from './mcp'
  * by server address, readable only by the user.
  */
 
-const file = join(app.getPath('userData'), 'mcp-auth.json')
+const file = join(userDataPath(), 'mcp-auth.json')
 
 /** Where the browser comes back to, unless the server's config names another (as opencode's can). */
 export const DEFAULT_REDIRECT = 'http://127.0.0.1:19877/mcp/oauth/callback'

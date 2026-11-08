@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import type { WebContents } from 'electron'
 import { source as playwrightSource } from 'playwright-injected-script'
 import { USKeyboardLayout } from 'playwright-keyboard-layout'
 import type { PageViewport } from '../shared/types'
@@ -25,7 +24,50 @@ import {
  *
  * Playwright's script runs in an isolated world: the page cannot see it, and
  * page scripts that replace built-ins cannot break it.
+ *
+ * The page is a tab of the app's browser panel (browser.ts), or of a headless
+ * Chromium on a server (cli/headless-browser.ts): both give it as a DriverPage.
  */
+
+/**
+ * A DevTools protocol connection to a page. Commands and events without a
+ * session id are the page's own; iframes in other processes have sessions.
+ */
+export interface DevTools {
+  /** Connect. Events go to `onEvent` until detach, or until the connection is lost (`onLost`). */
+  attach(
+    onEvent: (method: string, params: Record<string, unknown>, sessionId?: string) => void,
+    onLost: () => void
+  ): void
+  /** Disconnect, if connected. */
+  detach(): void
+  send(method: string, params: object, sessionId?: string): Promise<unknown>
+}
+
+/** The page a driver drives. */
+export interface DriverPage {
+  readonly devtools: DevTools
+  /** Its address; empty until it commits its first document, and commands sent before never answer. */
+  url(): string
+  /** Settles once it has committed its first document or failed to load it, or after `timeout` ms. */
+  committed(timeout: number): Promise<void>
+  userAgent(): string
+  /**
+   * Whether it is on screen. Chromium drops clicks and key presses for a page
+   * that is not, so pages parked out of sight (other tabs, background chats)
+   * get those events made inside the page instead. Pages on screen get real
+   * input, made inside the page too when it does not arrive (the app window
+   * is minimized or covered).
+   */
+  onScreen(): boolean
+  /** Its viewport as a PNG of `size`, its CSS pixels; fails when it has drawn nothing yet. */
+  capture(size: { width: number; height: number }): Promise<Buffer>
+  /**
+   * Make it draw, when it is out of sight and never was on screen (see
+   * ensureDrawing); it keeps drawing from then on.
+   */
+  draw(): Promise<void>
+}
 
 const WORLD = 'barebone'
 const INJECTED = '__bareboneInjected'
@@ -581,7 +623,6 @@ function clipped(text: string): string {
 }
 
 export class PageDriver {
-  private readonly cdp: Electron.Debugger
   private attaching?: Promise<void>
   /** DevTools sessions of out-of-process iframes, by frame id. */
   private readonly frameSessions = new Map<string, string>()
@@ -613,25 +654,16 @@ export class PageDriver {
   emulating: Promise<void> = Promise.resolve()
 
   constructor(
-    private readonly contents: WebContents,
+    private readonly page: DriverPage,
     /**
-     * Electron opened its own dialog (one the page preload did not catch), or
-     * it closed (undefined). Only the user can answer it.
+     * The page opened a dialog (alert or confirm) the protocol reports, or it
+     * closed (undefined). In the app, Electron shows these itself (the page
+     * preload did not catch them), and only the user can answer them.
      */
     private readonly onNativeDialog: (
       dialog: { type: 'alert' | 'confirm'; message: string } | undefined
-    ) => void,
-    /**
-     * Whether the page is in the panel. Chromium drops clicks and key presses
-     * for a page that is not on screen, so pages parked out of sight (other
-     * tabs, background chats) get those events made inside the page instead.
-     * Pages in the panel get real input, made inside the page too when it does
-     * not arrive (the app window is minimized or covered).
-     */
-    private readonly onScreen: () => boolean
-  ) {
-    this.cdp = contents.debugger
-  }
+    ) => void
+  ) {}
 
   private attach(): Promise<void> {
     this.attaching ??= this.connect().catch((error) => {
@@ -643,10 +675,8 @@ export class PageDriver {
 
   private async connect(): Promise<void> {
     // Commands sent before a page commits its first document never answer.
-    if (!this.contents.getURL()) await this.firstDocument()
-    this.cdp.attach('1.3')
-    this.cdp.on('message', this.onMessage)
-    this.cdp.on('detach', this.reset)
+    if (!this.page.url()) await this.page.committed(COMMAND_TIMEOUT)
+    this.page.devtools.attach(this.onMessage, this.reset)
     await this.send('Page.enable')
     // For the console tool: what the page prints and throws, and requests that fail.
     await this.send('Runtime.enable')
@@ -713,7 +743,7 @@ export class PageDriver {
         'Emulation.setUserAgentOverride',
         mobile
           ? {
-              userAgent: mobileUserAgent(this.contents.getUserAgent()),
+              userAgent: mobileUserAgent(this.page.userAgent()),
               platform: 'Linux armv8l',
               userAgentMetadata: mobileClientHints()
             }
@@ -721,20 +751,6 @@ export class PageDriver {
       )
     }
     this.emulated = want
-  }
-
-  private firstDocument(): Promise<void> {
-    return new Promise((resolve) => {
-      const done = (): void => {
-        clearTimeout(timer)
-        this.contents.off('did-navigate', done)
-        this.contents.off('did-fail-load', done)
-        resolve()
-      }
-      const timer = setTimeout(done, COMMAND_TIMEOUT)
-      this.contents.on('did-navigate', done)
-      this.contents.on('did-fail-load', done)
-    })
   }
 
   /** Cross-site iframes run in their own process and need their own sessions. */
@@ -758,17 +774,11 @@ export class PageDriver {
    */
   detach(): void {
     if (!this.attaching) return
-    try {
-      if (!this.contents.isDestroyed() && this.cdp.isAttached()) this.cdp.detach()
-    } catch {
-      // The page is already gone.
-    }
+    this.page.devtools.detach()
     this.reset()
   }
 
   private readonly reset = (): void => {
-    this.cdp.off('message', this.onMessage)
-    this.cdp.off('detach', this.reset)
     this.attaching = undefined
     this.emulated = undefined
     this.frameSessions.clear()
@@ -780,7 +790,6 @@ export class PageDriver {
   }
 
   private readonly onMessage = (
-    _event: Electron.Event,
     method: string,
     params: Record<string, unknown>,
     sessionId?: string
@@ -899,7 +908,7 @@ export class PageDriver {
   ): Promise<T> {
     try {
       return await withTimeout(
-        this.cdp.sendCommand(method, params, sessionId) as Promise<T>,
+        this.page.devtools.send(method, params, sessionId) as Promise<T>,
         timeout,
         () =>
           new PageTimeoutError(
@@ -1272,7 +1281,7 @@ export class PageDriver {
   async click(ref: string): Promise<void> {
     const { frame, local, page } = await this.target(ref, 'click')
     const contextId = await this.context(frame)
-    if (this.onScreen()) {
+    if (this.page.onScreen()) {
       await this.call(frame, { contextId }, WATCH_INPUT, ['pointerdown'])
       await this.mouse('mouseMoved', page)
       await this.mouse('mousePressed', page, { button: 'left', clickCount: 1 })
@@ -1313,7 +1322,7 @@ export class PageDriver {
    * asks for a frame (invalidate does not); the page keeps drawing from then on.
    */
   private async ensureDrawing(): Promise<void> {
-    if (this.onScreen()) return
+    if (this.page.onScreen()) return
     const frame = await this.mainFrame()
     const drawing = await this.call<boolean>(
       frame,
@@ -1321,7 +1330,7 @@ export class PageDriver {
       DRAWS,
       []
     )
-    if (!drawing) await this.capture()
+    if (!drawing) await this.page.draw()
   }
 
   /** Fail unless the points are in the viewport, where input at a point goes. */
@@ -1577,48 +1586,15 @@ export class PageDriver {
   }
 
   /**
-   * PNG of the page's viewport, as base64. Electron renders a page for the
-   * capture, so this works for pages of background chats too, which draw
-   * nothing while parked off-screen.
-   *
-   * The capture has the display's pixels (twice the page's size on Retina); it
-   * is scaled to the page's width in CSS pixels, which keeps text legible with
-   * a quarter of the pixels, and makes its pixels the points that input at a
-   * point takes, at any zoom. Model APIs resend every image with each request
-   * and refuse images over 2000 pixels once a chat has many. A page set to a
-   * size bigger than the panel (see emulate) is drawn smaller than that; its
-   * capture is scaled up to it, so its pixels are still those points.
+   * PNG of the page's viewport, as base64, at the page's size in CSS pixels:
+   * that keeps text legible with a quarter of a Retina display's pixels, and
+   * makes its pixels the points that input at a point takes, at any zoom.
+   * Model APIs resend every image with each request and refuse images over
+   * 2000 pixels once a chat has many.
    */
   async screenshot(): Promise<string> {
     const { width, height } = await this.viewport()
-    const image = await this.capture()
-    if (image.isEmpty()) throw new Error('The page has not drawn anything yet.')
-    const size = image.getSize()
-    // Both sides: a scaled page's view is rounded to whole points, unevenly.
-    const scaled =
-      width > 0 && height > 0 && (size.width !== width || size.height !== height)
-        ? image.resize({ width, height, quality: 'best' })
-        : image
-    return scaled.toPNG().toString('base64')
-  }
-
-  /** The page's viewport as an image, at the display's pixels; the page draws for it. */
-  private async capture(): Promise<Electron.NativeImage> {
-    // Chromium fails a capture with UnknownVizError until the page's surface
-    // exists; the same capture works moments later (as ZCode found).
-    const deadline = Date.now() + 2000
-    for (;;) {
-      try {
-        return await withTimeout(
-          this.contents.capturePage(),
-          COMMAND_TIMEOUT,
-          () => new Error(`The page did not render within ${COMMAND_TIMEOUT / 1000}s.`)
-        )
-      } catch (error) {
-        if (!/UnknownVizError/.test((error as Error).message) || Date.now() > deadline) throw error
-        await sleep(100)
-      }
-    }
+    return (await this.page.capture({ width, height })).toString('base64')
   }
 
   /**

@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { app } from 'electron'
+import { userDataPath } from './runtime'
 import { SERVER_NAME as BROWSER_SERVER, type BrowserMcpEndpoint } from './browser-mcp'
 import { loadShellPath } from './shell-env'
 
@@ -17,7 +17,7 @@ import { loadShellPath } from './shell-env'
 function recordFile(name: string): string {
   // The browser's record kept its name from before there were others.
   const file = name === BROWSER_SERVER ? 'cline-mcp.json' : `cline-mcp-${name}.json`
-  return join(app.getPath('userData'), file)
+  return join(userDataPath(), file)
 }
 
 async function run(args: string[]): Promise<void> {

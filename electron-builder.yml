@@ -8,6 +8,9 @@ files:
   - '!.claude/**'
   - '!src/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
+  # The `barebone` command for servers (src/cli, docs/server.md) is not part of the app.
+  - '!electron.vite.cli.config.{js,ts,mjs,cjs}'
+  - '!{bin,docs,out/cli}/**'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'

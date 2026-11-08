@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { userDataPath } from './runtime'
 import { createHmac, randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
@@ -71,7 +71,7 @@ export function formatDuration(ms: number): string {
  * that first told it its key: a resumed Claude Code session keeps its system
  * prompt, so a key made anew at each launch would no longer be its own.
  */
-const secretPath = join(app.getPath('userData'), 'data', 'chat-keys.json')
+const secretPath = join(userDataPath(), 'data', 'chat-keys.json')
 
 let secret: Buffer | undefined
 

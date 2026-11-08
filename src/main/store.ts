@@ -1,4 +1,3 @@
-import { app, dialog, type BrowserWindow } from 'electron'
 import {
   closeSync,
   existsSync,
@@ -24,8 +23,9 @@ import { cleanStoredOutput } from './tool-output'
 import { chatPreview } from './preview'
 import { removeChatImages } from './images'
 import { addPrompt, historyPrompt, PROMPT_HISTORY_LIMIT } from '../shared/prompt-history'
+import { userDataPath } from './runtime'
 
-const dataDir = join(app.getPath('userData'), 'data')
+const dataDir = join(userDataPath(), 'data')
 const chatsDir = join(dataDir, 'chats')
 const statePath = join(dataDir, 'state.json')
 
@@ -83,15 +83,14 @@ function loadState(): AppState {
   return { projects: [], chats: [] }
 }
 
-/** Say that the saved projects and chats could not be read, if so (see loadState). */
-export function reportDamagedState(window: BrowserWindow): void {
-  if (!damagedState) return
-  void dialog.showMessageBox(window, {
-    type: 'warning',
-    message: 'Barebone could not read its saved projects and chats',
-    detail: `The file was damaged, so the app started without them. The damaged file was kept at:\n\n${damagedState}\n\nEach chat's messages are stored separately and were not touched.`
-  })
+/**
+ * Where the saved projects and chats were moved because they could not be read
+ * (see loadState), once, for telling the user; undefined when they were read.
+ */
+export function takeDamagedState(): string | undefined {
+  const kept = damagedState
   damagedState = undefined
+  return kept
 }
 
 for (const chat of state.chats) {
