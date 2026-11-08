@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { userDataPath } from '../runtime'
 import { existsSync, readFileSync } from 'node:fs'
 import { appendFile, mkdir, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -9,7 +9,7 @@ import type { AgentCommand, AgentOption, ChatItem, ModelSource } from '../../sha
 import * as store from '../store'
 import { BROWSER_GUIDANCE } from '../browser-mcp'
 import { CHATS_GUIDANCE } from '../chats-mcp'
-import { DEVICES_GUIDANCE } from '../devices-mcp'
+import { DEVICES_GUIDANCE } from '../devices-guidance'
 import { listSkills } from '../skills'
 import { formatRaw, limitOutput } from '../tool-output'
 import { saveImages } from '../images'
@@ -98,7 +98,7 @@ import type {
 const STALL_TIMEOUT_MS = 5 * 60_000
 const STALL_CHECK_MS = 15_000
 
-const sessionsDir = join(app.getPath('userData'), 'harness')
+const sessionsDir = join(userDataPath(), 'harness')
 
 /** One line of a session file. */
 type Entry =

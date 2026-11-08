@@ -4,7 +4,7 @@ import { basename, dirname, extname, join } from 'node:path'
 import { createRequire } from 'node:module'
 import { statSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { app, shell } from 'electron'
+import { appVersion, openExternal, userDataPath } from './runtime'
 import { pathToFileURL } from 'node:url'
 import { Readable, Writable } from 'node:stream'
 import type * as acp from '@agentclientprotocol/sdk'
@@ -36,7 +36,7 @@ import {
   devicesMcpServer,
   SERVER_NAME as BROWSER_SERVER
 } from './browser-mcp'
-import { SERVER_NAME as DEVICES_SERVER } from './devices-mcp'
+import { SERVER_NAME as DEVICES_SERVER } from './devices-guidance'
 import {
   chatKey,
   CHATS_GUIDANCE,
@@ -453,7 +453,7 @@ const NO_COMPACTION: Partial<Record<AgentId, string>> = {
 }
 
 /** Pasted images have no file; save them so a path can be given to the agent. */
-const attachmentsDir = join(app.getPath('userData'), 'attachments')
+const attachmentsDir = join(userDataPath(), 'attachments')
 
 async function withFilePaths(text: string, attachments: Attachment[]): Promise<string> {
   if (attachments.length === 0) return text
@@ -755,7 +755,7 @@ class AgentProcess implements AgentBackend {
         // its own (see onSubagent).
         subagents: {}
       },
-      clientInfo: { name: 'barebone', version: app.getVersion() }
+      clientInfo: { name: 'barebone', version: appVersion() }
     })
     if (this.run !== run) throw new Error(`${this.agent} was restarted.`)
     this.initResult = initResult
@@ -3348,7 +3348,7 @@ export class AgentManager implements ChatsApi {
     const content = answers && formContent(item.fields, answers)
     if (answers && !content) return
     this.permissions.delete(formId)
-    if (content && item.url) void shell.openExternal(item.url)
+    if (content && item.url) void openExternal(item.url)
     pending.answer(
       !content
         ? { action: 'decline' }

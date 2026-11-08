@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { userDataPath } from '../runtime'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
@@ -18,7 +18,7 @@ export interface TelegramConfig {
   offset?: number
 }
 
-const configPath = join(app.getPath('userData'), 'data', 'telegram.json')
+const configPath = join(userDataPath(), 'data', 'telegram.json')
 
 let config: TelegramConfig = load()
 

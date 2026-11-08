@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { userDataPath } from '../runtime'
 import { randomBytes } from 'node:crypto'
 import { mkdir, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
@@ -24,7 +24,6 @@ import { formContent } from '../forms'
 import { chatImagePath } from '../images'
 import type { Recorded } from '../recording'
 import * as store from '../store'
-import { transcribe } from '../voice'
 import {
   BotApi,
   TelegramError,
@@ -90,11 +89,28 @@ const NOT_LINKED = 'No chat is linked. Send /projects to pick one or start a new
 
 const MODELS_OUT_OF_DATE = 'This list is out of date. Send /model again.'
 
+/** What a new chat takes from another: its agent, model and permissions. */
+export type ChatTemplate = Pick<Chat, 'agent' | 'settings' | 'bypassPermissions' | 'projectOnly'>
+
 /** What Barebone does for the bridge, as the window's buttons do. */
 export interface BridgeHost {
+  /** Where Barebone runs, as messages name it: "the Mac", "the server". */
+  machine: string
+  /**
+   * Where a page form's link opens once the user accepts it, as its button
+   * says: "on the Mac", or "here" where the link is sent to this chat.
+   */
+  linksOpen: string
   send(chatId: string, text: string, attachments: Attachment[]): Promise<void>
   /** A new chat in a project, with the agent, model and permissions of `like`. */
-  createChat(projectId: string, like: Chat): Chat
+  createChat(projectId: string, like: ChatTemplate): Chat
+  /**
+   * What a new chat starts with when no chat can lend it its agent, as on a
+   * fresh server. The app has none: the window keeps what new chats take.
+   */
+  newChatDefaults?(): ChatTemplate | undefined
+  /** Write out what a voice note says; missing where Barebone cannot (on a server). */
+  transcribe?(audio: Uint8Array, mimeType: string): Promise<string>
   deleteChat(chatId: string): Promise<void>
   /** The chat's session options (its model, ...), its session opened for them. */
   openChat(chatId: string): Promise<OpenChatResult>
@@ -535,7 +551,13 @@ export class TelegramBridge {
     let prompt = text
     try {
       if (message.voice) {
-        const heard = await transcribe(
+        if (!this.host.transcribe) {
+          this.say(
+            `Voice notes can’t be written out on ${this.host.machine}. Send it as text instead.`
+          )
+          return
+        }
+        const heard = await this.host.transcribe(
           await this.download(message.voice),
           message.voice.mime_type ?? 'audio/ogg'
         )
@@ -604,7 +626,7 @@ export class TelegramBridge {
 
   /** A file sent to the bot, kept for the chat it is attached in. */
   private async saveFile(chatId: string, name: string, data: Buffer): Promise<string> {
-    const dir = join(app.getPath('userData'), 'telegram-files', chatId)
+    const dir = join(userDataPath(), 'telegram-files', chatId)
     await mkdir(dir, { recursive: true })
     const path = join(dir, `${Date.now()}-${name}`)
     await writeFile(path, data)
@@ -734,7 +756,9 @@ export class TelegramBridge {
   /** The projects, as the sidebar lists them; the linked chat's is ticked. */
   private projectsView(): Picker {
     const { projects } = store.getState()
-    if (projects.length === 0) return { html: 'No projects yet. Add one on the Mac.', rows: [] }
+    if (projects.length === 0) {
+      return { html: `No projects yet. Add one on ${this.host.machine}.`, rows: [] }
+    }
     const linkedChatId = telegramConfig().linkedChatId
     const current = linkedChatId ? this.chat(linkedChatId)?.projectId : undefined
     const buttons = projects.map((p) =>
@@ -814,8 +838,11 @@ export class TelegramBridge {
     const like =
       (linkedChatId ? this.chat(linkedChatId) : undefined) ??
       latest(chats.filter((c) => c.projectId === projectId)) ??
-      latest(chats)
-    if (!like) return 'Start a chat on the Mac first: new chats here take its agent and model.'
+      latest(chats) ??
+      this.host.newChatDefaults?.()
+    if (!like) {
+      return `Start a chat on ${this.host.machine} first: new chats here take its agent and model.`
+    }
     const chat = this.host.createChat(projectId, like)
     this.started.add(chat.id)
     this.link(chat.id)
@@ -1083,6 +1110,20 @@ export class TelegramBridge {
     for (const chatId of this.cards.keys()) this.showCard(chatId)
   }
 
+  /**
+   * A link a chat opens for the user (a page form, an MCP server's sign-in),
+   * sent here where Barebone has no browser to open it in (on a server).
+   * Fails when no one is paired to send it to.
+   */
+  openLink(url: string): void {
+    if (!this.api || !telegramConfig().owner) {
+      throw new Error(
+        `There is no browser on ${this.host.machine}, and no one paired in Telegram to open ${url}.`
+      )
+    }
+    this.say(`Open this link: <a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`)
+  }
+
   /** A video an agent recorded was saved. */
   video(chatId: string, video: Recorded): void {
     const { owner, linkedChatId } = telegramConfig()
@@ -1092,7 +1133,7 @@ export class TelegramBridge {
     const caption = chat.id === linkedChatId ? undefined : chat.title
     if (video.bytes > MAX_UPLOAD) {
       this.say(
-        `${caption ? `<b>${escapeHtml(caption)}</b>: ` : ''}a ${(video.bytes / 1e6).toFixed(1)} MB video is over Telegram’s 50 MB limit for bots. It is on the Mac at <code>${escapeHtml(video.path)}</code>.`
+        `${caption ? `<b>${escapeHtml(caption)}</b>: ` : ''}a ${(video.bytes / 1e6).toFixed(1)} MB video is over Telegram’s 50 MB limit for bots. It is on ${escapeHtml(this.host.machine)} at <code>${escapeHtml(video.path)}</code>.`
       )
       return
     }
@@ -1311,7 +1352,7 @@ export class TelegramBridge {
     if (item.url) {
       return [
         [
-          this.button('Open on the Mac', { kind: 'formOpen', form: key }),
+          this.button(`Open ${this.host.linksOpen}`, { kind: 'formOpen', form: key }),
           this.button('Decline', { kind: 'formDecline', form: key })
         ]
       ]
@@ -1393,9 +1434,9 @@ export class TelegramBridge {
         this.host.answerForm(form.chatId, form.formId, form.answers)
         return undefined
       case 'formOpen':
-        // Accepting a page form opens it on the Mac (see answerForm).
+        // Accepting a page form opens its link (see answerForm).
         this.host.answerForm(form.chatId, form.formId, {})
-        return 'Opened on the Mac'
+        return `Opened ${this.host.linksOpen}`
       case 'formDecline':
         this.host.answerForm(form.chatId, form.formId, null)
         return undefined

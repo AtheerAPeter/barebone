@@ -3,6 +3,9 @@
   "version": "1.0.99",
   "description": "Minimal GUI for opencode and cline",
   "main": "./out/main/index.js",
+  "bin": {
+    "barebone": "bin/barebone.js"
+  },
   "author": "AtheerAPeter",
   "homepage": "https://github.com/AtheerAPeter/barebone",
   "scripts": {
@@ -14,6 +17,8 @@
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
+    "typecheck:cli": "tsc --noEmit -p tsconfig.cli.json",
+    "build:cli": "npm run typecheck:cli && electron-vite build --config electron.vite.cli.config.ts",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
@@ -68,8 +73,10 @@
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.100.0",
     "@agentclientprotocol/codex-acp": "2.5.0",
-    "electron-liquid-glass": "^1.1.1",
     "onnxruntime-node": "^1.31.1",
     "serve-sim": "0.1.48"
+  },
+  "optionalDependencies": {
+    "electron-liquid-glass": "^1.1.1"
   }
 }

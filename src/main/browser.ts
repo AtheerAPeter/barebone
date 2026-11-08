@@ -1,9 +1,12 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
+  ClipboardItem,
   dialog,
   ipcMain,
   Menu,
+  nativeImage,
   WebContentsView,
   session,
   type IpcMainEvent,
@@ -13,7 +16,16 @@ import { EventEmitter } from 'node:events'
 import { existsSync } from 'node:fs'
 import { extname, basename, join } from 'node:path'
 import type { BrowserState, PageViewport, Rect, SavedTabs } from '../shared/types'
-import { PageDriver } from './page-driver'
+import {
+  normalizeUrl,
+  type BrowserPage,
+  type ChatBrowsers,
+  type Download,
+  type EditCommand,
+  type PageDialog,
+  type PaperSize
+} from './browser-tools'
+import { PageDriver, withTimeout, type DriverPage } from './page-driver'
 
 /**
  * `persist:` partitions are stored on disk, so cookies, localStorage and
@@ -55,25 +67,6 @@ const TAB_PREFERENCES = {
   // (electron/electron#42578). Pages get focus from the user's own click, and
   // from an address the user enters (see navigate).
   focusOnNavigation: false
-}
-
-export interface Download {
-  url: string
-  path: string
-  state: 'progressing' | 'completed' | 'cancelled' | 'interrupted'
-}
-
-/** An alert() or confirm() a page is waiting on. */
-export interface PageDialog {
-  type: 'alert' | 'confirm'
-  message: string
-  /** The site asking, as shown to the user. */
-  site: string
-  /**
-   * Answer it: OK, or Cancel. Missing for a dialog Electron shows itself (from
-   * a frame the page preload does not run in), which only the user can answer.
-   */
-  answer?: (accept: boolean) => void
 }
 
 /** A free file name in the folder: "name.ext", then "name (1).ext", ... */
@@ -126,6 +119,115 @@ function siteOf(url: string): string {
   }
 }
 
+/** How long a capture of a page may take before the page counts as stuck. */
+const CAPTURE_TIMEOUT = 10_000
+
+/** The page's viewport as an image, at the display's pixels; the page draws for it. */
+async function capturePage(contents: WebContents): Promise<Electron.NativeImage> {
+  // Chromium fails a capture with UnknownVizError until the page's surface
+  // exists; the same capture works moments later (as ZCode found).
+  const deadline = Date.now() + 2000
+  for (;;) {
+    try {
+      return await withTimeout(
+        contents.capturePage(),
+        CAPTURE_TIMEOUT,
+        () => new Error(`The page did not render within ${CAPTURE_TIMEOUT / 1000}s.`)
+      )
+    } catch (error) {
+      if (!/UnknownVizError/.test((error as Error).message) || Date.now() > deadline) throw error
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+  }
+}
+
+/**
+ * A tab's page as the agents' driver drives it (page-driver.ts): over
+ * Electron's debugger, and captured by Electron, which renders a page for the
+ * capture, so pages of background chats, parked off-screen, are captured too.
+ */
+function driverPage(contents: WebContents, onScreen: () => boolean): DriverPage {
+  const cdp = contents.debugger
+  let attached:
+    | {
+        message: (
+          event: Electron.Event,
+          method: string,
+          params: Record<string, unknown>,
+          sessionId: string
+        ) => void
+        lost: () => void
+      }
+    | undefined
+  const stopListening = (): void => {
+    if (!attached) return
+    cdp.off('message', attached.message)
+    cdp.off('detach', attached.lost)
+    attached = undefined
+  }
+  return {
+    devtools: {
+      attach(onEvent, onLost) {
+        cdp.attach('1.3')
+        attached = {
+          // The page's own events come with an empty session id.
+          message: (_event, method, params, sessionId) =>
+            onEvent(method, params, sessionId || undefined),
+          lost: () => {
+            stopListening()
+            onLost()
+          }
+        }
+        cdp.on('message', attached.message)
+        cdp.on('detach', attached.lost)
+      },
+      detach() {
+        stopListening()
+        try {
+          if (!contents.isDestroyed() && cdp.isAttached()) cdp.detach()
+        } catch {
+          // The page is already gone.
+        }
+      },
+      send: (method, params, sessionId) => cdp.sendCommand(method, params, sessionId)
+    },
+    url: () => contents.getURL(),
+    committed: (timeout) =>
+      new Promise((resolve) => {
+        const done = (): void => {
+          clearTimeout(timer)
+          contents.off('did-navigate', done)
+          contents.off('did-fail-load', done)
+          resolve()
+        }
+        const timer = setTimeout(done, timeout)
+        contents.on('did-navigate', done)
+        contents.on('did-fail-load', done)
+      }),
+    userAgent: () => contents.getUserAgent(),
+    onScreen,
+    async capture(size) {
+      // The display's pixels, twice the page's size on Retina. A page set to a
+      // size bigger than the panel (set_viewport) is drawn smaller than that;
+      // either way it is scaled to its size in CSS pixels.
+      const image = await capturePage(contents)
+      if (image.isEmpty()) throw new Error('The page has not drawn anything yet.')
+      const own = image.getSize()
+      // Both sides: a scaled page's view is rounded to whole points, unevenly.
+      const scaled =
+        size.width > 0 &&
+        size.height > 0 &&
+        (own.width !== size.width || own.height !== size.height)
+          ? image.resize({ ...size, quality: 'best' })
+          : image
+      return scaled.toPNG()
+    },
+    async draw() {
+      await capturePage(contents)
+    }
+  }
+}
+
 /** Whether two addresses have the same scheme and host; every file: address is one origin. */
 function sameOrigin(a: string | undefined, b: string): boolean {
   try {
@@ -141,7 +243,7 @@ function sameOrigin(a: string | undefined, b: string): boolean {
  * waits on. Emits 'dialog' when a dialog opens, and 'automate' when an agent
  * tool call starts on it.
  */
-export class ChatPage extends EventEmitter {
+export class ChatPage extends EventEmitter implements BrowserPage {
   readonly driver: PageDriver
   dialog?: PageDialog
   /** The message box showing the dialog to the user, while it is on screen. */
@@ -179,17 +281,67 @@ export class ChatPage extends EventEmitter {
   ) {
     super()
     this.driver = new PageDriver(
-      view.webContents,
+      driverPage(view.webContents, () => this.shown),
       (native) => {
         if (native) this.openDialog({ ...native, site: siteOf(this.contents.getURL()) })
         else if (this.dialog && !this.dialog.answer) this.closeDialog()
-      },
-      () => this.shown
+      }
     )
   }
 
   get contents(): WebContents {
     return this.view.webContents
+  }
+
+  address(): string {
+    return this.contents.getURL()
+  }
+
+  title(): string {
+    return this.contents.getTitle()
+  }
+
+  loading(): boolean {
+    return this.contents.isLoadingMainFrame()
+  }
+
+  navigate(url: string): Promise<void> {
+    return this.contents.loadURL(url)
+  }
+
+  async back(): Promise<void> {
+    if (this.contents.navigationHistory.canGoBack()) this.contents.navigationHistory.goBack()
+  }
+
+  pdf(pageSize: PaperSize, landscape: boolean): Promise<Buffer> {
+    return this.contents.printToPDF({ pageSize, landscape, printBackground: true })
+  }
+
+  async edit(command: EditCommand): Promise<void> {
+    this.contents[command]()
+  }
+
+  /** Paste an image as ⌘V would, through the clipboard; the user's clipboard is put back afterwards. */
+  async pasteImage(path: string): Promise<void> {
+    const image = nativeImage.createFromPath(path)
+    if (image.isEmpty()) throw new Error(`Not an image file, or not found: ${path}`)
+    // Copy the user's clipboard out; Electron only writes newly built items.
+    const previous = await Promise.all(
+      (await clipboard.read()).map(
+        async (item) =>
+          new ClipboardItem(
+            Object.fromEntries(
+              await Promise.all(item.types.map(async (type) => [type, await item.getType(type)]))
+            )
+          )
+      )
+    )
+    const png = new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' })
+    await clipboard.write([new ClipboardItem({ 'image/png': png })])
+    this.contents.paste()
+    // Let the page read the clipboard before restoring it.
+    await new Promise((done) => setTimeout(done, 1000))
+    await clipboard.write(previous)
   }
 
   /**
@@ -268,9 +420,11 @@ interface ChatTabs {
   restoring: boolean
 }
 
-export class BuiltinBrowser {
+export class BuiltinBrowser implements ChatBrowsers<ChatPage> {
   /** Most recent first; agents read paths from here to use downloaded files. */
   readonly downloads: Download[] = []
+  /** The user watches the pages in the panel. */
+  readonly watched = true
   /** download() calls waiting for their file, matched by page and URL. */
   private downloadWaiters: {
     contents: WebContents
@@ -896,9 +1050,11 @@ export class BuiltinBrowser {
     if (this.activeChat && page?.viewport) await this.setViewport(this.activeChat, page, undefined)
   }
 
-  /** Minimized or hidden: macOS draws nothing for it, so pages cannot be captured. */
-  get windowHidden(): boolean {
+  /** While the window is minimized or hidden, macOS draws nothing for it, so pages cannot be captured. */
+  get captureBlocked(): string | undefined {
     return this.window.isMinimized() || !this.window.isVisible()
+      ? "Barebone's window is closed or minimized, so pages cannot be captured now."
+      : undefined
   }
 
   /** The tab the panel shows, if the selected chat's browser is open. */
@@ -1000,13 +1156,4 @@ function reloadAndWait(contents: WebContents): Promise<void> {
     contents.on('did-fail-load', done)
     contents.reload()
   })
-}
-
-export function normalizeUrl(input: string): string {
-  const text = input.trim()
-  if (/^[a-z][a-z0-9+.-]*:/i.test(text)) return text
-  if (/^localhost(:\d+)?(\/|$)/.test(text) || /^[\d.]+(:\d+)?(\/|$)/.test(text))
-    return `http://${text}`
-  if (/^[^\s]+\.[^\s]{2,}$/.test(text)) return `https://${text}`
-  return `https://www.google.com/search?q=${encodeURIComponent(text)}`
 }

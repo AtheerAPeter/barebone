@@ -1,0 +1,13 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
+  "include": [
+    "electron.vite.cli.config.*",
+    "src/cli/**/*",
+    "src/main/playwright-injected-script.d.ts"
+  ],
+  "compilerOptions": {
+    "types": [
+      "electron-vite/node"
+    ]
+  }
+}

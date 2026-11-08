@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync } from 'node:fs'
 import { open } from 'node:fs/promises'
 import { join } from 'node:path'
-import { app } from 'electron'
+import { userDataPath } from './runtime'
 import { groupAlive, keepForQuit, KILL_GRACE_MS, killGroup, MAX_BYTES, tail } from './harness/tools'
 import { loadShellPath } from './shell-env'
 
@@ -60,7 +60,7 @@ interface Job {
  * secrets, and a shared temporary folder (Linux's /tmp) could be taken over
  * by another user.
  */
-const logDir = join(app.getPath('userData'), 'background')
+const logDir = join(userDataPath(), 'background')
 
 /** The commands each chat runs, by process ID. */
 const running = new Map<string, Map<number, Job>>()

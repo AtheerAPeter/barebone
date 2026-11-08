@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { userDataPath } from './runtime'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path'
  * auth.json), and never sent to the window, which only sees its last characters.
  */
 
-const keyPath = join(app.getPath('userData'), 'data', 'exa.json')
+const keyPath = join(userDataPath(), 'data', 'exa.json')
 
 let key = load()
 
