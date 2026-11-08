@@ -3,7 +3,7 @@ import type { AgentOption } from '../../../shared/types'
 import { useOverlay } from '../lib/overlays'
 import { menuPlacement, placementProps, type MenuPlacement } from '../lib/menuPlacement'
 import { ChevronDownIcon, GaugeIcon } from './icons'
-import { Switch } from './SettingsCard'
+import { Switch } from './SettingsRow'
 
 /** The value agents use for the model's own effort; opencode lists it last, the harness first. */
 const DEFAULT = 'default'

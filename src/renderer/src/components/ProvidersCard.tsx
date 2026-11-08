@@ -6,10 +6,8 @@ import {
   type ProviderApi
 } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
-import { ServerIcon } from './icons'
 import { Picker } from './Picker'
 import { RowMenu } from './RowMenu'
-import { SettingsCard } from './SettingsCard'
 
 const API_NAMES: Record<ProviderApi, string> = {
   chat: 'Chat Completions',
@@ -20,9 +18,10 @@ const API_NAMES: Record<ProviderApi, string> = {
 /**
  * The providers the Custom providers agent runs on: any API that speaks one of
  * the three formats, added, changed and removed here. Each row says how many
- * models the provider lists, or why it could not list them.
+ * models the provider lists, or why it could not list them. It is the body of
+ * Settings' Providers row; the explanation sits above it.
  */
-export function ProvidersCard({ onChange }: { onChange: () => void }): React.JSX.Element {
+export function ProvidersBody({ onChange }: { onChange: () => void }): React.JSX.Element {
   const [providers, setProviders] = useState<CustomProvider[]>()
   /** Each provider's last check; undefined while it runs. */
   const [checks, setChecks] = useState<Record<string, CustomProviderCheck | undefined>>({})
@@ -60,12 +59,7 @@ export function ProvidersCard({ onChange }: { onChange: () => void }): React.JSX
   }
 
   return (
-    <SettingsCard icon={<ServerIcon />} tone="indigo" title="Providers">
-      <p>
-        Add any API that speaks OpenAI Chat Completions, OpenAI Responses or Anthropic Messages. Its
-        models show in the model picker under Custom providers, and chats on them run on the
-        app&apos;s own agent.
-      </p>
+    <>
       {providers && providers.length > 0 && (
         <div className="provider-list">
           {providers.map((provider) =>
@@ -98,7 +92,7 @@ export function ProvidersCard({ onChange }: { onChange: () => void }): React.JSX
           </button>
         </div>
       )}
-    </SettingsCard>
+    </>
   )
 }
 

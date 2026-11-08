@@ -1,23 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import { renderSVG } from 'uqr'
-import type { RemotePairing, RemoteStatus } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
-import { CopyIcon, GlobeIcon } from './icons'
-import { SettingsCard, Switch } from './SettingsCard'
+import { CopyIcon } from './icons'
+import type { RemotePairing, RemoteStatus } from '../../../shared/types'
 
 /**
  * The remote link (main/remote): this app in a browser on the user's phone or
- * another computer, through zrok. Set up here, on the Mac only: zrok joined to
- * the user's account, then devices paired by a QR code. In a browser through
- * the link, the card only signs that browser out.
+ * another computer, through zrok. These are the body and the status of its
+ * Settings row: set up on the Mac only, while a browser through the link signs
+ * that browser out.
  */
-export function RemoteLinkCard(): React.JSX.Element {
-  return window.api.remote ? <SignedInHere /> : <MacCard />
-}
-
-function SignedInHere(): React.JSX.Element {
+export function SignedInBody(): React.JSX.Element {
   return (
-    <SettingsCard icon={<GlobeIcon />} tone="teal" title="Remote link">
+    <>
       <p>
         You&apos;re using Barebone through its remote link. The devices paired with it are listed in
         Settings on your Mac.
@@ -33,47 +28,23 @@ function SignedInHere(): React.JSX.Element {
           Sign out of this browser
         </button>
       </div>
-    </SettingsCard>
+    </>
   )
 }
 
-function useRemoteStatus(): RemoteStatus | undefined {
-  const [status, setStatus] = useState<RemoteStatus>()
-  useEffect(() => {
-    window.api.remoteLink.status().then(setStatus)
-    return window.api.remoteLink.onStatus(setStatus)
-  }, [])
-  return status
-}
-
-function MacCard(): React.JSX.Element {
-  const status = useRemoteStatus()
-  const [error, setError] = useState<string>()
-
-  async function setOn(on: boolean): Promise<void> {
-    setError(undefined)
-    try {
-      await window.api.remoteLink.setOn(on)
-    } catch (e) {
-      setError(errorMessage(e))
-    }
-  }
-
+/**
+ * The Mac's side of the row: zrok, the pairing QR code and the paired devices.
+ * Its switch is the row's, which saves through main and passes what went wrong.
+ */
+export function RemoteLinkBody({
+  status,
+  error
+}: {
+  status: RemoteStatus | undefined
+  error?: string
+}): React.JSX.Element {
   return (
-    <SettingsCard
-      icon={<GlobeIcon />}
-      tone="teal"
-      title="Remote link"
-      action={
-        status &&
-        (status.zrok === 'enabled' || status.on) && (
-          <span className="remote-head">
-            {status.on && <LinkState status={status} />}
-            <Switch label="Remote link" on={status.on} onChange={(on) => void setOn(on)} />
-          </span>
-        )
-      }
-    >
+    <>
       <p>
         Use Barebone in a browser on your phone or another computer, through zrok&apos;s free
         tunnel. A device joins by scanning a QR code shown here. Barebone has to be open on a Mac
@@ -88,20 +59,8 @@ function MacCard(): React.JSX.Element {
       )}
       {error && <div className="msg-error">{error}</div>}
       {status && status.sessions.length > 0 && <Sessions status={status} />}
-    </SettingsCard>
+    </>
   )
-}
-
-function LinkState({ status }: { status: RemoteStatus }): React.JSX.Element {
-  const label =
-    status.link === 'online'
-      ? 'Online'
-      : status.link === 'starting'
-        ? 'Starting…'
-        : status.link === 'error'
-          ? 'Reconnecting'
-          : 'Off'
-  return <span className={`remote-state ${status.link}`}>{label}</span>
 }
 
 /** Once: zrok joined to the user's account, which the tunnel runs on. */

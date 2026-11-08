@@ -4784,63 +4784,380 @@ img.project-icon {
   gap: 6px;
 }
 
-/* Settings */
+/* Settings: one list of settings, a line each, grouped by what they touch. */
 
 .settings {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  /* Scrolls like the sidebar: the track is never drawn, the cards are the page. */
+  /* Scrolls like the sidebar: the track is never drawn, the rows are the page. */
   scrollbar-width: none;
   width: 100%;
-  max-width: 660px;
+  max-width: 840px;
   margin: 0 auto;
-  padding: 36px 24px 48px;
+  padding: 34px 24px 56px;
 }
 
 .settings::-webkit-scrollbar {
   display: none;
 }
 
+.settings-head {
+  margin-bottom: 16px;
+}
+
 .settings h2 {
-  margin: 0 0 22px;
-  font-size: 28px;
-  font-weight: 800;
-  letter-spacing: -0.025em;
+  margin: 0;
+  font-size: 26px;
+  font-weight: 750;
+  letter-spacing: -0.03em;
   line-height: 1.1;
 }
 
-/* A sheet per section (SettingsCard): tile, title and switch on top, the rest under the title. */
-.settings-card {
+.settings-head p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* The search: a glass field over the list, and a cross that clears it. */
+.settings-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 38px;
+  padding: 0 8px 0 12px;
+  background: var(--glass);
+  box-shadow: var(--glass-rim);
+  border-radius: 11px;
+}
+
+.settings-search > svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--text-muted);
+}
+
+.settings-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--text);
+}
+
+.settings-search input::placeholder {
+  color: var(--placeholder);
+}
+
+.settings-search-clear {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--text-muted);
+}
+
+.settings-search-clear svg {
+  width: 13px;
+  height: 13px;
+}
+
+.settings-search-clear:hover {
+  background: var(--fill);
+  color: var(--text);
+}
+
+/* The filters, and how much of the list they leave. */
+.settings-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 2px;
+}
+
+.settings-filter {
+  height: 26px;
+  padding: 0 11px;
+  border-radius: var(--radius-pill);
+  background: var(--fill);
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.settings-filter:hover {
+  background: var(--fill-strong);
+  color: var(--text);
+}
+
+/* The chosen filter is solid ink, as a chosen segment is: it reads at a glance. */
+.settings-filter[aria-pressed='true'] {
+  background: var(--solid);
+  color: var(--on-solid);
+}
+
+.settings-count {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A group's name, over the rows that touch the same thing. */
+.settings-group {
+  margin: 16px 2px 2px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* One setting: the line, and the explanation under it when it is open. */
+.setting-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 3px 6px;
+  border-radius: 10px;
+}
+
+.setting-line:hover {
+  background: var(--hover);
+}
+
+/* The open row is one band, from its line to the end of its explanation. */
+.setting.open {
+  background: var(--fill);
+  border-radius: 10px;
+  padding-bottom: 2px;
+}
+
+.setting.open > .setting-line {
+  background: none;
+}
+
+.setting-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.setting-name {
+  flex: none;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+}
+
+/* What it does, on the same line: the part that makes the name mean something. */
+.setting-summary {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A dot before the meaning, drawn as a shape so no reader says "middle dot". */
+.setting-summary::before {
+  content: '';
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: 2px;
+  opacity: 0.55;
+}
+
+/* The state and the control, together at the end of the line. */
+.setting-ctl {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 10px;
+}
+
+/* What the setting is now. The only colored thing in the list. */
+.setting-pill {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  background: var(--fill);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.setting-pill.on {
+  background: var(--add-bg);
+  color: var(--add-text);
+}
+
+.setting-pill.warn {
+  background: var(--del-bg);
+  color: var(--del-text);
+}
+
+/* A row's own control, such as Manage: smaller than a form's button. */
+.setting-action {
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* The chevron that opens the explanation; it turns over when it is open. */
+.setting-more {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--text-muted);
+}
+
+.setting-more svg {
+  width: 14px;
+  height: 14px;
+  transition: transform var(--fast) var(--spring);
+}
+
+.setting-more[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+
+.setting-more:hover {
+  background: var(--fill);
+  color: var(--text);
+}
+
+/* The explanation and fields, lined up past the tile. */
+.setting-detail {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 16px 18px 18px;
-  background: var(--sheet);
-  box-shadow: var(--sheet-edge);
-  border-radius: 14px;
+  padding: 2px 10px 14px 52px;
 }
 
-.settings-card + .settings-card {
-  margin-top: 10px;
+.setting-detail[hidden] {
+  display: none;
 }
 
-.settings-card-head {
+.setting-detail p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.setting-detail code {
+  padding: 1px 5px;
+  color: var(--text);
+  font-size: 12px;
+  background: var(--code-bg);
+  border-radius: var(--radius-sm);
+}
+
+.setting-scope {
+  color: var(--text-muted) !important;
+  font-size: 11.5px !important;
+}
+
+/*
+ * A narrow window: the pill and the control move under the line, so the name
+ * and what it does keep their room and never clip.
+ */
+@media (max-width: 620px) {
+  .setting-line {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    position: relative;
+    row-gap: 6px;
+    padding: 9px 32px 9px 6px;
+  }
+
+  .setting-text {
+    flex: 1 1 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .setting-name {
+    white-space: normal;
+  }
+
+  .setting-summary {
+    display: -webkit-box;
+    white-space: normal;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-height: 1.4;
+  }
+
+  .setting-summary::before {
+    content: none;
+  }
+
+  /* Lines up with the name, past the tile, and takes the line after it. */
+  .setting-ctl {
+    flex: 0 0 100%;
+    padding-left: 40px;
+  }
+
+  .setting-ctl > .setting-action,
+  .setting-ctl > .switch {
+    margin-left: auto;
+  }
+
+  .setting-more {
+    position: absolute;
+    top: 6px;
+    right: 0;
+  }
+
+  .setting-detail {
+    padding-left: 6px;
+  }
+}
+
+/* Nothing matches the search and filter. */
+.settings-empty {
   display: flex;
   align-items: center;
   gap: 12px;
+  padding: 22px 2px;
+  color: var(--text-muted);
+  font-size: 13px;
 }
 
-.settings-card-head h3 {
-  flex: 1;
-  min-width: 0;
+.settings-empty p {
   margin: 0;
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
 }
 
-/* The tile: a white glyph on a solid color, lit along its top edge like glass. */
+/* The row's tile: a white glyph on a solid color, lit along its top edge. */
 .settings-icon {
   display: grid;
   place-items: center;
@@ -4891,29 +5208,6 @@ img.project-icon {
 }
 .tone-gray {
   --tile: #7c7c82;
-}
-
-/* Lines up with the title, past the tile. */
-.settings-card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding-left: 42px;
-}
-
-.settings-card p {
-  margin: 0;
-  color: var(--text-soft);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.settings-card code {
-  padding: 1px 5px;
-  color: var(--text);
-  font-size: 12px;
-  background: var(--code-bg);
-  border-radius: var(--radius-sm);
 }
 
 .settings-row {
@@ -5008,41 +5302,7 @@ img.project-icon {
   border-radius: var(--radius-sm);
 }
 
-/* The remote link (RemoteLinkCard): its state and switch, pairing, and the devices paired. */
-.remote-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-left: auto;
-}
-
-.remote-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-soft);
-}
-
-.remote-state::before {
-  content: '';
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text-muted);
-}
-
-.remote-state.online::before {
-  background: var(--ok);
-}
-
-.remote-state.starting::before {
-  background: var(--accent);
-}
-
-.remote-state.error::before {
-  background: var(--warn);
-}
+/* The remote link (RemoteLinkCard): pairing, and the devices paired. */
 
 .remote-pair-text {
   display: flex;
@@ -5051,7 +5311,7 @@ img.project-icon {
   min-width: 0;
 }
 
-.settings-card code.remote-url {
+.setting-detail code.remote-url {
   font-size: 13px;
   user-select: all;
   word-break: break-all;
