@@ -291,6 +291,12 @@ export class RemoteServer {
     const url = new URL(req.url ?? '/', 'http://x')
     const path = decodeURIComponent(url.pathname)
     const method = req.method ?? 'GET'
+    // zrok shares share one domain that is no public suffix, so another user's share is the
+    // same site as this one and SameSite cookies go with its requests: a change must come
+    // from this link's own page.
+    if (method !== 'GET' && method !== 'HEAD' && !this.originOk(req)) {
+      return this.text(res, 403, 'Not from this link.')
+    }
 
     if (path === '/pair') {
       if (this.session(req)) return this.redirect(res, '/')
