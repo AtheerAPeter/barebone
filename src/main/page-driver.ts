@@ -1588,10 +1588,20 @@ export class PageDriver {
    * and refuse images over 2000 pixels once a chat has many. A page set to a
    * size bigger than the panel (see emulate) is drawn smaller than that; its
    * capture is scaled up to it, so its pixels are still those points.
+   *
+   * Such a page is drawn at its scale in the top left of its view, and only
+   * that part is taken. A parked view (another tab, a background chat's) keeps
+   * the size it last had on screen, so the rest of it is empty, and scaling all
+   * of it to the page's size would stretch the page out of shape.
    */
   async screenshot(): Promise<string> {
     const { width, height } = await this.viewport()
-    const image = await this.capture()
+    const scale = this.emulated?.scale
+    const image = await this.capture(
+      scale && width > 0 && height > 0
+        ? { x: 0, y: 0, width: Math.round(width * scale), height: Math.round(height * scale) }
+        : undefined
+    )
     if (image.isEmpty()) throw new Error('The page has not drawn anything yet.')
     const size = image.getSize()
     // Both sides: a scaled page's view is rounded to whole points, unevenly.
@@ -1602,15 +1612,18 @@ export class PageDriver {
     return scaled.toPNG().toString('base64')
   }
 
-  /** The page's viewport as an image, at the display's pixels; the page draws for it. */
-  private async capture(): Promise<Electron.NativeImage> {
+  /**
+   * The page's viewport as an image, or the part of it in `area` (in points),
+   * at the display's pixels; the page draws for it.
+   */
+  private async capture(area?: Electron.Rectangle): Promise<Electron.NativeImage> {
     // Chromium fails a capture with UnknownVizError until the page's surface
     // exists; the same capture works moments later (as ZCode found).
     const deadline = Date.now() + 2000
     for (;;) {
       try {
         return await withTimeout(
-          this.contents.capturePage(),
+          this.contents.capturePage(area),
           COMMAND_TIMEOUT,
           () => new Error(`The page did not render within ${COMMAND_TIMEOUT / 1000}s.`)
         )
