@@ -144,6 +144,26 @@ export interface ChatsApi {
   setTimer(caller: string, seconds: number, note: string): void
   /** Clear the caller's timer; false when it had none. */
   cancelTimer(caller: string): boolean
+  /** Rename the caller, as the user does in the sidebar. */
+  renameChat(caller: string, title: string): void
+}
+
+/** The Telegram bot (main/telegram), which sends files to the user's phone. */
+export interface PhoneApi {
+  /** Whether a user is paired and topics are on: send_file is offered only then. */
+  on(): boolean
+  /**
+   * Send a file to the Telegram topic of the chat, or of the chat that
+   * started it; resolves with what was sent, throws why it could not be.
+   */
+  sendFile(chatId: string, path: string, caption?: string): Promise<string>
+}
+
+/** The bot the chat servers send files with; given once, when the app starts. */
+let phone: PhoneApi | undefined
+
+export function providePhone(api: PhoneApi): void {
+  phone = api
 }
 
 /** The voice agents speak with (main/speech), as the speak tool and show_step use it. */
@@ -448,6 +468,44 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
       return text(`Deleted chat ${to} ("${title}").`)
     }
   )
+
+  server.registerTool(
+    'rename_chat',
+    {
+      description:
+        "Rename this chat: its title in Barebone's sidebar, and its topic in Telegram when it has one. Use it when the user asks for a new name.",
+      inputSchema: {
+        title: z.string().describe('The new title: a few words'),
+        ...chatArg
+      }
+    },
+    ({ title, chat }) => {
+      const name = title.trim()
+      if (!name) throw new Error('"title" is empty.')
+      chats.renameChat(chatForKey(chat), name)
+      return text(`Renamed this chat to "${name}".`)
+    }
+  )
+
+  if (phone?.on()) {
+    const bot = phone
+    server.registerTool(
+      'send_file',
+      {
+        description:
+          "Send a file from this Mac to the user's phone, in the Telegram topic of this chat (or of the chat that started it). Images come as photos, MP4 and MOV videos as videos, anything else as a file, up to 50 MB. Use it for something the user should see or keep: a video or image you made, a PDF, a report. Screenshots from the browser tools and videos from start_recording reach the phone by themselves.",
+        inputSchema: {
+          path: z.string().describe('Absolute path of the file to send'),
+          caption: z.string().optional().describe('A line shown under it'),
+          ...chatArg
+        }
+      },
+      async ({ path, caption, chat }) => {
+        if (!isAbsolute(path)) throw new Error(`"path" must be absolute: ${path}`)
+        return text(await bot.sendFile(chatForKey(chat), path, caption))
+      }
+    )
+  }
 
   server.registerTool(
     'run_in_background',

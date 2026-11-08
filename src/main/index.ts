@@ -34,7 +34,7 @@ import {
   SERVER_NAME as BROWSER_SERVER,
   startBrowserMcp
 } from './browser-mcp'
-import { SERVER_NAME as CHATS_SERVER } from './chats-mcp'
+import { SERVER_NAME as CHATS_SERVER, providePhone } from './chats-mcp'
 import { registerWithCline, unregisterFromCline } from './cline-mcp'
 import { DeviceManager } from './devices'
 import { SERVER_NAME as DEVICES_SERVER } from './devices-mcp'
@@ -82,6 +82,12 @@ function send(channel: string, ...args: unknown[]): boolean {
   return true
 }
 
+/** Chats, projects or settings changed: the window and the Telegram bot show them anew. */
+function stateChanged(): void {
+  send('state:changed', store.getState())
+  telegram.stateChanged()
+}
+
 const agents = new AgentManager(
   {
     item: (chatId: string, item: ChatItem) => {
@@ -93,9 +99,9 @@ const agents = new AgentManager(
       telegram.options(chatId, options)
     },
     commands: (chatId: string, commands: AgentCommand[]) => send('chat:commands', chatId, commands),
+    turnEnded: (chatId, end) => telegram.turnEnded(chatId, end),
     stateChanged: () => {
-      send('state:changed', store.getState())
-      telegram.stateChanged()
+      stateChanged()
       // A chat that stopped running may no longer need its browser page, and
       // no longer controls a tab.
       browser?.prune()
@@ -120,9 +126,10 @@ async function deleteChat(chatId: string): Promise<void> {
   walks.forget(chatId)
 }
 
-/** Control from Telegram: the linked chat and the chats it starts, on the user's phone. */
+/** Control from Telegram: chats on the user's phone, each in a topic of its own. */
 const telegram = new TelegramBridge({
-  send: (chatId, text, attachments) => agents.send(chatId, text, attachments),
+  send: (chatId, text, attachments, id) =>
+    agents.send(chatId, text, attachments, undefined, false, id),
   createChat: (projectId, like) => {
     const chat = store.createChat({
       projectId,
@@ -131,10 +138,10 @@ const telegram = new TelegramBridge({
       bypassPermissions: like.bypassPermissions,
       projectOnly: like.projectOnly
     })
-    send('state:changed', store.getState())
+    stateChanged()
     return chat
   },
-  deleteChat,
+  renameChat: (chatId, title) => agents.renameChat(chatId, title),
   openChat: (chatId) => agents.open(chatId),
   agentStatus: (agent) => agents.status(agent),
   agentModels: (agent, projectId) => agents.models(agent, projectId),
@@ -310,7 +317,7 @@ function setTheme(theme: Theme): void {
   nativeTheme.themeSource = theme
   store.setTheme(theme)
   installMenu((command) => send('menu', command), theme, setTheme)
-  send('state:changed', store.getState())
+  stateChanged()
 }
 
 /**
@@ -320,14 +327,14 @@ function setTheme(theme: Theme): void {
 function setBrowserOpen(chatId: string, open: boolean): void {
   if (!store.getState().chats.some((c) => c.id === chatId)) return
   store.updateChat(chatId, open ? { browserOpen: true, codeOpen: false } : { browserOpen: false })
-  send('state:changed', store.getState())
+  stateChanged()
 }
 
 /** The code panel is open or closed per chat, in the browser panel's place. */
 function setCodeOpen(chatId: string, open: boolean): void {
   if (!store.getState().chats.some((c) => c.id === chatId)) return
   store.updateChat(chatId, open ? { codeOpen: true, browserOpen: false } : { codeOpen: false })
-  send('state:changed', store.getState())
+  stateChanged()
 }
 
 /** The simulators, emulators and phones, for the device tools. */
@@ -337,7 +344,7 @@ const devices = new DeviceManager()
 function registerDevicesIpc(): void {
   ipcMain.handle('mobile:set', (_e, on: boolean) => {
     store.setMobile(on)
-    send('state:changed', store.getState())
+    stateChanged()
     // Cline keeps servers in its own settings: add the device tools there, or take them out.
     void agents.status('cline').then(({ available }) => {
       if (!available) return
@@ -484,24 +491,24 @@ function registerIpc(browser: BuiltinBrowser): void {
   ipcMain.handle('theme:set', (_e, theme: Theme) => setTheme(theme))
   ipcMain.handle('instructions:set', (_e, text: string) => {
     store.setInstructions(text)
-    send('state:changed', store.getState())
+    stateChanged()
   })
   ipcMain.handle('annotations:set', (_e, on: boolean) => {
     store.setAnnotations(on)
-    send('state:changed', store.getState())
+    stateChanged()
   })
   ipcMain.handle('codeTours:set', (_e, on: boolean) => {
     store.setCodeTours(on)
-    send('state:changed', store.getState())
+    stateChanged()
   })
   ipcMain.handle('recording:set', (_e, on: boolean) => {
     store.setRecording(on)
-    send('state:changed', store.getState())
+    stateChanged()
   })
   // Speech: turning it on downloads the voice when it is not on this Mac yet.
   ipcMain.handle('speech:set', (_e, on: boolean) => {
     store.setSpeech(on)
-    send('state:changed', store.getState())
+    stateChanged()
     if (on) void speech.fetchModel()
     else speech.stop()
   })
@@ -511,7 +518,7 @@ function registerIpc(browser: BuiltinBrowser): void {
   ipcMain.handle('speech:remove', async () => {
     await speech.remove()
     store.setSpeech(false)
-    send('state:changed', store.getState())
+    stateChanged()
   })
   ipcMain.handle('speech:sample', (_e, text: string, language: Language) => {
     speech.speak(undefined, text, language)
@@ -532,7 +539,8 @@ function registerIpc(browser: BuiltinBrowser): void {
   ipcMain.handle('telegram:keyHint', () => telegram.tokenHint())
   ipcMain.handle('telegram:setKey', (_e, token: string | null) => telegram.setToken(token))
   ipcMain.handle('telegram:status', () => telegram.status())
-  ipcMain.handle('telegram:link', (_e, chatId: string | null) => telegram.link(chatId))
+  ipcMain.handle('telegram:openTopic', (_e, chatId: string) => telegram.openTopic(chatId))
+  ipcMain.handle('telegram:closeTopic', (_e, chatId: string) => telegram.closeTopic(chatId))
   ipcMain.handle('voice:transcribe', (_e, audio: Uint8Array, mimeType: string) =>
     transcribe(audio, mimeType)
   )
@@ -559,20 +567,20 @@ function registerIpc(browser: BuiltinBrowser): void {
     if (existing) return existing
     const project = { id: crypto.randomUUID(), name: basename(path), path, createdAt: Date.now() }
     store.addProject(project)
-    send('state:changed', store.getState())
+    stateChanged()
     return project
   })
 
   ipcMain.handle('project:remove', (_e, projectId: string) => {
     store.removeProject(projectId)
-    send('state:changed', store.getState())
+    stateChanged()
   })
 
   ipcMain.handle(
     'project:setStyle',
     (_e, projectId: string, style: Partial<Pick<Project, 'color' | 'icon'>>) => {
       store.updateProject(projectId, style)
-      send('state:changed', store.getState())
+      stateChanged()
     }
   )
   ipcMain.handle('project:icon', (_e, projectId: string) =>
@@ -583,7 +591,7 @@ function registerIpc(browser: BuiltinBrowser): void {
     if (icon === undefined) return undefined
     // The chosen image shows in place of any other icon.
     store.updateProject(projectId, { icon: undefined })
-    send('state:changed', store.getState())
+    stateChanged()
     return icon
   })
 
@@ -597,7 +605,7 @@ function registerIpc(browser: BuiltinBrowser): void {
       permissions: Pick<Chat, 'bypassPermissions' | 'projectOnly'> = {}
     ) => {
       const chat = store.createChat({ projectId, agent, settings, ...permissions })
-      send('state:changed', store.getState())
+      stateChanged()
       return chat
     }
   )
@@ -616,18 +624,15 @@ function registerIpc(browser: BuiltinBrowser): void {
   ipcMain.handle('chat:draft', (_e, chatId: string, text: string) => {
     if (!store.getState().chats.some((c) => c.id === chatId)) return
     store.updateChat(chatId, { draft: text || undefined })
-    send('state:changed', store.getState())
+    stateChanged()
   })
 
-  ipcMain.handle('chat:rename', (_e, chatId: string, title: string) => {
-    const trimmed = title.trim()
-    if (!trimmed) return
-    store.updateChat(chatId, { title: trimmed, renamed: true })
-    send('state:changed', store.getState())
-  })
+  ipcMain.handle('chat:rename', (_e, chatId: string, title: string) =>
+    agents.renameChat(chatId, title)
+  )
   ipcMain.handle('chat:pin', (_e, chatId: string, pinned: boolean) => {
     store.updateChat(chatId, { pinned: pinned || undefined })
-    send('state:changed', store.getState())
+    stateChanged()
   })
   ipcMain.handle('chat:messages', (_e, chatId: string) => store.getMessages(chatId))
 
@@ -783,6 +788,10 @@ app.whenReady().then(async () => {
   )
   registerIpc(browser)
   telegram.start()
+  providePhone({
+    on: () => telegram.sendsFiles(),
+    sendFile: (chatId, path, caption) => telegram.sendFile(chatId, path, caption)
+  })
   registerGitIpc()
   registerDevicesIpc()
   // On by default: the voice downloads in the background the first time.

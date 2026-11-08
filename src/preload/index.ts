@@ -158,7 +158,7 @@ const api = {
     onBlur: (listener: () => void) => on('voice:blur', listener)
   },
 
-  /** Control from Telegram (main/telegram): a bot that carries one chat to the user's phone. */
+  /** Control from Telegram (main/telegram): a bot that carries chats to the user's phone, a topic each. */
   telegram: {
     /** The saved bot token's last four characters; null when none is saved. */
     keyHint: (): Promise<string | null> => ipcRenderer.invoke('telegram:keyHint'),
@@ -167,8 +167,10 @@ const api = {
       ipcRenderer.invoke('telegram:setKey', key),
     status: (): Promise<TelegramStatus> => ipcRenderer.invoke('telegram:status'),
     onStatus: (listener: (status: TelegramStatus) => void) => on('telegram:status', listener),
-    /** Make a chat the one the bot controls, or none (null). */
-    link: (chatId: string | null): Promise<void> => ipcRenderer.invoke('telegram:link', chatId)
+    /** Follow a chat in Telegram: it gets a topic, where what the user writes goes to it. */
+    openTopic: (chatId: string): Promise<void> => ipcRenderer.invoke('telegram:openTopic', chatId),
+    /** Stop following a chat in Telegram: its topic is deleted. */
+    closeTopic: (chatId: string): Promise<void> => ipcRenderer.invoke('telegram:closeTopic', chatId)
   },
 
   /** The providers added in Settings, which the Custom providers agent runs on. */

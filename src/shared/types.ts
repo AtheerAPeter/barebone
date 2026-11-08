@@ -278,9 +278,10 @@ export interface TelegramStatus {
   state: 'off' | 'pairing' | 'ready' | 'error'
   bot?: string
   code?: string
-  /** The chat messages to the bot go to, while one is linked. */
-  linkedChatId?: string
-  linkedTitle?: string
+  /** The chats that have a topic in Telegram: what is written in it goes to the chat. */
+  topicChatIds?: string[]
+  /** Paired, but the bot's topics (BotFather's Threaded Mode) are off: nothing works until they are on. */
+  topicsOff?: boolean
   error?: string
 }
 

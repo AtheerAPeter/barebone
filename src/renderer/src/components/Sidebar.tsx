@@ -99,7 +99,7 @@ export function Sidebar({
   useRowMotion(navRef, resizing)
   /** The chat whose title is being edited in place. */
   const [renaming, setRenaming] = useState<string>()
-  /** Once paired, a chat the user started can be linked to the Telegram bot. */
+  /** Once paired, a chat the user started can get a topic in Telegram. */
   const telegram = useTelegramStatus()
   /** The search text; undefined while the search field is closed. */
   const [query, setQuery] = useState<string>()
@@ -245,9 +245,9 @@ export function Sidebar({
               {chat.title}
             </span>
           )}
-          {telegram?.state === 'ready' && telegram.linkedChatId === chat.id && (
-            <span className="chat-remote" title="Controlled from Telegram">
-              <PhoneIcon width={14} height={14} aria-label="Controlled from Telegram" />
+          {telegram?.state === 'ready' && telegram.topicChatIds?.includes(chat.id) && (
+            <span className="chat-remote" title="Has a topic in Telegram">
+              <PhoneIcon width={14} height={14} aria-label="Has a topic in Telegram" />
             </span>
           )}
           {led && (
@@ -280,16 +280,19 @@ export function Sidebar({
                   ]
                 : []),
               { name: 'Rename', onSelect: () => setRenaming(chat.id) },
-              ...(telegram?.state === 'ready' && !chat.startedBy
+              ...(telegram?.state === 'ready' && !telegram.topicsOff && !chat.startedBy
                 ? [
-                    telegram.linkedChatId === chat.id
+                    telegram.topicChatIds?.includes(chat.id)
                       ? {
-                          name: 'Stop Telegram control',
-                          onSelect: () => void window.api.telegram.link(null)
+                          name: 'Remove Telegram topic',
+                          onSelect: () => void window.api.telegram.closeTopic(chat.id)
                         }
                       : {
-                          name: 'Control from Telegram',
-                          onSelect: () => void window.api.telegram.link(chat.id)
+                          name: 'Open in Telegram',
+                          onSelect: () =>
+                            void window.api.telegram
+                              .openTopic(chat.id)
+                              .catch((error) => console.error('Telegram topic:', error))
                         }
                   ]
                 : []),

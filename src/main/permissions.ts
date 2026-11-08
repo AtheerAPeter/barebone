@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import type * as acp from '@agentclientprotocol/sdk'
 import type { AgentCommand, AgentOption, ChatItem } from '../shared/types'
+import type { TurnEnd } from './agents'
 import * as store from './store'
 
 export interface AgentEvents {
@@ -10,6 +11,11 @@ export interface AgentEvents {
   options(chatId: string, options: AgentOption[]): void
   commands(chatId: string, commands: AgentCommand[]): void
   stateChanged(): void
+  /**
+   * A chat's turn ended, and how; undefined when it was ended to take
+   * messages that waited, as it goes on in the next turn (steered).
+   */
+  turnEnded(chatId: string, end: TurnEnd | undefined): void
 }
 
 export interface PendingPermission {

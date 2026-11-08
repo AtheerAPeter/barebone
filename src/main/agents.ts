@@ -1983,15 +1983,19 @@ function errorMessage(error: unknown, agent: AgentId): string {
 
 type UserItem = Extract<ChatItem, { kind: 'user' }>
 
-/** A message's item, with the names of the files sent with it and copies of its images to show. */
+/**
+ * A message's item, with the names of the files sent with it and copies of
+ * its images to show; `id` when the sender follows the message (see send).
+ */
 async function newUserItem(
   chatId: string,
   text: string,
-  attachments: Attachment[]
+  attachments: Attachment[],
+  id: string = crypto.randomUUID()
 ): Promise<UserItem> {
   return {
     kind: 'user',
-    id: crypto.randomUUID(),
+    id,
     text,
     ...(attachments.length
       ? {
@@ -2367,14 +2371,17 @@ export class AgentManager implements ChatsApi {
   /**
    * Send a message from the user, or, with `from`, from another chat's agent.
    * The user's message to a working chat waits for it (see wait). `steers`
-   * when it ends a turn early to steer it (see steerAfterStep).
+   * when it ends a turn early to steer it (see steerAfterStep). `id` is the
+   * ID its item gets, whenever it joins a turn, so the sender can follow it
+   * (the Telegram bot marks the user's message with how it is going).
    */
   async send(
     chatId: string,
     text: string,
     attachments: Attachment[] = [],
     from?: ChatSender,
-    steers = false
+    steers = false,
+    id?: string
   ): Promise<void> {
     // Once the app quits, nothing starts a turn: a background command, a timer
     // or a chat that ended would otherwise start an agent as the app stops them.
@@ -2383,7 +2390,7 @@ export class AgentManager implements ChatsApi {
     const chat = store.getChat(chatId)
     if (chat.running) {
       if (from) throw new Error('This chat is already running.')
-      this.wait(chatId, text, attachments)
+      this.wait(chatId, text, attachments, id)
       return
     }
     const compact = !from && COMPACT.test(text.trim())
@@ -2407,7 +2414,7 @@ export class AgentManager implements ChatsApi {
     })
     const sentAt = Date.now()
     const userItem: UserItem = {
-      ...(await newUserItem(chatId, text, attachments)),
+      ...(await newUserItem(chatId, text, attachments, id)),
       sentAt,
       ...(from ? { from } : {})
     }
@@ -2501,9 +2508,24 @@ export class AgentManager implements ChatsApi {
       updatedAt: Date.now(),
       preview: chatPreview(store.getMessages(chatId))
     })
+    // Told before a message that waited starts the next turn, which turnEnds can't be.
+    this.events.turnEnded(chatId, this.endOf(chatId, outcome, failure))
     this.events.stateChanged()
     this.deliverNext(chatId, outcome)
     this.turnEnded(chatId, outcome, failure)
+  }
+
+  /** How a turn ended for the user; undefined when it was steered, as it goes on in the next one. */
+  private endOf(
+    chatId: string,
+    outcome: TurnOutcome,
+    failure: string | undefined
+  ): TurnEnd | undefined {
+    if (outcome === 'steered') return undefined
+    if (outcome === 'failed') return { outcome, error: failure ?? 'unknown error' }
+    return this.stopping.has(chatId) || outcome === 'stopped'
+      ? { outcome: 'stopped' }
+      : { outcome: 'done' }
   }
 
   /** Turns agents started themselves (see WORKS_BETWEEN_TURNS), by chat, with the item that starts each. */
@@ -2600,8 +2622,13 @@ export class AgentManager implements ChatsApi {
    * steer and steerAfterStep). It shows above the composer until then, and
    * joins the chat where the agent reads it.
    */
-  private wait(chatId: string, text: string, attachments: Attachment[]): void {
-    const message = { id: crypto.randomUUID(), text, attachments }
+  private wait(
+    chatId: string,
+    text: string,
+    attachments: Attachment[],
+    id: string = crypto.randomUUID()
+  ): void {
+    const message = { id, text, attachments }
     this.inbox.set(chatId, [...(this.inbox.get(chatId) ?? []), message])
     this.showWaiting(chatId)
   }
@@ -3053,6 +3080,17 @@ export class AgentManager implements ChatsApi {
     return this.clearTimer(this.caller(caller).id)
   }
 
+  /**
+   * Rename a chat, as the user does in the sidebar, from Telegram, or as its
+   * agent does when asked (rename_chat); a renamed chat keeps its title.
+   */
+  renameChat(chatId: string, title: string): void {
+    const trimmed = title.trim()
+    if (!trimmed) return
+    store.updateChat(chatId, { title: trimmed, renamed: true })
+    this.events.stateChanged()
+  }
+
   /** Clear the chat's timer, for the chat or the user; false when it had none. */
   clearTimer(chatId: string): boolean {
     const timer = this.timers.get(chatId)
@@ -3086,19 +3124,13 @@ export class AgentManager implements ChatsApi {
    * again. A stop by the user wakes no one: the user meant to stop it.
    */
   private turnEnded(chatId: string, outcome: TurnOutcome, failure: string | undefined): void {
+    const end = this.endOf(chatId, outcome, failure)
     const byUser = this.stopping.delete(chatId)
-    if (outcome === 'steered') return
+    if (!end) return
     // A message that waited for the turn started the next one.
     const chat = store.getChat(chatId)
     if (chat.running) return
-    this.turnEnds.set(
-      chatId,
-      outcome === 'failed'
-        ? { outcome, error: failure ?? 'unknown error' }
-        : byUser || outcome === 'stopped'
-          ? { outcome: 'stopped' }
-          : { outcome: 'done' }
-    )
+    this.turnEnds.set(chatId, end)
     if (byUser || outcome === 'stopped' || !chat.startedBy) return
     if (!this.owesReport.delete(chatId)) return
     const lead = store.getState().chats.find((c) => c.id === chat.startedBy)
@@ -3227,11 +3259,11 @@ export class AgentManager implements ChatsApi {
       if (!joined) return []
       this.takeWaitingMessages(chatId, messages)
     }
-    for (const { text, attachments, from } of messages) {
+    for (const { id, text, attachments, from } of messages) {
       this.events.item(
         chatId,
         store.upsertItem(chatId, {
-          ...(await newUserItem(chatId, text, attachments)),
+          ...(await newUserItem(chatId, text, attachments, id)),
           sentAt: Date.now(),
           ...(from ? { from } : {})
         })
@@ -3275,7 +3307,9 @@ export class AgentManager implements ChatsApi {
     const [next, ...rest] = this.deliverable(chatId, queued)
     if (rest.length > 0) this.inbox.set(chatId, rest)
     this.showWaiting(chatId)
-    if (next) void this.send(chatId, next.text, next.attachments, next.from, outcome === 'steered')
+    if (next) {
+      void this.send(chatId, next.text, next.attachments, next.from, outcome === 'steered', next.id)
+    }
   }
 
   /**
