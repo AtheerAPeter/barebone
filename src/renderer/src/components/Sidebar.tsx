@@ -563,8 +563,7 @@ export function Sidebar({
               {version && <span className="profile-sub">v{version}</span>}
             </span>
           </button>
-          {/* A browser follows its device's light or dark mode. */}
-          {!window.api.remote && <ThemeToggle />}
+          <ThemeToggle />
         </div>
       </div>
     </nav>
