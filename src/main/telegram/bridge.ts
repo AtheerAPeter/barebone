@@ -41,24 +41,23 @@ import {
   attribute,
   cut,
   escapeHtml,
+  markdownMessages,
   plainMessages,
-  turnFinal,
-  turnFinalPlain,
-  turnLive,
-  turnLivePlain,
+  richMessages,
+  stepsMessage,
   workerCard,
   type CardState,
   type OutText,
-  type Progress,
-  type TurnView
+  type Progress
 } from './format'
 
 /**
  * Control from Telegram: a bot the user made with @BotFather carries their
  * chats to their phone, each in a topic of its own (the bot's Threaded Mode).
- * What they write in a topic goes to its chat. A turn shows live as a draft
- * with a Stop button, and stays as one message: how it went with its steps
- * folded, then its answer. The chats a chat starts (`@chats`) get a card each
+ * What they write in a topic goes to its chat. Its answers come as rich
+ * messages, streamed as a draft with a Stop button while written, and each
+ * run of its tool calls as one message that keeps up with them. The chats a
+ * chat starts (`@chats`) get a card each
  * in its topic, edited in place. Questions (permissions, forms) come as
  * buttons, screenshots and videos as media. A pinned message lists the chats
  * that work or need the user, as the sidebar does, and opens their topics.
@@ -77,11 +76,8 @@ const CALL_GAP_MS = 1000
 /** How often a card, the list of chats or a topic's name is edited, at most. */
 const EDIT_EVERY_MS = 2500
 
-/** How often a turn's draft is updated while it changes. */
+/** How often a streamed answer's draft is updated. */
 const DRAFT_EVERY_MS = 1000
-
-/** A draft shows for 30 seconds: it is sent again before then while its turn works. */
-const DRAFT_KEEP_MS = 20_000
 
 /** Telegram's limits for what bots download and send. */
 const MAX_DOWNLOAD = 20 * 1024 * 1024
@@ -205,7 +201,6 @@ interface Catalog {
   sources: Source[]
 }
 
-type TextItem = Extract<ChatItem, { kind: 'text' }>
 type ToolItem = Extract<ChatItem, { kind: 'tool' }>
 type PermissionItem = Extract<ChatItem, { kind: 'permission' }>
 type FormItem = Extract<ChatItem, { kind: 'form' }>
@@ -216,23 +211,28 @@ interface TopicView {
   thread: number
   /** The topic's name as last set, so it is edited only when that changes. */
   name?: string
-  /** Its items shown so far: only a new one joins the turn, not a change to an old one. */
+  /** Its items shown so far: only a new one ends the answer being written, not a change to an old one. */
   readonly seen: Set<string>
   readonly posted: Set<string>
   /** Permission prompts sent, by item ID, edited once answered: its own and its chats'. */
   readonly asked: Map<string, number>
-  turn?: LiveTurn
+  /** The runs of tool calls of the turn under way, the open one last. */
+  turnSteps: Steps[]
+  openSteps?: Steps
+  readonly stepsOf: Map<string, Steps>
+  /** The answer being written, shown as a draft until it is sent. */
+  text?: { id: string; draftId: number }
   /** The chats it started, each as a card. */
   readonly cards: Map<string, Card>
 }
 
-/** A turn under way: its texts and calls, shown as a draft until it ends. */
-interface LiveTurn {
+/** A run of a chat's tool calls between two of its messages, shown as one message. */
+interface Steps {
   ids: string[]
   startedAt: number
-  draftId: number
-  /** Sends the draft again before it fades. */
-  keep: ReturnType<typeof setInterval>
+  endedAt?: number
+  messageId?: number
+  shown?: string
 }
 
 /** The card of a chat a topic's chat started. */
@@ -414,7 +414,6 @@ export class TelegramBridge {
     this.timers.clear()
     this.due.clear()
     this.pending.length = 0
-    for (const view of this.views.values()) if (view.turn) clearInterval(view.turn.keep)
     this.views.clear()
     this.opening.clear()
     this.forms.clear()
@@ -507,9 +506,17 @@ export class TelegramBridge {
       if (item.kind === 'permission') this.showPermission(view, chat.id, item)
       if (item.kind === 'form') this.showForm(chat.id, item)
     }
-    if (chat.running) {
-      const turn = this.startTurn(view, lastUser(chat.id)?.sentAt)
-      turn.ids.push(...items.filter((i) => i.kind === 'text' || isTopTool(i)).map((i) => i.id))
+    // The calls it made on its task so far, as one run that goes on.
+    const calls = items.filter(isTopTool)
+    if (chat.running && calls.length > 0) {
+      const steps: Steps = { ids: [], startedAt: lastUser(chat.id)?.sentAt ?? Date.now() }
+      for (const call of calls) {
+        steps.ids.push(call.id)
+        view.stepsOf.set(call.id, steps)
+      }
+      view.turnSteps.push(steps)
+      view.openSteps = steps
+      this.showSteps(view, steps)
     }
   }
 
@@ -517,7 +524,6 @@ export class TelegramBridge {
   private removeTopic(chatId: string, deleteTopic: boolean): void {
     const view = this.views.get(chatId)
     const thread = view?.thread ?? telegramConfig().topics?.[chatId]
-    if (view?.turn) clearInterval(view.turn.keep)
     this.views.delete(chatId)
     const topics = { ...telegramConfig().topics }
     delete topics[chatId]
@@ -1716,7 +1722,8 @@ export class TelegramBridge {
 
   /**
    * A chat's turn ended, and how (undefined when it goes on in the next one):
-   * the user's messages it took are marked, and its topic gets the turn's message.
+   * the user's messages it took are marked, its last answer is sent, and its
+   * steps messages say they are done.
    */
   turnEnded(chatId: string, end: TurnEnd | undefined): void {
     if (!end) return
@@ -1726,29 +1733,16 @@ export class TelegramBridge {
       this.react(sent.messageId, MARK_END[end.outcome])
     }
     const view = this.views.get(chatId)
-    const turn = view?.turn
-    if (!view || !turn) return
-    view.turn = undefined
-    clearInterval(turn.keep)
-    const shown: TurnView = {
-      items: [],
-      elapsedMs: Date.now() - turn.startedAt,
-      end: { outcome: end.outcome }
+    if (!view) return
+    // Its last answer is the one that buzzes: the turn is done.
+    this.endText(view, true)
+    const now = Date.now()
+    for (const steps of view.turnSteps) {
+      steps.endedAt ??= now
+      this.showSteps(view, steps)
     }
-    this.enqueue(async () => {
-      if (this.views.get(chatId) !== view) return
-      shown.items = this.turnItems(chatId, turn)
-      if (!this.noRich) {
-        try {
-          for (const html of turnFinal(shown)) await this.sendRich(html, view.thread)
-          this.richFailures = 0
-          return
-        } catch (error) {
-          if (!this.richRefused(error)) throw error
-        }
-      }
-      for (const out of turnFinalPlain(shown)) await this.sendText(out, view.thread)
-    }, ANSWER)
+    view.turnSteps = []
+    view.openSteps = undefined
   }
 
   /** A video an agent recorded was saved. */
@@ -1817,27 +1811,49 @@ export class TelegramBridge {
     switch (item.kind) {
       case 'user':
         if (!fresh) return
-        this.startTurn(view, item.sentAt)
         // A message written on the Mac shows here too, so the answer that follows makes sense.
         if (!item.from && !this.followed.has(item.id) && !item.text.startsWith('Remote:')) {
           this.say(`🖥 <i>${escapeHtml(cut(item.text, 500))}</i>`, view.thread, SILENT, UPDATE)
         }
         return
       case 'text':
+        // An answer already sent that changes again (it gained an image) stays as sent.
+        if (!fresh && view.text?.id !== item.id) return
+        if (fresh) {
+          view.openSteps = undefined
+          this.endText(view, false)
+          view.text = { id: item.id, draftId: this.nextDraft++ }
+        }
+        this.later(`draft:${item.id}`, DRAFT_EVERY_MS, () => this.draft(view, item.id))
+        return
       case 'tool': {
-        if (item.kind === 'tool' && item.parentId) return
-        if (fresh) (view.turn ?? this.startTurn(view)).ids.push(item.id)
-        this.showLive(view)
+        if (item.parentId) return
+        if (fresh) this.endText(view, false)
+        let steps = view.stepsOf.get(item.id)
+        if (!steps) {
+          steps = view.openSteps
+          if (!steps) {
+            steps = { ids: [], startedAt: Date.now() }
+            view.openSteps = steps
+            view.turnSteps.push(steps)
+          }
+          steps.ids.push(item.id)
+          view.stepsOf.set(item.id, steps)
+        }
+        this.showSteps(view, steps)
         return
       }
       case 'permission':
+        if (fresh) this.endText(view, false)
         this.showPermission(view, view.chatId, item)
         return
       case 'form':
+        if (fresh) this.endText(view, false)
         this.showForm(view.chatId, item)
         return
       case 'error':
       case 'notice':
+        if (fresh) this.endText(view, false)
         if (view.posted.has(item.id)) return
         view.posted.add(item.id)
         for (const out of plainMessages(item.kind === 'error' ? `⚠️ ${item.text}` : item.text)) {
@@ -1852,72 +1868,107 @@ export class TelegramBridge {
     }
   }
 
-  /** A turn begins (or goes on, when a message joined it): its draft shows at once. */
-  private startTurn(view: TopicView, sentAt?: number): LiveTurn {
-    if (view.turn) return view.turn
-    const turn: LiveTurn = {
-      ids: [],
-      startedAt: sentAt ?? Date.now(),
-      draftId: this.nextDraft++,
-      keep: setInterval(() => this.showLive(view, 0), DRAFT_KEEP_MS)
-    }
-    view.turn = turn
-    this.showLive(view, 0)
-    return turn
-  }
-
-  private turnItems(chatId: string, turn: LiveTurn): (TextItem | ToolItem)[] {
-    return turn.ids
-      .map((id) => store.findItem(chatId, id))
-      .filter((i): i is TextItem | ToolItem => i?.kind === 'text' || (!!i && isTopTool(i)))
-  }
-
   /**
-   * The turn as a draft: what it does, its steps and the text it writes, with
-   * a Stop button. Telegram shows a draft for 30 seconds, and hides it once
-   * the bot sends anything, so it is sent again then (see redraw).
+   * The answer being written is final: a later item came, or the turn ended.
+   * Only the turn's last answer buzzes; the ones between its steps come silently.
    */
-  private showLive(view: TopicView, delay = DRAFT_EVERY_MS): void {
-    this.later(`live:${view.chatId}`, delay, async () => {
-      const turn = view.turn
-      if (!turn || this.views.get(view.chatId) !== view || this.noDrafts) return
-      const shown: TurnView = {
-        items: this.turnItems(view.chatId, turn),
-        elapsedMs: Date.now() - turn.startedAt
-      }
-      const params = {
-        chat_id: telegramConfig().owner!.chatId,
-        message_thread_id: view.thread,
-        draft_id: turn.draftId,
-        can_stop: true
-      }
+  private endText(view: TopicView, last: boolean): void {
+    if (view.text) this.postText(view, view.text.id, last)
+    view.text = undefined
+  }
+
+  /** Send an answer as rich messages, or in plainer HTML where Telegram refuses those. */
+  private postText(view: TopicView, id: string, notify: boolean): void {
+    if (view.posted.has(id)) return
+    view.posted.add(id)
+    const extra = notify ? {} : SILENT
+    this.enqueue(async () => {
+      if (this.views.get(view.chatId) !== view) return
+      const item = store.findItem(view.chatId, id)
+      if (item?.kind !== 'text' || !item.text.trim()) return
       if (!this.noRich) {
         try {
-          await this.api!.call('sendRichMessageDraft', {
-            ...params,
-            rich_message: { html: turnLive(shown) }
-          })
+          for (const html of richMessages(item.text)) await this.sendRich(html, view.thread, extra)
           this.richFailures = 0
           return
         } catch (error) {
           if (!this.richRefused(error)) throw error
         }
       }
+      for (const out of markdownMessages(item.text)) await this.sendText(out, view.thread, extra)
+    }, ANSWER)
+  }
+
+  /**
+   * The answer so far, as a draft with a Stop button: Telegram shows it as it
+   * is written, until the message is sent.
+   */
+  private async draft(view: TopicView, id: string): Promise<void> {
+    const item = store.findItem(view.chatId, id)
+    if (this.noDrafts || this.views.get(view.chatId) !== view) return
+    if (item?.kind !== 'text' || view.posted.has(id) || view.text?.id !== id) return
+    const tail = item.text.length > 4000 ? `…${item.text.slice(-3999)}` : item.text
+    if (!tail.trim()) return
+    const params = {
+      chat_id: telegramConfig().owner!.chatId,
+      message_thread_id: view.thread,
+      draft_id: view.text.draftId,
+      can_stop: true
+    }
+    if (!this.noRich) {
       try {
-        await this.api!.call('sendMessageDraft', { ...params, text: turnLivePlain(shown) })
+        await this.api!.call('sendRichMessageDraft', {
+          ...params,
+          rich_message: { html: richMessages(tail)[0] ?? '' }
+        })
+        this.richFailures = 0
+        return
       } catch (error) {
-        // The turn still comes once it ends; it is only not shown as it goes.
-        if (!(error instanceof TelegramError) || error.code !== 400) throw error
-        this.noDrafts = true
-        console.error('Telegram: drafts refused, turns come when they end:', error.message)
+        if (!this.richRefused(error)) throw error
+      }
+    }
+    try {
+      await this.api!.call('sendMessageDraft', { ...params, text: tail })
+    } catch (error) {
+      // The answer still comes once it is written; it is only not shown as it grows.
+      if (!(error instanceof TelegramError) || error.code !== 400) throw error
+      this.noDrafts = true
+      console.error('Telegram: drafts refused, answers come when written:', error.message)
+    }
+  }
+
+  /** Show a run of tool calls, editing its message as the calls go. */
+  private showSteps(view: TopicView, steps: Steps): void {
+    const key = `steps:${view.chatId}:${steps.startedAt}:${steps.ids[0]}`
+    this.later(key, steps.messageId ? EDIT_EVERY_MS : 0, async () => {
+      if (this.views.get(view.chatId) !== view) return
+      const items = steps.ids
+        .map((id) => store.findItem(view.chatId, id))
+        .filter((i): i is ToolItem => i?.kind === 'tool')
+      const html = stepsMessage(
+        { elapsedMs: (steps.endedAt ?? Date.now()) - steps.startedAt, calls: items },
+        steps.endedAt !== undefined
+      )
+      if (html === steps.shown) return
+      steps.shown = html
+      if (steps.messageId) {
+        if ((await this.edit(steps.messageId, html, [])) === 'gone') steps.messageId = undefined
+      } else {
+        steps.messageId = await this.sendText(
+          { html, plain: html.replace(/<[^>]+>/g, '') },
+          view.thread,
+          SILENT
+        )
       }
     })
   }
 
-  /** Something was sent to a topic, which hides its draft: show it again. */
+  /** Something was sent to a topic, which hides the draft of its answer: show it again. */
   private redraw(thread: number | undefined): void {
     const view = this.viewOf(thread)
-    if (view?.turn) this.showLive(view)
+    const text = view?.text
+    if (view && text)
+      this.later(`draft:${text.id}`, DRAFT_EVERY_MS, () => this.draft(view, text.id))
   }
 
   /**
@@ -2406,13 +2457,15 @@ export class TelegramBridge {
   }
 
   /** Send a rich message to a topic (core.telegram.org/bots/api#sendrichmessage). */
-  private async sendRich(html: string, thread: number): Promise<void> {
+  private async sendRich(html: string, thread: number, extra: object = {}): Promise<void> {
     try {
       await this.api!.call('sendRichMessage', {
         chat_id: telegramConfig().owner!.chatId,
         message_thread_id: thread,
-        rich_message: { html }
+        rich_message: { html },
+        ...extra
       })
+      this.redraw(thread)
     } catch (error) {
       if (!lostThread(error)) throw error
       this.lostTopic(thread)
@@ -2465,6 +2518,8 @@ function newView(chatId: string, thread: number): TopicView {
     seen: new Set(),
     posted: new Set(),
     asked: new Map(),
+    turnSteps: [],
+    stepsOf: new Map(),
     cards: new Map()
   }
 }

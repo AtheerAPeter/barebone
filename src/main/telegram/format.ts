@@ -14,15 +14,14 @@ import { formatDuration } from '../chats-mcp'
 
 /**
  * Text for Telegram: agents' Markdown turned into the HTML Telegram shows,
- * split to fit a message, and the cards that show what chats are doing. A
- * turn comes as a rich message (core.telegram.org/bots/api#rich-html-style:
- * headings, tables, lists, folded details); where Telegram refuses one, as a
- * message of the plainer HTML every message takes (#html-style: b, i, s,
- * code, pre, a, blockquote).
+ * split to fit a message, and the cards and steps messages that show what
+ * chats are doing. Answers come as rich messages
+ * (core.telegram.org/bots/api#rich-html-style: headings, tables, lists);
+ * where Telegram refuses one, in the plainer HTML every message takes
+ * (#html-style: b, i, s, code, pre, a, blockquote).
  */
 
 type ToolItem = Extract<ChatItem, { kind: 'tool' }>
-type TextItem = Extract<ChatItem, { kind: 'text' }>
 
 /** A message's most text: Telegram's limit is 4096 characters after the tags are taken out. */
 const MAX_MESSAGE = 4000
@@ -36,9 +35,6 @@ const RICH_MAX_BLOCKS = 450
 
 /** A table's most columns in a rich message. */
 const RICH_MAX_COLUMNS = 20
-
-/** The earlier texts of a turn are folded with its calls, each cut to this. */
-const MAX_EARLIER_TEXT = 600
 
 /** Titles in cards are cut here, so a card stays a few lines. */
 const MAX_TITLE = 90
@@ -364,145 +360,13 @@ function pack(parts: RichPart[]): string[] {
   return out
 }
 
-function folded(summaryHtml: string, parts: RichPart[]): RichPart {
-  return {
-    html: `<details><summary>${summaryHtml}</summary>${parts.map((p) => p.html).join('')}</details>`,
-    blocks: 1 + parts.reduce((n, p) => n + p.blocks, 0)
-  }
-}
-
-/** What a turn of a chat shows: its texts and calls, oldest first, and how it ended. */
-export interface TurnView {
-  items: (TextItem | ToolItem)[]
-  elapsedMs: number
-  /** How it ended (its error comes as a message of its own); unset while it works. */
-  end?: { outcome: 'done' | 'stopped' | 'failed' }
-}
-
-function turnCalls(items: TurnView['items']): ToolItem[] {
-  return items.filter((i): i is ToolItem => i.kind === 'tool')
-}
-
-/** The text being written last, when nothing came after it. */
-function lastText(items: TurnView['items']): TextItem | undefined {
-  const last = items.at(-1)
-  return last?.kind === 'text' && last.text.trim() ? last : undefined
-}
-
 /**
- * A turn's calls and its texts but the last, oldest first: calls as lines,
- * texts as short quotes between them. The latest MAX_LISTED_CALLS calls are
- * listed, and how many came before.
+ * An agent's Markdown as rich messages (core.telegram.org/bots/api#rich-html-style):
+ * headings, tables, lists and code as Telegram shows them, packed into as few
+ * messages as fit.
  */
-function stepParts(items: TurnView['items']): RichPart[] {
-  const calls = turnCalls(items)
-  const dropped = Math.max(0, calls.length - MAX_LISTED_CALLS)
-  const parts: RichPart[] = dropped
-    ? [{ html: `<p><i>${dropped} earlier steps</i></p>`, blocks: 1 }]
-    : []
-  let lines: string[] = []
-  const flush = (): void => {
-    if (lines.length) parts.push({ html: `<p>${lines.join('<br>')}</p>`, blocks: 1 })
-    lines = []
-  }
-  for (const item of dropped ? items.slice(items.indexOf(calls[dropped])) : items) {
-    if (item.kind === 'tool') {
-      lines.push(
-        item.toolKind === 'agent'
-          ? subagentLines([item])[0]
-          : `${callMark(item)} ${escapeHtml(callLine(item))}`
-      )
-    } else if (item.text.trim()) {
-      flush()
-      parts.push({
-        html: `<blockquote>${escapeHtml(cut(item.text, MAX_EARLIER_TEXT))}</blockquote>`,
-        blocks: 1
-      })
-    }
-  }
-  flush()
-  return parts
-}
-
-/** "✅ Read files, ran commands · 2m 10s", "⏹ Stopped · 40s". */
-function endLine(turn: TurnView): string {
-  const calls = turnCalls(turn.items).filter((t) => t.toolKind !== 'agent')
-  const outcome = turn.end?.outcome ?? 'done'
-  const failed = calls.some((t) => t.status === 'failed')
-  const mark = outcome === 'failed' ? '🔴' : outcome === 'stopped' ? '⏹' : failed ? '⚠️' : '✅'
-  const what = outcome === 'failed' ? 'Failed' : outcome === 'stopped' ? 'Stopped' : undefined
-  return `${mark} ${[what, summary(calls, turn.elapsedMs)].filter(Boolean).join(' · ')}`
-}
-
-/** What the turn is doing now: "Running npm test", or "Writing". */
-function nowLine(turn: TurnView): string {
-  const now = turnCalls(turn.items).findLast(running)
-  return now ? callLine(now) : lastText(turn.items) ? 'Writing' : 'Working'
-}
-
-/**
- * A working turn, as the draft that shows it live: what it does now, its
- * steps folded, and the text it is writing.
- */
-export function turnLive(turn: TurnView): string {
-  const writing = lastText(turn.items)
-  const calls = turnCalls(turn.items).filter((t) => t.toolKind !== 'agent')
-  const sum = summary(calls, turn.elapsedMs)
-  const head = `<p>⏳ <b>${escapeHtml(nowLine(turn))}</b>${sum ? `<br><i>${escapeHtml(sum)}</i>` : ''}</p>`
-  const steps = stepParts(writing ? turn.items.slice(0, -1) : turn.items)
-  const fold = steps.length
-    ? folded(`${calls.length} step${calls.length === 1 ? '' : 's'}`, steps).html
-    : ''
-  // The end of a long text: the start of it comes with the answer.
-  const text = writing
-    ? richParts(writing.text.slice(-8000))
-        .map((p) => p.html)
-        .join('')
-    : ''
-  const html = `${head}${fold}${text}`
-  return html.length > RICH_MAX ? `${head}${text}`.slice(0, RICH_MAX) : html
-}
-
-/** The same, as plain text, for a draft where rich ones are refused. */
-export function turnLivePlain(turn: TurnView): string {
-  const calls = turnCalls(turn.items).filter((t) => t.toolKind !== 'agent')
-  const sum = summary(calls, turn.elapsedMs)
-  const writing = lastText(turn.items)
-  const head = `⏳ ${nowLine(turn)}${sum ? `\n${sum}` : ''}`
-  return writing ? `${head}\n\n${writing.text.slice(-3000)}` : head
-}
-
-/**
- * A turn that ended, as the messages that stay: how it went with its steps
- * folded under it, then its answer. A turn that only answered shows the answer.
- */
-export function turnFinal(turn: TurnView): string[] {
-  const answer = lastText(turn.items)
-  const steps = stepParts(answer ? turn.items.slice(0, -1) : turn.items)
-  const head = escapeHtml(endLine(turn))
-  const parts: RichPart[] = []
-  if (steps.length) parts.push(folded(head, steps))
-  else if (!answer || turn.end?.outcome !== 'done')
-    parts.push({ html: `<p>${head}</p>`, blocks: 1 })
-  if (answer) parts.push(...richParts(answer.text))
-  return pack(parts)
-}
-
-/** The same in the HTML every message takes, where rich messages are refused. */
-export function turnFinalPlain(turn: TurnView): OutText[] {
-  const answer = lastText(turn.items)
-  const { calls, subagents } = split({ calls: turnCalls(turn.items) })
-  const out: OutText[] = []
-  if (calls.length || subagents.length || !answer || turn.end?.outcome !== 'done') {
-    const html = [
-      `<b>${escapeHtml(endLine(turn))}</b>`,
-      ...subagentLines(subagents),
-      ...callList(calls)
-    ].join('\n')
-    out.push({ html, plain: html.replace(/<[^>]+>/g, '') })
-  }
-  if (answer) out.push(...markdownMessages(answer.text))
-  return out
+export function richMessages(markdown: string): string[] {
+  return pack(richParts(markdown))
 }
 
 /** How a chat a card shows is doing. */
@@ -644,4 +508,20 @@ export function workerCard(view: {
   lines.push(...subagentLines(subagents), ...callList(calls))
   if (view.error) lines.push(`Error: ${escapeHtml(cut(view.error, 300))}`)
   return lines.join('\n')
+}
+
+/**
+ * The calls a chat makes between two of its messages, as one message that
+ * keeps up with them: what it is doing now, what the calls did so far, and
+ * the calls folded underneath. Once they end, the summary leads.
+ */
+export function stepsMessage(progress: Progress, ended: boolean): string {
+  const { calls, subagents } = split(progress)
+  const sum = summary(calls, progress.elapsedMs) || 'Working'
+  const now = ended ? undefined : calls.findLast(running)
+  const failed = calls.some((t) => t.status === 'failed')
+  const head = ended
+    ? `${failed ? '⚠️' : '✅'} <b>${escapeHtml(sum)}</b>`
+    : `⏳ <b>${escapeHtml(now ? callLine(now) : 'Working')}</b>\n<i>${escapeHtml(sum)}</i>`
+  return [head, ...subagentLines(subagents), ...callList(calls)].join('\n')
 }
