@@ -41,7 +41,8 @@ export function attribute(text: string): string {
   return escapeHtml(text).replace(/"/g, '&quot;')
 }
 
-function cut(text: string, max = MAX_TITLE): string {
+/** Text on one line, cut to `max` characters. */
+export function cut(text: string, max = MAX_TITLE): string {
   const line = text.replace(/\s+/g, ' ').trim()
   return line.length > max ? `${line.slice(0, max - 1)}…` : line
 }

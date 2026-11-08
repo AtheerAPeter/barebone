@@ -7,6 +7,8 @@ import {
   AGENTS,
   formDefaults,
   modelOptions,
+  startedChats,
+  waitingOn,
   type AgentId,
   type AgentModels,
   type AgentOption,
@@ -36,6 +38,7 @@ import {
 import { telegramConfig, telegramTokenHint, updateTelegramConfig } from './config'
 import {
   attribute,
+  cut,
   escapeHtml,
   markdownMessages,
   plainMessages,
@@ -85,6 +88,12 @@ const PICK_CHATS = 8
 
 /** Models shown per page of the model picker, and found at most by a search. */
 const PICK_MODELS = 10
+
+/** The most text the list of chats (/chats) takes; chats past it are counted, not listed. */
+const SIDEBAR_TEXT = 3600
+
+/** Indents a chat another chat started under it, as Telegram drops leading spaces. */
+const NESTED = '    ↳ '
 
 const NOT_LINKED = 'No chat is linked. Send /projects to pick one or start a new one.'
 
@@ -235,6 +244,9 @@ export class TelegramBridge {
   /** The models read for the last /model, which its buttons pick from. */
   private catalog?: Catalog
 
+  /** What the list of chats (/chats) shows now, so it is edited only when that changes. */
+  private sidebarShown?: string
+
   constructor(private readonly host: BridgeHost) {}
 
   // --- Status and setup --------------------------------------------------------
@@ -274,8 +286,14 @@ export class TelegramBridge {
       }
     }
     this.stop()
-    // A new bot starts over: it pairs again, and links no chat.
-    updateTelegramConfig({ token, owner: undefined, linkedChatId: undefined, offset: undefined })
+    // A new bot starts over: it pairs again, links no chat, and can't edit the old bot's list.
+    updateTelegramConfig({
+      token,
+      owner: undefined,
+      linkedChatId: undefined,
+      offset: undefined,
+      sidebarMessageId: undefined
+    })
     this.bot = me?.username
     this.start()
     return telegramTokenHint()
@@ -300,6 +318,9 @@ export class TelegramBridge {
     this.running = linkedChatId ? this.chat(linkedChatId)?.running === true : false
     this.publish()
     void this.poll(this.api, this.abort.signal)
+    // The list of chats was last edited before Barebone quit: bring it up to date.
+    this.sidebarShown = undefined
+    this.showSidebar()
   }
 
   /** Stop reading and sending; nothing queued goes out. */
@@ -371,6 +392,8 @@ export class TelegramBridge {
     this.sentImages.clear()
     this.replies.clear()
     this.catalog = undefined
+    // The list of chats isn't about the linked chat: it goes on, and its pending edit was dropped.
+    this.showSidebar()
   }
 
   // --- Reading updates ---------------------------------------------------------
@@ -388,6 +411,7 @@ export class TelegramBridge {
             'setMyCommands',
             {
               commands: [
+                { command: 'chats', description: 'See which chats are working or need you' },
                 { command: 'new', description: 'Start a new chat in this project' },
                 { command: 'projects', description: 'Switch to another project or chat' },
                 { command: 'model', description: 'Switch the model or provider' },
@@ -495,6 +519,10 @@ export class TelegramBridge {
     }
     if (/^\/projects(@\w+)?$/.test(text)) {
       this.showPicker(this.projectsView())
+      return
+    }
+    if (/^\/chats(@\w+)?$/.test(text)) {
+      this.openSidebar()
       return
     }
     const linkedChatId = telegramConfig().linkedChatId
@@ -690,7 +718,8 @@ export class TelegramBridge {
         if (!this.chat(action.chatId)) return 'That chat is gone.'
         if (action.chatId === telegramConfig().linkedChatId) return 'Already controlling it.'
         this.link(action.chatId)
-        this.removeMessage(messageId)
+        // A picker goes once used; the list of chats stays, and ticks the chat now linked.
+        if (messageId !== telegramConfig().sidebarMessageId) this.removeMessage(messageId)
         return undefined
       case 'newChat': {
         const note = this.startChat(action.projectId)
@@ -820,6 +849,167 @@ export class TelegramBridge {
     this.started.add(chat.id)
     this.link(chat.id)
     return undefined
+  }
+
+  // --- The list of chats -------------------------------------------------------
+
+  /**
+   * Send the list of chats that work or need the user, and pin it, so it
+   * stays at the top as the sidebar does. It is edited as chats change; the
+   * one sent before goes.
+   */
+  private openSidebar(): void {
+    const before = telegramConfig().sidebarMessageId
+    updateTelegramConfig({ sidebarMessageId: undefined })
+    this.sidebarShown = undefined
+    this.enqueue(async () => {
+      if (before) await this.retireSidebar(before)
+      const view = this.sidebarView()
+      const id = await this.sendText(
+        { html: view.html, plain: view.html.replace(/<[^>]+>/g, '') },
+        { reply_markup: this.keyboard(view.rows) }
+      )
+      if (!id) return
+      this.sidebarShown = `${view.html}${JSON.stringify(view.rows)}`
+      updateTelegramConfig({ sidebarMessageId: id })
+      await this.api!.call('pinChatMessage', {
+        chat_id: telegramConfig().owner!.chatId,
+        message_id: id,
+        disable_notification: true
+      }).catch((error) => console.error('Telegram: could not pin the list of chats:', error))
+    })
+  }
+
+  /**
+   * Remove a list of chats a newer one replaces. Telegram lets bots delete
+   * only messages under 48 hours old, so an older one is unpinned and says
+   * it is out of date instead.
+   */
+  private async retireSidebar(messageId: number): Promise<void> {
+    const chatId = telegramConfig().owner!.chatId
+    try {
+      await this.api!.call('deleteMessage', { chat_id: chatId, message_id: messageId })
+      return
+    } catch {
+      // Too old to delete, or deleted already: the edit below tells.
+    }
+    if (
+      (await this.edit(
+        messageId,
+        '<i>An older list of chats. Send /chats for a new one.</i>',
+        []
+      )) === 'gone'
+    )
+      return
+    await this.api!.call('unpinChatMessage', { chat_id: chatId, message_id: messageId }).catch(
+      () => undefined
+    )
+  }
+
+  /** Bring the list of chats up to date, at most once per EDIT_EVERY_MS. */
+  private showSidebar(): void {
+    if (!this.api || !telegramConfig().sidebarMessageId) return
+    this.later('sidebar', EDIT_EVERY_MS, async () => {
+      const messageId = telegramConfig().sidebarMessageId
+      if (!messageId) return
+      const view = this.sidebarView()
+      const shown = `${view.html}${JSON.stringify(view.rows)}`
+      if (shown === this.sidebarShown) return
+      if ((await this.edit(messageId, view.html, view.rows)) === 'gone') {
+        // The user deleted it: /chats sends a new one.
+        updateTelegramConfig({ sidebarMessageId: undefined })
+        return
+      }
+      this.sidebarShown = shown
+    })
+  }
+
+  /**
+   * The chats that need the user, then those working, in every project, as
+   * the sidebar lists them by status: a chat working because a chat it started
+   * works counts as working, and a chat whose lead works is listed under it.
+   * The first line sums them up, as it is all the pinned bar shows. Chats the
+   * user started get a button that links them.
+   */
+  private sidebarView(): Picker {
+    const { projects, chats } = store.getState()
+    const linkedChatId = telegramConfig().linkedChatId
+    const names = new Map(projects.map((p) => [p.id, p.name]))
+    const byId = new Map(chats.map((c) => [c.id, c]))
+    const started = startedChats(chats)
+    const startedWorking = (chat: Chat): number =>
+      started.get(chat.id)?.filter((c) => c.running).length ?? 0
+    const working = (chat: Chat): boolean =>
+      chat.running || Boolean(chat.background) || startedWorking(chat) > 0
+    const leadWorking = (chat: Chat): boolean => {
+      const lead = chat.startedBy ? byId.get(chat.startedBy) : undefined
+      return Boolean(lead && working(lead) && !lead.waiting)
+    }
+    const newest = [...chats].sort((a, b) => b.updatedAt - a.updatedAt)
+    const waiting = newest.filter((c) => c.waiting)
+    const busy = newest.filter((c) => working(c) && !c.waiting && !leadWorking(c))
+
+    const mark = (chat: Chat): string => (chat.waiting ? '🟡' : chat.running ? '🟢' : '⏳')
+    const entry = (chat: Chat): string => {
+      const latest = chat.waiting
+        ? 'Waiting for approval'
+        : (!chat.running && waitingOn(chat, startedWorking(chat))) || chat.preview
+      const about = [names.get(chat.projectId), latest].filter(Boolean).join(' · ')
+      const lines = [`${mark(chat)} <b>${escapeHtml(cut(chat.title, 60))}</b>`]
+      if (about) lines.push(`<i>${escapeHtml(cut(about, 120))}</i>`)
+      if (!chat.waiting) {
+        for (const led of started.get(chat.id) ?? []) {
+          if (working(led) && !led.waiting) {
+            lines.push(`${NESTED}${mark(led)} ${escapeHtml(cut(led.title, 60))}`)
+          }
+        }
+      }
+      return lines.join('\n')
+    }
+
+    const counts = [
+      waiting.length ? `${waiting.length} need${waiting.length === 1 ? 's' : ''} you` : '',
+      busy.length ? `${busy.length} working` : ''
+    ].filter(Boolean)
+    if (counts.length === 0) {
+      return {
+        html: '<b>Nothing is working</b>\nChats show here while they work or need you.',
+        rows: []
+      }
+    }
+    const parts = [`<b>${counts.join(' · ')}</b>`]
+    let length = parts[0].length
+    let left = 0
+    const listed: Chat[] = []
+    for (const [label, list] of [
+      ['Needs you', waiting],
+      ['Working', busy]
+    ] as const) {
+      let head = list.length ? `\n<b>${label}</b>` : ''
+      for (const chat of list) {
+        const text = `${head}\n${entry(chat)}`
+        // Once one doesn't fit, the rest are counted: a shorter one after it would break the order.
+        if (left || length + text.length + 1 > SIDEBAR_TEXT) {
+          left++
+          continue
+        }
+        parts.push(text)
+        length += text.length + 1
+        head = ''
+        listed.push(chat)
+      }
+    }
+    if (left) parts.push(`\n<i>${left} more on the Mac.</i>`)
+    const rows = listed
+      .filter((c) => !c.startedBy)
+      .map((c) => [
+        this.button(`${c.id === linkedChatId ? '✓ ' : ''}${mark(c)} ${c.title}`, {
+          kind: 'link',
+          chatId: c.id
+        })
+      ])
+    if (rows.length) parts.push('\n<i>Tap a chat to control it here.</i>')
+    return { html: parts.join('\n'), rows }
   }
 
   // --- Picking a model and thinking level --------------------------------------
@@ -1056,7 +1246,9 @@ export class TelegramBridge {
   /** Chats were added, changed or removed, or a turn began or ended. */
   stateChanged(): void {
     const { owner, linkedChatId } = telegramConfig()
-    if (!this.api || !owner || !linkedChatId) return
+    if (!this.api || !owner) return
+    this.showSidebar()
+    if (!linkedChatId) return
     const linked = this.chat(linkedChatId)
     if (!linked) {
       const title = this.linkedTitle

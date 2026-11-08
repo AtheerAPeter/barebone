@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AGENTS, type AgentStatus, type AgentId, type AppState } from '../../shared/types'
+import {
+  AGENTS,
+  waitingOn,
+  type AgentStatus,
+  type AgentId,
+  type AppState
+} from '../../shared/types'
 import { Sidebar } from './components/Sidebar'
 import { ChatView } from './components/ChatView'
 import { SkillsView } from './components/SkillsView'
@@ -19,7 +25,6 @@ import { readPref, writePref } from './lib/prefs'
 import { usePageRecorder } from './lib/recording'
 import { useSpeechPlayer } from './lib/speech'
 import { LevelMeter } from './components/LevelMeter'
-import { waitingOn } from './lib/background'
 
 /** How often the orb is told the agent's voice level while it speaks. */
 const ORB_LEVEL_MS = 50

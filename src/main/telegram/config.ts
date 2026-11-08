@@ -16,6 +16,12 @@ export interface TelegramConfig {
   linkedChatId?: string
   /** getUpdates' offset: the update after the last one handled. */
   offset?: number
+  /**
+   * The pinned message that lists the chats working and needing the user, as
+   * the sidebar does (/chats). Kept so the next launch goes on editing it
+   * instead of leaving it showing chats as working that no longer are.
+   */
+  sidebarMessageId?: number
 }
 
 const configPath = join(app.getPath('userData'), 'data', 'telegram.json')

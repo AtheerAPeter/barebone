@@ -5,9 +5,14 @@ import { ProjectIcon } from './ProjectIcon'
 import { RowMenu } from './RowMenu'
 import { useTelegramStatus } from '../lib/telegram'
 import { AgentLogo } from './model-picker/AgentLogo'
-import { startedChats, type AppState, type Chat, type Project } from '../../../shared/types'
+import {
+  startedChats,
+  waitingOn,
+  type AppState,
+  type Chat,
+  type Project
+} from '../../../shared/types'
 import { readPref, writePref } from '../lib/prefs'
-import { waitingOn } from '../lib/background'
 import { useUpdateInstall } from '../lib/update'
 import {
   BookIcon,
