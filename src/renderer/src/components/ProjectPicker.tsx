@@ -1,6 +1,7 @@
 import { Fragment, useRef, useState } from 'react'
 import type { Project } from '../../../shared/types'
 import { useOverlay } from '../lib/overlays'
+import { touchScreen } from '../lib/touch'
 import { ProjectIcon, ProjectStyle } from './ProjectIcon'
 import { FolderPlusIcon, PencilIcon, SearchIcon, TrashIcon } from './icons'
 
@@ -69,7 +70,7 @@ export function ProjectPicker({
         <label className="palette-search">
           <SearchIcon width={15} height={15} />
           <input
-            autoFocus
+            autoFocus={!touchScreen}
             placeholder="New chat in…"
             value={query}
             spellCheck={false}
@@ -104,7 +105,7 @@ export function ProjectPicker({
                     }}
                   >
                     <PencilIcon width={12} height={12} />
-                    Edit
+                    <span className="label-btn-text">Edit</span>
                   </button>
                   <button
                     className="label-btn danger"
@@ -121,7 +122,7 @@ export function ProjectPicker({
                     }}
                   >
                     <TrashIcon width={12} height={12} />
-                    Remove
+                    <span className="label-btn-text">Remove</span>
                   </button>
                 </span>
                 {i < 9 && <kbd>⌘{i + 1}</kbd>}

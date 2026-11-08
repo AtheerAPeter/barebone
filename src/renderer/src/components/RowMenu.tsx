@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useOverlay } from '../lib/overlays'
+import { menusAsSheets } from '../lib/touch'
 import { MoreIcon } from './icons'
 
 export interface RowMenuItem {
@@ -52,6 +53,8 @@ export function RowMenu({
 
   function toggle(button: HTMLElement): void {
     if (at) return setAt(undefined)
+    // On a phone it is a sheet along the bottom (remote/remote.css), not by the button.
+    if (menusAsSheets()) return setAt({})
     const rect = button.getBoundingClientRect()
     const right = window.innerWidth - rect.right
     const roomBelow = window.innerHeight - rect.bottom
@@ -79,13 +82,18 @@ export function RowMenu({
       </button>
       {at &&
         createPortal(
-          <div className="menu" role="menu" style={at} ref={menuRef}>
+          <div
+            className={`menu${menusAsSheets() ? ' sheet' : ''}`}
+            role="menu"
+            style={at}
+            ref={menuRef}
+          >
             {items.map((item) => (
               <button
                 key={item.name}
                 role="menuitem"
                 className={item.danger ? 'danger' : undefined}
-                autoFocus={item === items[0]}
+                autoFocus={item === items[0] && !menusAsSheets()}
                 onClick={() => {
                   setAt(undefined)
                   item.onSelect()

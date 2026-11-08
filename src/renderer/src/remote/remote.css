@@ -55,12 +55,17 @@ html.remote .sidebar-hidden .topbar {
   white-space: nowrap;
 }
 
-/* Touch screens have no hover: what shows on hover shows always. */
+/* Touch screens have no hover: what shows on hover shows always, and small buttons grow to a fingertip. */
 @media (hover: none) {
   html.remote .chat-row .row-menu,
   html.remote .project-row .project-new,
   html.remote .code-actions {
     opacity: 1;
+  }
+
+  html.remote .icon-btn.small {
+    width: 32px;
+    height: 32px;
   }
 }
 
@@ -128,6 +133,109 @@ html.remote .sidebar-hidden .topbar {
 
   html.remote .composer-wrap {
     padding: 0 10px max(10px, env(safe-area-inset-bottom));
+  }
+
+  /*
+   * The pickers under the composer. Their row is a size container in
+   * styles.css, which would hold a fixed menu inside it, so here it is none,
+   * and its narrow rule (pickers as icons) is repeated for the phone.
+   */
+  html.remote .composer-settings {
+    container-type: normal;
+  }
+
+  html.remote .picker:has(.picker-icon) .picker-icon {
+    display: inline-flex;
+  }
+
+  html.remote .picker:has(.picker-icon) :is(.picker-label, .picker-group-name, .picker-chevron) {
+    display: none;
+  }
+
+  html.remote .picker-button {
+    min-height: 36px;
+    padding: 0 8px;
+  }
+
+  /* Menus open as sheets along the bottom, over everything, the drawer too. */
+  html.remote .picker-menu,
+  html.remote .picker-menu[data-side='below'],
+  html.remote .menu.sheet {
+    position: fixed;
+    z-index: 70;
+    top: auto;
+    right: 8px;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    left: 8px;
+    width: auto;
+    min-width: 0;
+    max-height: 70dvh;
+    border-radius: 22px;
+    transform-origin: bottom center;
+    animation-name: pop-up;
+  }
+
+  html.remote .menu.sheet {
+    padding: 8px;
+    overflow-y: auto;
+  }
+
+  html.remote .menu.sheet > button {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  /* The / and @ menu: each description on its own lines under the name. */
+  html.remote .slash-menu {
+    max-height: 45dvh;
+  }
+
+  html.remote .slash-item {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+
+  html.remote .slash-desc {
+    flex-basis: 100%;
+    display: -webkit-box;
+    white-space: normal;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  /* New chat's project list: no keyboard hints, and its row actions as icons. */
+  html.remote .palette kbd,
+  html.remote .palette-foot,
+  html.remote .palette .label-btn-text {
+    display: none;
+  }
+
+  /* Settings use the whole width, and a key's field takes its own line above its buttons. */
+  html.remote .settings-card-body {
+    padding-left: 0;
+  }
+
+  html.remote .settings-row {
+    flex-wrap: wrap;
+  }
+
+  html.remote .settings-row input {
+    flex-basis: 100%;
+  }
+
+  /* Skills: the list, or the open skill, across the screen. */
+  html.remote .skills-list {
+    width: 100%;
+    border-right: 0;
+  }
+
+  html.remote .skills:not(.showing) .skills-editor,
+  html.remote .skills.showing .skills-list {
+    display: none;
+  }
+
+  html.remote .skills-back {
+    display: inline-flex;
   }
 
   /* Below 16px, a phone zooms the page in when a field is tapped. */

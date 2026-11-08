@@ -9,6 +9,7 @@ import {
   type ModelSource
 } from '../../../../shared/types'
 import { useOverlay } from '../../lib/overlays'
+import { touchScreen } from '../../lib/touch'
 import { menuPlacement, placementProps, type MenuPlacement } from '../../lib/menuPlacement'
 import { BackIcon, ChevronDownIcon, SearchIcon } from '../icons'
 import { AgentLogo } from './AgentLogo'
@@ -178,7 +179,7 @@ export function ModelPicker({
     setChoosingSource(false)
     setQuery('')
     setActive(0)
-    searchRef.current?.focus()
+    if (!touchScreen) searchRef.current?.focus()
   }
 
   function showSources(): void {
@@ -190,7 +191,7 @@ export function ModelPicker({
         pickable.findIndex((s) => s.key === shown.key)
       )
     )
-    searchRef.current?.focus()
+    if (!touchScreen) searchRef.current?.focus()
   }
 
   function choose(row: ModelRow | undefined): void {
@@ -261,7 +262,7 @@ export function ModelPicker({
             <SearchIcon width={15} height={15} />
             <input
               ref={searchRef}
-              autoFocus
+              autoFocus={!touchScreen}
               placeholder={
                 choosingSource
                   ? 'Search agents and providers…'

@@ -10,6 +10,7 @@ import type {
   Walkthrough
 } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
+import { menusAsSheets, touchScreen } from '../lib/touch'
 import { useOverlay } from '../lib/overlays'
 import { CHAT_MIN_WIDTH, dragDivider } from '../lib/side-panel'
 import { CodeView } from './CodeView'
@@ -441,7 +442,11 @@ function SourceControl({
       <div className="code-commit">
         <textarea
           rows={Math.min(Math.max(message.split('\n').length, 1), 8)}
-          placeholder={`Message (⌘Enter to commit${repo.branch ? ` on "${repo.branch}"` : ''})`}
+          placeholder={
+            touchScreen
+              ? `Message${repo.branch ? ` (commits on "${repo.branch}")` : ''}`
+              : `Message (⌘Enter to commit${repo.branch ? ` on "${repo.branch}"` : ''})`
+          }
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={(e) => {
@@ -662,11 +667,16 @@ function BranchMenu({
       return
     }
     const rect = buttonRef.current!.getBoundingClientRect()
-    setAt({
-      top: rect.bottom + 4,
-      left: rect.left,
-      maxHeight: window.innerHeight - rect.bottom - 16
-    })
+    // On a phone it is a sheet along the bottom (remote/remote.css), not by the button.
+    setAt(
+      menusAsSheets()
+        ? {}
+        : {
+            top: rect.bottom + 4,
+            left: rect.left,
+            maxHeight: window.innerHeight - rect.bottom - 16
+          }
+    )
     setBranches(undefined)
     setFailed(undefined)
     window.api.git
@@ -697,7 +707,12 @@ function BranchMenu({
       </button>
       {at &&
         createPortal(
-          <div className="menu code-branch-menu" role="menu" style={at} ref={menuRef}>
+          <div
+            className={`menu code-branch-menu${menusAsSheets() ? ' sheet' : ''}`}
+            role="menu"
+            style={at}
+            ref={menuRef}
+          >
             {creating === undefined ? (
               <button role="menuitem" onClick={() => setCreating('')}>
                 <PlusIcon width={14} height={14} />

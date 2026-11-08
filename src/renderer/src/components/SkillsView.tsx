@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AGENTS, type Project, type Skill, type SkillScope } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
-import { PlusIcon } from './icons'
+import { BackIcon, PlusIcon } from './icons'
 
 interface SkillsViewProps {
   project?: Project
@@ -68,7 +68,8 @@ export function SkillsView({ project }: SkillsViewProps): React.JSX.Element {
   ]
 
   return (
-    <div className="skills">
+    // On a phone the list and the open skill take the screen in turn (remote/remote.css).
+    <div className={`skills${current ? ' showing' : ''}`}>
       <div className="skills-list">
         <div className="skills-header">
           <h2>Skills</h2>
@@ -118,16 +119,27 @@ export function SkillsView({ project }: SkillsViewProps): React.JSX.Element {
         {current ? (
           <>
             <div className="skills-editor-bar">
+              <button
+                className="icon-btn skills-back"
+                title="Back to skills"
+                onClick={() => setSelected(undefined)}
+              >
+                <BackIcon />
+              </button>
               <div>
                 <strong>{current.name}</strong>
                 <div className="muted small">
                   {builtin
                     ? 'Comes with Barebone and cannot be changed. Other agents are pointed to it by the browser tools'
                     : `Used by ${current.agents.map((a) => AGENTS.find((x) => x.id === a)?.label).join(' and ')}`}{' '}
-                  ·{' '}
-                  <button className="link" onClick={() => window.api.skills.reveal(current.path)}>
-                    {current.path}
-                  </button>
+                  · {/* Shown in the Mac's Finder, so a page of the remote link only names it. */}
+                  {window.api.remote ? (
+                    <span className="skill-path">{current.path}</span>
+                  ) : (
+                    <button className="link" onClick={() => window.api.skills.reveal(current.path)}>
+                      {current.path}
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="spacer" />

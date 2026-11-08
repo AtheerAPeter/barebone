@@ -15,6 +15,7 @@ import { EffortPicker } from './EffortPicker'
 import { ModelPicker } from './model-picker/ModelPicker'
 import { CompletionMenu, type CompletionItem } from './CompletionMenu'
 import { uploadFile } from '../remote/upload'
+import { touchScreen } from '../lib/touch'
 import { addPrompt } from '../../../shared/prompt-history'
 import { LevelMeter } from './LevelMeter'
 import { writePref } from '../lib/prefs'
@@ -207,6 +208,8 @@ export function Composer({
   }
 
   useEffect(() => {
+    // On a touch screen focus would open the keyboard over the chat just opened: it waits for a tap.
+    if (touchScreen) return
     const el = textareaRef.current
     el?.focus()
     // After a restored draft, to go on typing.

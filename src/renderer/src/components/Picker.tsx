@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useOverlay } from '../lib/overlays'
 import { menuPlacement, placementProps, type MenuPlacement } from '../lib/menuPlacement'
+import { touchScreen } from '../lib/touch'
 import { CheckIcon, ChevronDownIcon } from './icons'
 
 export interface PickerValue {
@@ -131,7 +132,7 @@ export function Picker({
           {searchable && (
             <input
               className="picker-search"
-              autoFocus
+              autoFocus={!touchScreen}
               placeholder="Search…"
               value={query}
               onChange={(e) => {

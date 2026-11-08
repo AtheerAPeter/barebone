@@ -25,12 +25,10 @@ import { readPref, writePref } from './lib/prefs'
 import { usePageRecorder } from './lib/recording'
 import { useSpeechPlayer } from './lib/speech'
 import { LevelMeter } from './components/LevelMeter'
+import { PHONE } from './lib/touch'
 
 /** How often the orb is told the agent's voice level while it speaks. */
 const ORB_LEVEL_MS = 50
-
-/** A phone's width, through the remote link: the sidebar is a drawer over the chat (remote.css). */
-const NARROW = '(max-width: 700px)'
 
 /** In a browser through the remote link (main/remote); the browser panel is the Mac's own. */
 const REMOTE = window.api.remote
@@ -58,7 +56,7 @@ export default function App(): React.JSX.Element {
   const [view, setView] = useState<'chat' | 'skills' | 'settings'>('chat')
   const [sidebarOpen, setSidebarOpen] = useState(() => readPref('sidebarOpen', true))
   /** The sidebar is a drawer: picking something in it closes it. */
-  const drawer = useMedia(NARROW) && REMOTE
+  const drawer = useMedia(PHONE) && REMOTE
   const [browserWidth, setBrowserWidth] = useState(() => readPref('browserWidth', 520))
   /** The chat is folded into the agent orb over the browser, while the browser is open. */
   const [chatFolded, setChatFolded] = useState(() => readPref('chatFolded', false))
@@ -121,11 +119,17 @@ export default function App(): React.JSX.Element {
   }, [])
   // The code panel takes the browser's place in the chat: opening one closes the other.
   // A page of the remote link keeps it to itself, so it leaves the Mac's panels as they are.
-  const [pageCodeOpen, setPageCodeOpen] = useState(false)
-  const codeOpen = REMOTE ? pageCodeOpen && Boolean(chat) : Boolean(chat?.codeOpen)
+  // On a phone it covers everything, so it belongs to the chat it was opened over.
+  const [pageCodeOpen, setPageCodeOpen] = useState<string>()
+  const codeOpen = REMOTE
+    ? Boolean(chat) && pageCodeOpen === chat?.id && view === 'chat'
+    : Boolean(chat?.codeOpen)
   const toggleCode = (chatId: string | undefined, open?: boolean): void => {
     if (!chatId) return
-    if (REMOTE) return setPageCodeOpen((current) => open ?? !current)
+    if (REMOTE) {
+      const opening = open ?? pageCodeOpen !== chatId
+      return setPageCodeOpen(opening ? chatId : undefined)
+    }
     const current = stateRef.current.chats.find((c) => c.id === chatId)
     window.api.code.setOpen(chatId, open ?? !current?.codeOpen)
   }
@@ -223,7 +227,10 @@ export default function App(): React.JSX.Element {
           setView('chat')
           if (drawer) setSidebarOpen(false)
         }}
-        onNewChat={() => setPicking(true)}
+        onNewChat={() => {
+          setPicking(true)
+          if (drawer) setSidebarOpen(false)
+        }}
         onNewChatIn={newChat}
         onShowSkills={() => {
           setView((v) => (v === 'skills' ? 'chat' : 'skills'))

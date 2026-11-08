@@ -4605,6 +4605,11 @@ img.project-icon {
   display: flex;
 }
 
+/* Back to the list: only on a phone, where the list and a skill take the screen in turn (remote.css). */
+.skills-back {
+  display: none;
+}
+
 .skills-list {
   width: 280px;
   flex-shrink: 0;
@@ -4692,11 +4697,11 @@ img.project-icon {
   min-width: 0;
 }
 
-.skills-editor-bar > div:first-child {
+.skills-editor-bar > div {
   min-width: 0;
 }
 
-.skills-editor-bar .link {
+.skills-editor-bar :is(.link, .skill-path) {
   word-break: break-all;
   text-align: left;
 }
