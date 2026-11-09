@@ -11,6 +11,7 @@ import {
   PlusIcon,
   ReloadIcon
 } from '../components/icons'
+import { dragDivider } from '../lib/side-panel'
 
 /**
  * A chat's browser tab from the Mac, live, through the remote link
@@ -22,6 +23,11 @@ import {
 
 interface Props {
   chatId: string
+  /** Its width beside the chat, shared with the code panel; on a phone it covers the screen. */
+  width: number
+  onResize: (width: number) => void
+  /** The chat pane left of the panel, whose width the divider sets. */
+  chatRef: React.RefObject<HTMLElement | null>
   onClose: () => void
 }
 
@@ -47,7 +53,13 @@ interface Frame {
 
 const api = (): typeof window.api.remoteBrowser => window.api.remoteBrowser
 
-export function BrowserSheet({ chatId, onClose }: Props): React.JSX.Element {
+export function BrowserSheet({
+  chatId,
+  width,
+  onResize,
+  chatRef,
+  onClose
+}: Props): React.JSX.Element {
   const pageRef = useRef<HTMLDivElement>(null)
   const keysRef = useRef<HTMLInputElement>(null)
   const addressRef = useRef<HTMLInputElement>(null)
@@ -286,8 +298,14 @@ export function BrowserSheet({ chatId, onClose }: Props): React.JSX.Element {
   return (
     <aside
       className={`side-panel remote-browser${typing ? ' typing' : ''}`}
-      style={keyboard ? { height: keyboard.height, top: keyboard.top, bottom: 'auto' } : undefined}
+      style={
+        keyboard ? { width, height: keyboard.height, top: keyboard.top, bottom: 'auto' } : { width }
+      }
     >
+      <div
+        className="panel-resize"
+        onPointerDown={(event) => dragDivider(event, chatRef.current, onResize)}
+      />
       <div className="rb-top">
         {mode === 'address' ? (
           <form

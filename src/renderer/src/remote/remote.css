@@ -57,10 +57,10 @@ html.remote .sidebar-hidden .topbar {
 
 /*
  * The Mac's browser tab, live (BrowserSheet.tsx): in the code panel's place,
- * and like it a sheet over everything on a phone. The page is a picture.
+ * as wide as it and resized the same way, and like it a sheet over everything
+ * on a phone. The page is a picture.
  */
 html.remote .remote-browser {
-  width: 440px;
   background: var(--panel-main);
 }
 
@@ -483,6 +483,11 @@ html.remote .remote-browser {
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
     background: var(--panel-main);
+  }
+
+  /* A sheet over everything has no chat beside it to give up width. */
+  html.remote .panel-resize {
+    display: none;
   }
 
   html.remote .composer-wrap {

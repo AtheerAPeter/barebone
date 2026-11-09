@@ -454,6 +454,9 @@ export default function App(): React.JSX.Element {
         <BrowserSheet
           key={chat.id}
           chatId={chat.id}
+          width={browserWidth}
+          onResize={setBrowserWidth}
+          chatRef={mainRef}
           onClose={() => toggleRemoteBrowser(chat.id, false)}
         />
       )}
