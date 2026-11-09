@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AGENTS,
   waitingOn,
   type AgentStatus,
   type AgentId,
-  type AppState
+  type AppState,
+  type Project
 } from '../../shared/types'
 import { Sidebar } from './components/Sidebar'
 import { ChatView } from './components/ChatView'
@@ -14,6 +15,9 @@ import { BrowserPanel } from './components/BrowserPanel'
 import { CodePanel } from './components/CodePanel'
 import { BrowserSheet } from './remote/BrowserSheet'
 import { ProjectPicker } from './components/ProjectPicker'
+import { BotAvatar } from './components/BotAvatar'
+import { BotDashboard, BotMemory, BotTabs, type BotPaneName } from './components/BotPane'
+import { botColor, botStatus, BotsContext, nextRoutine } from './lib/bots'
 import {
   BranchIcon,
   ChatIcon,
@@ -162,7 +166,16 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     if (!REMOTE) window.api.browser.setChat(chatId ?? null)
   }, [chatId])
+  // The Mac knows which chat the window shows, so a bot notifies only when the user looks elsewhere.
+  useEffect(() => {
+    if (!REMOTE) window.api.showingChat(view === 'chat' ? (chatId ?? null) : null)
+  }, [chatId, view])
   const project = state.projects.find((p) => p.id === chat?.projectId) ?? state.projects[0]
+  /** The open chat's bot, when it is one of a bot's chats. */
+  const bot = chat && project?.bot ? project : undefined
+  // A bot's chat shows its dashboard or memory in its place until the user goes back to it.
+  const [botPane, setBotPane] = useState<{ chatId: string; pane: BotPaneName }>()
+  const pane: BotPaneName = bot && botPane && botPane.chatId === chat?.id ? botPane.pane : 'chat'
 
   const newChat = useCallback(
     async (projectId: string) => {
@@ -181,6 +194,24 @@ export default function App(): React.JSX.Element {
     [drawer]
   )
 
+  /**
+   * Open a bot: its one conversation, the first chat of its own (not one it
+   * started), which goes on for good; started the first time.
+   */
+  const openBot = useCallback(
+    (projectId: string) => {
+      const conversation = stateRef.current.chats
+        .filter((c) => c.projectId === projectId && !c.startedBy)
+        .sort((a, b) => a.createdAt - b.createdAt)[0]
+      if (!conversation) return void newChat(projectId)
+      setSelectedChatId(conversation.id)
+      setView('chat')
+      if (drawer) setSidebarOpen(false)
+    },
+    [newChat, drawer]
+  )
+  const bots = useMemo(() => ({ projects: state.projects, openBot }), [state.projects, openBot])
+
   // Menu bar commands. The handler reads the selected chat through a ref so the
   // subscription is made once.
   const selectedChatRef = useRef(chat?.id)
@@ -192,6 +223,16 @@ export default function App(): React.JSX.Element {
     () =>
       window.api.walk.onStart((chatId) => {
         if (chatId !== selectedChatRef.current) void window.api.walk.control(chatId, 'pause')
+      }),
+    []
+  )
+  // A bot's notification was clicked: its conversation opens.
+  useEffect(
+    () =>
+      window.api.onOpenChat((id) => {
+        setSelectedChatId(id)
+        setView('chat')
+        setBotPane(undefined)
       }),
     []
   )
@@ -244,6 +285,7 @@ export default function App(): React.JSX.Element {
           if (drawer) setSidebarOpen(false)
         }}
         onNewChatIn={newChat}
+        onOpenBot={openBot}
         onShowSkills={() => {
           setView((v) => (v === 'skills' ? 'chat' : 'skills'))
           if (drawer) setSidebarOpen(false)
@@ -258,7 +300,14 @@ export default function App(): React.JSX.Element {
         <div className="drawer-scrim" onClick={() => setSidebarOpen(false)} />
       )}
       {/* Hidden, not unmounted, while folded: the chat keeps its place and its live output. */}
-      <main className="main" ref={mainRef}>
+      {/* A bot's chat takes its color: the wash at the top, the user's messages and the accent. */}
+      <main
+        className={`main${bot && view === 'chat' ? ' bot-chat' : ''}`}
+        style={
+          bot && view === 'chat' ? ({ '--bot': botColor(bot) } as React.CSSProperties) : undefined
+        }
+        ref={mainRef}
+      >
         <header className="topbar">
           {/* With the sidebar hidden, its toggle and New chat move here, as in ChatGPT. */}
           {!sidebarOpen && (
@@ -275,8 +324,9 @@ export default function App(): React.JSX.Element {
               </button>
             </>
           )}
+          {bot && view === 'chat' && <BotAvatar project={bot} size={26} chat={chat} />}
           <div className="topbar-title">
-            {project && (view === 'skills' || (view === 'chat' && chat)) && (
+            {project && (view === 'skills' || (view === 'chat' && chat && !bot)) && (
               <span className="crumb">{project.name} / </span>
             )}
             <TopbarName
@@ -286,12 +336,19 @@ export default function App(): React.JSX.Element {
                   ? 'Skills'
                   : view === 'settings'
                     ? 'Settings'
-                    : chat
-                      ? chat.title
-                      : 'Barebone'
+                    : bot
+                      ? bot.name
+                      : chat
+                        ? chat.title
+                        : 'Barebone'
               }
             />
           </div>
+          {/* While the bot works or waits for the user, it says so in its job's place. */}
+          {bot && view === 'chat' && (
+            <span className="bot-job">{botStatus(chat) ?? bot.bot?.job}</span>
+          )}
+          {bot && view === 'chat' && <NextRoutine project={bot} />}
           {/* A narrow top bar shows only their marks; the titles say the rest. */}
           {view === 'chat' && chat?.waiting && (
             <span className="status-chip waiting" title="Needs you">
@@ -324,6 +381,9 @@ export default function App(): React.JSX.Element {
             </span>
           )}
           <span className="spacer" />
+          {bot && chat && view === 'chat' && (
+            <BotTabs pane={pane} onPane={(next) => setBotPane({ chatId: chat.id, pane: next })} />
+          )}
           {browserOpen && view === 'chat' && chat && (
             <button
               className="icon-btn"
@@ -379,20 +439,38 @@ export default function App(): React.JSX.Element {
             onProvidersChange={() => readStatus('custom-api')}
           />
         ) : chat && project ? (
-          <ChatView
-            key={`${chat.id}:${chat.agent}`}
-            chat={chat}
-            statuses={statuses}
-            projectPath={project.path}
-            onAgentChange={changeAgent}
-            onOptionChange={changeOption}
-            folded={folded}
-            speaking={speech.speaking?.chatId === chat.id}
-            onOpenBrowser={
-              remoteBrowserAllowed ? () => toggleRemoteBrowser(chat.id, true) : undefined
-            }
+          // The card a chat shows when it has made a bot opens it.
+          <BotsContext.Provider value={bots}>
+            <ChatView
+              key={`${chat.id}:${chat.agent}`}
+              chat={chat}
+              statuses={statuses}
+              projectPath={project.path}
+              onAgentChange={changeAgent}
+              onOptionChange={changeOption}
+              folded={folded}
+              speaking={speech.speaking?.chatId === chat.id}
+              onOpenBrowser={
+                remoteBrowserAllowed ? () => toggleRemoteBrowser(chat.id, true) : undefined
+              }
+              hidden={pane !== 'chat'}
+            />
+          </BotsContext.Provider>
+        ) : null}
+        {view === 'chat' && chat && bot && pane === 'dashboard' && (
+          <BotDashboard
+            key={bot.id}
+            project={bot}
+            onAsk={() => {
+              setBotPane(undefined)
+              void window.api.send(chat.id, 'Make your dashboard.')
+            }}
           />
-        ) : (
+        )}
+        {view === 'chat' && chat && bot && pane === 'memory' && (
+          <BotMemory key={bot.id} project={bot} />
+        )}
+        {view === 'chat' && !(chat && project) && (
           <div className="welcome">
             <ChatIcon width={28} height={28} />
             {!project ? (
@@ -420,7 +498,8 @@ export default function App(): React.JSX.Element {
       </main>
       {picking && (
         <ProjectPicker
-          projects={state.projects}
+          // A bot has its one conversation, opened from Bots in the sidebar.
+          projects={state.projects.filter((p) => !p.bot)}
           onPick={(projectId) => {
             setPicking(false)
             newChat(projectId)
@@ -473,6 +552,25 @@ export default function App(): React.JSX.Element {
         />
       )}
     </div>
+  )
+}
+
+/**
+ * When a bot's next routine runs, after its job; nothing when it has none.
+ * The clock moves on each minute, so "tomorrow" turns into "today" at midnight.
+ */
+function NextRoutine({ project }: { project: Project }): React.JSX.Element | null {
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000)
+    return () => clearInterval(timer)
+  }, [])
+  const next = nextRoutine(project, now)
+  if (!next) return null
+  return (
+    <span className="bot-next" title="When its next routine runs">
+      Next: {next}
+    </span>
   )
 }
 

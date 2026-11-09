@@ -7,6 +7,7 @@ import {
 } from '../../../shared/types'
 import { COLOR_VALUES, colorValue } from '../lib/project-colors'
 import { CloseIcon, PlusIcon } from './icons'
+import { BotAvatar } from './BotAvatar'
 import {
   SolidBookIcon,
   SolidChatIcon,
@@ -58,7 +59,7 @@ function useProjectImage(projectId: string): string | null {
   return useSyncExternalStore(subscribe, () => images.get(projectId) ?? null)
 }
 
-/** The icon the user chose, else the project's own icon, else a folder; in the project's color. */
+/** The icon the user chose, else the project's own icon, else a folder; in the project's color. A bot shows its character. */
 export function ProjectIcon({
   project,
   size
@@ -67,6 +68,8 @@ export function ProjectIcon({
   size: number
 }): React.JSX.Element {
   const image = useProjectImage(project.id)
+  // A bot is its character, wherever its project shows.
+  if (project.bot) return <BotAvatar project={project} size={size} />
   if (!project.icon && image) {
     return <img className="project-icon image" src={image} width={size} height={size} alt="" />
   }

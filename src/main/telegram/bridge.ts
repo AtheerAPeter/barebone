@@ -1848,6 +1848,10 @@ export class TelegramBridge {
         if (form.messageId) {
           await this.edit(form.messageId, html, rows)
         } else {
+          // An approval's draft (ask_approval) comes first: the form under it asks about it.
+          if (item.details) {
+            for (const out of markdownMessages(item.details)) await this.sendText(out)
+          }
           form.messageId = await this.sendText(
             { html, plain: html.replace(/<[^>]+>/g, '') },
             { reply_markup: this.keyboard(rows) }

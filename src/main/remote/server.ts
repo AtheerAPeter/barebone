@@ -7,7 +7,7 @@ import { basename, extname, join, normalize, sep } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { AppState, SpokenAudio } from '../../shared/types'
-import { REMOTE_IMAGES } from '../../shared/types'
+import { REMOTE_BOTS, REMOTE_IMAGES } from '../../shared/types'
 import {
   decode,
   diffState,
@@ -18,6 +18,7 @@ import {
   type ServerMessage
 } from '../../shared/wire'
 import { imageType, requestedImage } from '../images'
+import { botFile, botFileType, DASHBOARD_POLICY, keyedBot, STYLESHEET, stylesheet } from '../bots'
 import { endSession, pair, sessionFor } from './auth'
 import { loadConfig } from './config'
 import { callFromRemote, callerGone, sendFromRemote, type Caller } from './registry'
@@ -51,7 +52,8 @@ const BROADCAST = new Set([
   'speech:stop',
   'speech:status',
   'telegram:status',
-  'remoteBrowser:allowed'
+  'remoteBrowser:allowed',
+  'bots:changed'
 ])
 
 const TYPES: Record<string, string> = {
@@ -223,6 +225,11 @@ export class RemoteServer {
     return page && loadConfig().sessions.find((s) => s.id === page.sessionId)?.device
   }
 
+  /** The paired session a page is open in. */
+  sessionOf(caller: Caller): string | undefined {
+    return this.pageOf(caller)?.sessionId
+  }
+
   private pageOf(caller: Caller): Page | undefined {
     for (const page of this.pages) if (page.caller === caller) return page
     return undefined
@@ -346,6 +353,20 @@ export class RemoteServer {
     }
     if (path.startsWith('/assets/') && this.pairAssets.has(path)) {
       return this.file(req, res, path.slice(1), 'immutable')
+    }
+    // A bot's dashboard runs sandboxed, in an origin of its own, so it has no cookie:
+    // its key, which only a paired page is given, lets it in (bots.ts).
+    if (path.startsWith(`${REMOTE_BOTS}/`) && method === 'GET') {
+      const [key = '', ...parts] = path.slice(REMOTE_BOTS.length + 1).split('/')
+      const keyed = keyedBot(key)
+      // A key stops working once the device it was given to is signed out.
+      const projectId = keyed && this.sessionStillOn(keyed.sessionId) ? keyed.projectId : undefined
+      const file = parts.join('/')
+      const css = projectId && file === STYLESHEET ? stylesheet(projectId) : undefined
+      if (css) return this.botFile(res, { css })
+      const found = projectId && (await botFile(projectId, file))
+      if (!found) return this.text(res, 404, 'Not found.')
+      return this.botFile(res, { path: found })
     }
 
     const session = this.session(req)
@@ -512,6 +533,36 @@ export class RemoteServer {
       'Cache-Control': cache
     })
     createReadStream(path).pipe(res)
+  }
+
+  /**
+   * A file of a bot's folder, for its dashboard in a frame of this link's page:
+   * sandboxed, so it cannot reach the page, and able to load nothing but its
+   * own folder's files, which it fetches across origins.
+   */
+  private async botFile(
+    res: ServerResponse,
+    file: { path: string } | { css: string }
+  ): Promise<void> {
+    const headers = {
+      'Content-Security-Policy': `sandbox allow-scripts; ${DASHBOARD_POLICY}; frame-ancestors 'self'`,
+      'Access-Control-Allow-Origin': '*',
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+      'Cache-Control': 'no-store'
+    }
+    if ('css' in file) {
+      res.writeHead(200, { ...headers, 'Content-Type': TYPES['.css'] })
+      return void res.end(file.css)
+    }
+    const info = await stat(file.path).catch(() => undefined)
+    if (!info?.isFile()) return this.text(res, 404, 'Not found.')
+    res.writeHead(200, {
+      ...headers,
+      'Content-Type': botFileType(file.path),
+      'Content-Length': String(info.size)
+    })
+    createReadStream(file.path).pipe(res)
   }
 
   private redirect(res: ServerResponse, to: string): void {

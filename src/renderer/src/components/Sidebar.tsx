@@ -2,6 +2,8 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState, type RefObject 
 import { ThemeToggle } from './ThemeToggle'
 import { Collapse } from './Collapse'
 import { ProjectIcon } from './ProjectIcon'
+import { BotAvatar } from './BotAvatar'
+import { botStatus } from '../lib/bots'
 import { RowMenu } from './RowMenu'
 import { useTelegramStatus } from '../lib/telegram'
 import { AgentLogo } from './model-picker/AgentLogo'
@@ -45,6 +47,8 @@ interface SidebarProps {
   onNewChat: () => void
   /** Start a chat in this project, from its folder. */
   onNewChatIn: (projectId: string) => void
+  /** Open a bot's one conversation, starting it the first time. */
+  onOpenBot: (projectId: string) => void
   onShowSkills: () => void
   onShowSettings: () => void
   onHide: () => void
@@ -66,6 +70,7 @@ export function Sidebar({
   onSelectChat,
   onNewChat,
   onNewChatIn,
+  onOpenBot,
   onShowSkills,
   onShowSettings,
   onHide
@@ -180,11 +185,18 @@ export function Sidebar({
     const lead = nested(chat) ? byId.get(chat.startedBy!) : undefined
     return Boolean(lead && working(lead) && !lead.waiting)
   }
+  // A bot is one row in Bots, for its one conversation; when it needs the user, it is also listed first.
+  const bots = state.projects.filter((p) => p.bot)
+  const ofBot = (chat: Chat): boolean => Boolean(projects.get(chat.projectId)?.bot)
   // Pinned chats are listed together under the chats that need the user, working or not.
   const waiting = chats.filter((c) => c.waiting)
-  const pinned = chats.filter((c) => c.pinned && !c.waiting)
-  const running = chats.filter((c) => !c.pinned && working(c) && !c.waiting && !leadWorking(c))
-  const settled = chats.filter((c) => !c.pinned && !working(c) && !c.waiting && !nested(c))
+  const pinned = chats.filter((c) => c.pinned && !c.waiting && !ofBot(c))
+  const running = chats.filter(
+    (c) => !c.pinned && working(c) && !c.waiting && !leadWorking(c) && !ofBot(c)
+  )
+  const settled = chats.filter(
+    (c) => !c.pinned && !working(c) && !c.waiting && !nested(c) && !ofBot(c)
+  )
   // While searching, settled matches are always listed.
   const settledShut = !settledOpen && !q
   /** Whether the open chat is this one or one it leads, to keep it in view past "Show more". */
@@ -466,6 +478,38 @@ export function Sidebar({
     )
   }
 
+  /**
+   * A bot: one row, as a contact in a messenger, for its one conversation:
+   * its character, its name and the last thing said, and what its chats are doing.
+   */
+  function botRow(project: Project): React.JSX.Element | null {
+    const own = state.chats.filter((c) => c.projectId === project.id)
+    if (q && !project.name.toLowerCase().includes(q)) return null
+    const conversation = own.find((c) => !c.startedBy)
+    // The bot speaks for whichever of its chats needs the user or works, else its conversation.
+    const live = own.find((c) => c.waiting) ?? own.find((c) => c.running) ?? conversation
+    const selected = view === 'chat' && own.some((c) => c.id === selectedChatId)
+    return (
+      <div
+        key={project.id}
+        className={`chat-row bot-row${selected ? ' selected' : ''}`}
+        title={`${project.name}: ${project.bot?.job}`}
+        onClick={() => onOpenBot(project.id)}
+      >
+        <BotAvatar project={project} size={30} chat={live} />
+        <div className="bot-row-text">
+          <div className="chat-line">
+            <span className="chat-title">{project.name}</span>
+            <FolderStatus chats={own} working={working} />
+          </div>
+          <span className="bot-row-latest">
+            {botStatus(live) ?? conversation?.preview ?? project.bot?.job}
+          </span>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <nav
       className={`sidebar${open ? '' : ' closed'}${resizing ? ' resizing' : ''}`}
@@ -539,10 +583,16 @@ export function Sidebar({
         </label>
       )}
       <div className="sidebar-scroll">
+        {bots.length > 0 && (
+          <>
+            <div className="side-label">Bots</div>
+            {bots.map(botRow)}
+          </>
+        )}
         {byProject ? (
           <>
             <div className="side-label">Projects</div>
-            {state.projects.map(projectFolder)}
+            {state.projects.filter((p) => !p.bot).map(projectFolder)}
           </>
         ) : (
           statusLists()

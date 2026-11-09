@@ -35,10 +35,21 @@ export interface PendingForm {
   chatId: string
   form: true
   answer: (response: acp.CreateElicitationResponse) => void
+  /**
+   * An approval card (ask_approval), which stays open after the tool call and
+   * the turn: an answer that comes later wakes the chat. Stopping the turn or
+   * the agent's process leaves it open.
+   */
+  lasting?: true
 }
 
 /** Requests waiting for the user, by permission or form item id. Shared by every agent. */
 export type Permissions = Map<string, PendingPermission | PendingForm>
+
+/** Whether a request belongs to the agent's turn, so it ends with the turn (see PendingForm.lasting). */
+export function ofTurn(pending: PendingPermission | PendingForm): boolean {
+  return !('lasting' in pending && pending.lasting)
+}
 
 /** End a request the user did not answer, as when the turn is stopped. */
 export function cancelPending(pending: PendingPermission | PendingForm): void {

@@ -148,18 +148,20 @@ export function formSummary(
 /**
  * Show a form and wait for the user, in every mode: bypass approves tool
  * calls, not answers the agent asks the user for. When the agent withdraws
- * the request (`signal`), the form closes as cancelled.
+ * the request (`signal`), the form closes as cancelled. A `lasting` form
+ * outlives the turn (see PendingForm).
  */
 export function askForm(
   events: AgentEvents,
   permissions: Permissions,
   chatId: string,
   form: Omit<FormItem, 'id'>,
-  signal: AbortSignal
+  signal: AbortSignal,
+  lasting = false
 ): Promise<acp.CreateElicitationResponse> {
   const id = crypto.randomUUID()
   return new Promise((resolve) => {
-    permissions.set(id, { chatId, form: true, answer: resolve })
+    permissions.set(id, { chatId, form: true, answer: resolve, ...(lasting ? { lasting } : {}) })
     emitItem(events, permissions, chatId, { ...form, id })
     signal.addEventListener('abort', () => {
       if (!permissions.delete(id)) return

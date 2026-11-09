@@ -49,7 +49,8 @@ const HARNESS_VERBS: Partial<Record<Harness, Record<string, [string, string]>>> 
     read_background: ['Read a background command', 'Reading a background command'],
     stop_background: ['Stopped a background command', 'Stopping a background command'],
     set_timer: ['Set a timer', 'Setting a timer'],
-    cancel_timer: ['Cancelled a timer', 'Cancelling a timer']
+    cancel_timer: ['Cancelled a timer', 'Cancelling a timer'],
+    create_bot: ['Made a bot', 'Making a bot']
   }
 }
 
@@ -78,7 +79,8 @@ function harnessTarget(server: Harness, name: string, input: Record<string, unkn
           start_chat: [text(input.prompt)],
           send_message: [text(input.message)],
           run_in_background: [text(input.command)],
-          set_timer: [text(input.note)]
+          set_timer: [text(input.note)],
+          create_bot: [quoted(input.name)]
         }[name]
   const target = (parts ?? []).filter(Boolean).join(' ')
   return target.length > 120 ? `${target.slice(0, 119)}…` : target

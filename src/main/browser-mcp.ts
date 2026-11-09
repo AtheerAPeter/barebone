@@ -10,6 +10,7 @@ import { app, clipboard, ClipboardItem, nativeImage, type WebContents } from 'el
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { McpServer as AcpMcpServer } from '@agentclientprotocol/sdk'
 import { z } from 'zod'
+import { sendGate } from './approvals'
 import { normalizeUrl, type BuiltinBrowser, type ChatPage, type PageDialog } from './browser'
 import {
   buildChatsServer,
@@ -611,6 +612,9 @@ async function buildServer(
       act(id, tab, async (page) => {
         const before = page.contents.getURL()
         await page.driver.checkRef(ref)
+        // A bot sends nothing in the user's name before they approve it (see approvals.ts).
+        const refused = sendGate(chatFor(id), await page.driver.nameAndValue(ref))
+        if (refused) throw new Error(refused)
         const result = await untilDialog(page, () => page.driver.click(ref))
         if ('dialog' in result) return text(`Clicked ${ref}. ${dialogNote(result.dialog)}`)
         return acted(page, `Clicked ${ref}.`, before)

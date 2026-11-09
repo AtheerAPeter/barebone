@@ -1,4 +1,4 @@
-import { app, nativeImage, net, protocol } from 'electron'
+import { app, nativeImage, net, protocol, type CustomScheme } from 'electron'
 import { createHash } from 'node:crypto'
 import { existsSync, rmSync } from 'node:fs'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
@@ -87,11 +87,10 @@ export function removeChatImages(chatId: string): void {
   rmSync(join(imagesDir, chatId), { recursive: true, force: true })
 }
 
-/** Must run before the app is ready. */
-export function registerImageScheme(): void {
-  protocol.registerSchemesAsPrivileged([
-    { scheme: IMAGE_SCHEME, privileges: { standard: true, secure: true } }
-  ])
+/** Must be registered before the app is ready, with the app's other schemes. */
+export const imageScheme: CustomScheme = {
+  scheme: IMAGE_SCHEME,
+  privileges: { standard: true, secure: true }
 }
 
 /**

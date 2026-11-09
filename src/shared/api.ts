@@ -75,6 +75,10 @@ export function makeApi(t: Transport) {
     },
     onState: (listener: (state: AppState) => void) => on('state:changed', listener),
     onMenu: (listener: (command: MenuCommand) => void) => on('menu', listener),
+    /** Tell the Mac which chat the window shows, or none, so bots notify only when it is not this one. */
+    showingChat: (chatId: string | null): void => send('window:chat', chatId),
+    /** Open a chat: the user clicked a bot's notification. */
+    onOpenChat: (listener: (chatId: string) => void) => on('window:openChat', listener),
     setTheme: (theme: Theme): Promise<void> => invoke('theme:set', theme),
     /** Save the instructions the app's own agent gets in new chats; empty removes them. */
     setInstructions: (text: string): Promise<void> => invoke('instructions:set', text),
@@ -410,6 +414,18 @@ export function makeApi(t: Transport) {
       watch: (projectId: string): Promise<void> => invoke('git:watch', projectId),
       unwatch: (projectId: string): Promise<void> => invoke('git:unwatch', projectId),
       onChanged: (listener: (projectId: string) => void) => on('git:changed', listener)
+    },
+
+    /** Bots (main/bots.ts): their dashboards and what they know. */
+    bots: {
+      /** Where to load the bot's dashboard from; null until the bot has made one. */
+      dashboard: (projectId: string): Promise<string | null> => invoke('bots:dashboard', projectId),
+      /** The bot's memory.md; null when it has none. */
+      memory: (projectId: string): Promise<string | null> => invoke('bots:memory', projectId),
+      /** Tell when anything in the bot's folder changes, until unwatch. */
+      watch: (projectId: string): Promise<void> => invoke('bots:watch', projectId),
+      unwatch: (projectId: string): Promise<void> => invoke('bots:unwatch', projectId),
+      onChanged: (listener: (projectId: string) => void) => on('bots:changed', listener)
     },
 
     listFiles: (projectPath: string): Promise<string[]> => invoke('files:list', projectPath),

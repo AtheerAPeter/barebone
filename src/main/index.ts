@@ -1,6 +1,6 @@
 // First: moves the data folder of the app's former name before anything uses it.
 import './former-name'
-import { app, shell, BrowserWindow, ipcMain, dialog, nativeTheme } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, nativeTheme, protocol } from 'electron'
 import { handle, handleAs, listen, MAC_ONLY, onCallerGone, type Caller } from './remote/registry'
 import { readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
@@ -26,8 +26,11 @@ import type {
   SkillScope,
   Theme
 } from '../shared/types'
+import { BOT_SCHEME, REMOTE_BOTS } from '../shared/types'
 import * as store from './store'
 import { AgentManager } from './agents'
+import { BotNotices } from './bot-notices'
+import { Routines } from './routines'
 import { BuiltinBrowser } from './browser'
 import {
   chatsMcpEndpoint,
@@ -35,7 +38,12 @@ import {
   SERVER_NAME as BROWSER_SERVER,
   startBrowserMcp
 } from './browser-mcp'
-import { SERVER_NAME as CHATS_SERVER, providePhone } from './chats-mcp'
+import {
+  SERVER_NAME as CHATS_SERVER,
+  provideBots,
+  providePhone,
+  provideRoutines
+} from './chats-mcp'
 import { registerWithCline, unregisterFromCline } from './cline-mcp'
 import { DeviceManager } from './devices'
 import { SERVER_NAME as DEVICES_SERVER } from './devices-mcp'
@@ -60,7 +68,17 @@ import { listProjectFiles } from './files'
 import * as git from './git'
 import { WalkPlayer } from './walkthrough'
 import { chooseProjectIcon, projectIcon } from './project-icon'
-import { handleImageRequests, registerImageScheme, thumbnail } from './images'
+import { handleImageRequests, imageScheme, thumbnail } from './images'
+import {
+  botScheme,
+  createBot,
+  DASHBOARD,
+  handleBotRequests,
+  hasDashboard,
+  memory,
+  remoteKey,
+  watchBot
+} from './bots'
 import { availableUpdate, checkForUpdates, installUpdate, watchForUpdates } from './updates'
 
 let mainWindow: BrowserWindow
@@ -100,6 +118,19 @@ function stateChanged(): void {
   telegram.stateChanged()
 }
 
+/** Notifications for bots that reach out while the user looks elsewhere; a click opens the bot. */
+const notices = new BotNotices(
+  () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined),
+  (chatId) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+    // Only the Mac's window: a page of the remote link keeps the chat it shows.
+    mainWindow.webContents.send('window:openChat', chatId)
+  }
+)
+
 const agents = new AgentManager(
   {
     item: (chatId: string, item: ChatItem) => {
@@ -111,9 +142,13 @@ const agents = new AgentManager(
       telegram.options(chatId, options)
     },
     commands: (chatId: string, commands: AgentCommand[]) => send('chat:commands', chatId, commands),
-    turnEnded: (chatId, end) => telegram.turnEnded(chatId, end),
+    turnEnded: (chatId, end) => {
+      telegram.turnEnded(chatId, end)
+      notices.turnEnded(chatId, end)
+    },
     stateChanged: () => {
       stateChanged()
+      notices.stateChanged()
       // A chat that stopped running may no longer need its browser page, and
       // no longer controls a tab.
       browser?.prune()
@@ -124,6 +159,9 @@ const agents = new AgentManager(
   },
   (chatId) => browser?.state(chatId)
 )
+
+/** Bots' routines, which wake their conversations at the times the user asked for. */
+const routines = new Routines((chatId, note) => agents.runRoutine(chatId, note), stateChanged)
 
 /** Stop a chat's turn, as its Stop button does: what it says out loud stops too. */
 function cancelChat(chatId: string): Promise<void> {
@@ -296,6 +334,18 @@ function createWindow(): BuiltinBrowser {
     if (/^https?:/i.test(details.url)) browser.open(details.url).catch(() => undefined)
     else shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+  // A link on a bot's dashboard opens in the chat's browser panel. The dashboard
+  // only moves between its own pages, and goes nowhere else.
+  // The window lets frames go to web pages (index.html's frame-src) only so that
+  // such a navigation reaches this handler, which stops it.
+  mainWindow.webContents.on('will-frame-navigate', (event) => {
+    if (event.isMainFrame || !event.frame?.url.startsWith(`${BOT_SCHEME}:`)) return
+    // URL gives a custom scheme no origin, so the bot is told by its host, its project ID.
+    const to = new URL(event.url)
+    if (to.protocol === `${BOT_SCHEME}:` && to.host === new URL(event.frame.url).host) return
+    event.preventDefault()
+    if (/^https?:$/.test(to.protocol)) browser.open(event.url).catch(() => undefined)
   })
 
   return browser
@@ -505,6 +555,47 @@ function registerGitIpc(): void {
     watch.stop = git.watchRepo(root, () => send('git:changed', projectId))
   })
   handleAs('git:unwatch', (caller, projectId: string) => unwatch(projectId, caller))
+  onCallerGone((caller) => {
+    for (const projectId of [...watching.keys()]) unwatch(projectId, caller)
+  })
+}
+
+/** Bots (bots.ts): chats make them, and the window shows their dashboards and memory. */
+function registerBotsIpc(): void {
+  provideBots({
+    create: (_caller, bot) => {
+      const project = createBot(bot)
+      stateChanged()
+      return project
+    }
+  })
+  provideRoutines(routines)
+  // The chat the window shows: a bot notifies only while the user is not looking at it.
+  listen('window:chat', (chatId: string | null) => notices.showing(chatId ?? undefined), MAC_ONLY)
+  // The window loads a dashboard with the bot: scheme; a page of the remote link, with a key.
+  handleAs('bots:dashboard', (caller, projectId: string) => {
+    if (!hasDashboard(projectId)) return null
+    if (caller === 'window') return `${BOT_SCHEME}://${projectId}/${DASHBOARD}`
+    const sessionId = remote.sessionOf(caller)
+    return sessionId ? `${REMOTE_BOTS}/${remoteKey(projectId, sessionId)}/${DASHBOARD}` : null
+  })
+  handle('bots:memory', (projectId: string) => memory(projectId))
+
+  // A bot's folder is watched while its dashboard or memory is open anywhere, so they show changes.
+  const watching = new Map<string, { stop: () => void; by: Set<Caller> }>()
+  const unwatch = (projectId: string, caller: Caller): void => {
+    const watch = watching.get(projectId)
+    if (!watch?.by.delete(caller) || watch.by.size > 0) return
+    watch.stop()
+    watching.delete(projectId)
+  }
+  handleAs('bots:watch', (caller, projectId: string) => {
+    const existing = watching.get(projectId)
+    if (existing) return void existing.by.add(caller)
+    const stop = watchBot(projectId, () => send('bots:changed', projectId))
+    watching.set(projectId, { stop, by: new Set([caller]) })
+  })
+  handleAs('bots:unwatch', (caller, projectId: string) => unwatch(projectId, caller))
   onCallerGone((caller) => {
     for (const projectId of [...watching.keys()]) unwatch(projectId, caller)
   })
@@ -774,7 +865,8 @@ app.on('web-contents-created', (_event, contents) => {
 })
 
 app.setName('Barebone')
-registerImageScheme()
+// Electron takes the app's schemes in one call, before it is ready.
+protocol.registerSchemesAsPrivileged([imageScheme, botScheme])
 
 app.whenReady().then(async () => {
   // A packaged build takes its icon from the bundle; in development the Electron
@@ -786,6 +878,7 @@ app.whenReady().then(async () => {
   // Only commands need PATH, and they wait for it; the window does not.
   void loadShellPath()
   handleImageRequests()
+  handleBotRequests()
   // Set before the window exists so it opens in the right appearance.
   nativeTheme.themeSource = store.getState().theme ?? 'system'
   installMenu((command) => send('menu', command), nativeTheme.themeSource, setTheme)
@@ -816,6 +909,7 @@ app.whenReady().then(async () => {
     sendFile: (chatId, path, caption) => telegram.sendFile(chatId, path, caption)
   })
   registerGitIpc()
+  registerBotsIpc()
   registerDevicesIpc()
   // On by default: the voice downloads in the background the first time.
   if (store.speechOn()) void speech.fetchModel()
@@ -861,6 +955,8 @@ app.whenReady().then(async () => {
       }
     }
   )
+  // Once agents can reach the chat tools: a routine due while the app was closed runs now.
+  routines.start()
   // Only when cline is installed; failures are logged and the app works without it.
   // One at a time: each rewrites cline's settings file.
   agents.status('cline').then(async ({ available }) => {

@@ -4,8 +4,19 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { AGENTS, type AgentId } from '../shared/types'
+import {
+  AGENTS,
+  BOT_SHAPES,
+  PROJECT_COLORS,
+  WEEKDAYS,
+  type AgentId,
+  type BotRoutine,
+  type Project
+} from '../shared/types'
+import { approvalText, type Approval } from './approvals'
 import type { Finished, Running } from './background'
+import type { NewBot } from './bots'
+import type { Routines } from './routines'
 import type { Spoken } from './speech'
 import { LANGUAGES, type Language } from './speech/supertonic'
 import * as store from './store'
@@ -146,6 +157,17 @@ export interface ChatsApi {
   cancelTimer(caller: string): boolean
   /** Rename the caller, as the user does in the sidebar. */
   renameChat(caller: string, title: string): void
+  /**
+   * Show an approval card in the caller and wait for the user's answer, for
+   * at most APPROVAL_WAIT_MS or until `signal` ends the call. Undefined when
+   * the call ended first: the card stays, and its answer wakes the caller.
+   */
+  askApproval(
+    caller: string,
+    question: string,
+    details: string,
+    signal: AbortSignal
+  ): Promise<Approval | undefined>
 }
 
 /** The Telegram bot (main/telegram), which sends files to the user's phone. */
@@ -164,6 +186,44 @@ let phone: PhoneApi | undefined
 
 export function providePhone(api: PhoneApi): void {
   phone = api
+}
+
+/** Making bots (main/bots.ts), and telling the window about a new one. */
+export interface BotsApi {
+  /** Make a bot for the caller's user; returns its project. */
+  create(caller: string, bot: NewBot): Project
+}
+
+/** How the chat servers make bots; given once, when the app starts. */
+let bots: BotsApi | undefined
+
+export function provideBots(api: BotsApi): void {
+  bots = api
+}
+
+/** Bots' routines (main/routines.ts), for the caller's bot. */
+export type RoutinesApi = Pick<Routines, 'set' | 'list' | 'cancel'>
+
+/** How the chat servers keep bots' routines; given once, when the app starts. */
+let routines: RoutinesApi | undefined
+
+export function provideRoutines(api: RoutinesApi): void {
+  routines = api
+}
+
+/** A routine as the routine tools show it: its id, when it runs, and its note. */
+function describeRoutine(routine: BotRoutine): string {
+  const when = routine.time
+    ? `at ${routine.time} ${routine.days ? `on ${routine.days.join(', ')}` : 'every day'}`
+    : `every ${routine.everyHours === 1 ? 'hour' : `${routine.everyHours} hours`}`
+  const next = new Date(routine.nextAt).toLocaleString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+  return `${routine.id}: ${when}, next ${next} (local time): ${routine.note}`
 }
 
 /** The voice agents speak with (main/speech), as the speak tool and show_step use it. */
@@ -486,6 +546,162 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
       return text(`Renamed this chat to "${name}".`)
     }
   )
+
+  server.registerTool(
+    'ask_approval',
+    {
+      description:
+        'Ask the user to approve something before it goes out in their name: an email, a message, an application, a post, an order or a payment. Use it every time, right before you send, submit, post, pay, book or sign up for anything for them, unless they told you it may go out without asking. It shows a card in the chat (and in Telegram) with your question and the details, exactly what will go out, and the user answers Send, Change or Skip. It returns their answer: "approved" (send it now, exactly as shown), "skip" (do not send it) or "change: <what to change>" (revise it, then ask again). When they have not answered within a minute, it says so and the card stays: end your turn then, and their answer comes as a new message. In a bot\'s chat, a browser click on a send button is refused until the user answered Send in the last 10 minutes.',
+      inputSchema: {
+        question: z
+          .string()
+          .describe(
+            'A short question naming what goes out and where: "Send the application to N26?"'
+          ),
+        details: z
+          .string()
+          .describe(
+            'Exactly what goes out, as Markdown: the whole letter or message, and who it goes to; for an order or payment, what, how much and to whom. The user decides from this alone.'
+          ),
+        ...chatArg
+      }
+    },
+    async ({ question, details, chat }, { signal }) => {
+      if (!question.trim()) throw new Error('"question" is empty.')
+      if (!details.trim()) throw new Error('"details" is empty: show exactly what goes out.')
+      const approval = await chats.askApproval(chatForKey(chat), question.trim(), details, signal)
+      return text(
+        approval
+          ? approvalText(approval)
+          : 'The user has not answered yet. The card stays in the chat, and their answer comes to you as a new message. Do not send it before then: end your turn now.'
+      )
+    }
+  )
+
+  if (bots) {
+    const maker = bots
+    const taken = store
+      .getState()
+      .projects.flatMap((p) => (p.bot && p.color ? [`${p.name} is ${p.color}`] : []))
+    server.registerTool(
+      'create_bot',
+      {
+        description:
+          "Make a bot: a helper with a personality, a memory and a folder of its own in Barebone, which the user talks to in one conversation that goes on for good, for an ongoing job they hand over, such as applying for jobs, looking for a flat or watching a page. Only when the user asks for a bot. Before you make it, ask the user what you need to know and they have not said: what it should do, where (sites, cities) and whether it may send, submit or pay on its own or must ask first. Ask with your question tool if you have one, in as few questions as you can. The bot's folder gets an AGENTS.md with your instructions and how it keeps its memory, its records and a dashboard it builds itself; its conversation starts from it. Files the user gave you for the bot (a CV, say) are not moved there: copy them into the folder's files/ after making it, with your own tools. Do not start on the bot's job in this chat: the user talks to the bot in its own conversation.",
+        inputSchema: {
+          name: z
+            .string()
+            .describe(
+              'Its name, short and friendly, like a character\'s: "Jobby", "Nesty". It names its folder too.'
+            ),
+          job: z
+            .string()
+            .describe('What it does, in a few words: "Applies to marketing jobs in Berlin"'),
+          personality: z
+            .string()
+            .describe(
+              'Who it is, written to the bot as "You are…": how it talks and behaves, as a person would, such as cheerful and brief, calm and thorough, dry humour, calls the user by name. Fit it to its job and to what the user said they like. A few sentences.'
+            ),
+          instructions: z
+            .string()
+            .describe(
+              "Everything it must know to do the job well, written to the bot: the goal, the user's wishes and limits, the sites and accounts to use, what may go out without asking and what must be asked first, and what to keep track of. Markdown, without a title: it goes under the bot's own."
+            ),
+          shape: z
+            .enum(BOT_SHAPES)
+            .describe(
+              'Its character: box (an office type), round (a robot with an antenna), ghost (a watcher), house (for homes), cat, cloud. Pick one that fits its job.'
+            ),
+          color: z
+            .enum(PROJECT_COLORS)
+            .describe(
+              `Its color, which marks its chats. Pick one the user's other bots do not have, if you can.${taken.length > 0 ? ` Their bots: ${taken.join(', ')}.` : ''}`
+            ),
+          ...chatArg
+        }
+      },
+      ({ name, job, personality, instructions, shape, color, chat }) => {
+        const project = maker.create(chatForKey(chat), {
+          name,
+          job,
+          personality,
+          instructions,
+          shape,
+          color
+        })
+        return text(
+          `Made the bot "${project.name}" (project ID ${project.id}) in ${project.path}. Its folder is set up as it should be: leave it as it is, and only copy in files the user gave you for it, into ${join(project.path, 'files')}. The bot makes its own memory, records and dashboard as it works. Tell the user in a line or two what the bot will do; they open it from the card under your answer or from Bots in the sidebar.`
+        )
+      }
+    )
+  }
+
+  // Offered once the user has a bot: only a bot's own conversation can use them.
+  if (routines && store.getState().projects.some((p) => p.bot)) {
+    const kept = routines
+    server.registerTool(
+      'set_routine',
+      {
+        description:
+          'Only in a bot\'s own conversation. Set a routine: regular work the user asked for, such as "every weekday at 8, look for new jobs". Give a note of what to do and when: "time" (with "days" when not every day), or "everyHours". Each time it comes due, this conversation gets your note as a new message, and you do the work then. A run missed while the Mac was off or asleep happens once when it is back. Set one only when the user asks for regular work, and tell them when it first runs.',
+        inputSchema: {
+          note: z
+            .string()
+            .describe('What to do each time, written to yourself, with what you will need to know'),
+          time: z
+            .string()
+            .optional()
+            .describe('The local time it runs at, as "HH:MM" on a 24-hour clock, such as "08:00"'),
+          days: z
+            .array(z.enum(WEEKDAYS))
+            .optional()
+            .describe('Only with "time": the days it runs on. Left out, every day.'),
+          everyHours: z
+            .number()
+            .int()
+            .min(1)
+            .optional()
+            .describe('Instead of "time": run every this many hours, at least 1'),
+          ...chatArg
+        }
+      },
+      ({ note, time, days, everyHours, chat }) => {
+        const routine = kept.set(chatForKey(chat), { note, time, days, everyHours })
+        return text(`Routine set. ${describeRoutine(routine)}`)
+      }
+    )
+
+    server.registerTool(
+      'list_routines',
+      {
+        description:
+          "Only in a bot's own conversation. List your routines, the next one first: each one's id, when it runs, when it runs next and its note.",
+        inputSchema: { ...chatArg },
+        annotations: { readOnlyHint: true }
+      },
+      ({ chat }) => {
+        const all = kept.list(chatForKey(chat))
+        return text(all.length > 0 ? all.map(describeRoutine).join('\n') : 'You have no routines.')
+      }
+    )
+
+    server.registerTool(
+      'cancel_routine',
+      {
+        description:
+          "Only in a bot's own conversation. End one of your routines, by its id from set_routine or list_routines, when the user no longer wants that regular work. To change one, cancel it and set a new one.",
+        inputSchema: {
+          id: z.string().describe("The routine's id"),
+          ...chatArg
+        },
+        annotations: { destructiveHint: true }
+      },
+      ({ id, chat }) => {
+        const routine = kept.cancel(chatForKey(chat), id)
+        return text(`Cancelled routine ${routine.id}: ${routine.note}`)
+      }
+    )
+  }
 
   if (phone?.on()) {
     const bot = phone

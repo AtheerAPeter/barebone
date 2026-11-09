@@ -3,7 +3,7 @@ import type { BuiltinBrowser } from '../browser'
 import { endSession, newPairingCode } from './auth'
 import { RemoteBrowser } from './browser'
 import { loadConfig, saveConfig } from './config'
-import { handle, MAC_ONLY } from './registry'
+import { handle, MAC_ONLY, type Caller } from './registry'
 import { RemoteServer } from './server'
 import { enableZrok, newShareName, zrokEnabled, ZrokTunnel } from './tunnel'
 
@@ -51,6 +51,11 @@ export class RemoteLink {
     handle('remote:pair', () => this.pair(), MAC_ONLY)
     handle('remote:signOut', (id: string) => this.signOut(id), MAC_ONLY)
     if (loadConfig().on && zrokEnabled()) void this.open().catch(() => undefined)
+  }
+
+  /** The paired session a page of the link is open in; undefined once it is gone. */
+  sessionOf(caller: Caller): string | undefined {
+    return this.server?.sessionOf(caller)
   }
 
   /** Something the window is told: pages of the link that show it are told too. */

@@ -147,6 +147,44 @@ export const PROJECT_ICONS = [
 ] as const
 export type ProjectIconName = (typeof PROJECT_ICONS)[number]
 
+/** The characters a bot can look like (renderer/src/components/BotAvatar.tsx draws them). */
+export const BOT_SHAPES = ['box', 'round', 'ghost', 'house', 'cat', 'cloud'] as const
+export type BotShape = (typeof BOT_SHAPES)[number]
+
+/**
+ * What makes a project a bot (main/bots.ts): a chat made it, in a folder of its
+ * own, with a character and a job. Its color is the project's color.
+ */
+export interface BotLook {
+  shape: BotShape
+  /** What it does, in a few words, shown under its name. */
+  job: string
+  /** Regular work the user asked for, which wakes its conversation (main/routines.ts). */
+  routines?: BotRoutine[]
+}
+
+/** The days a routine can run on, Monday first. */
+export const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
+export type Weekday = (typeof WEEKDAYS)[number]
+
+/**
+ * Something a bot does on its own at set times: at a local time ("HH:MM") on
+ * some days, or every few hours. Each run arrives in its conversation.
+ */
+export interface BotRoutine {
+  id: string
+  /** What to do, in the bot's words to itself. */
+  note: string
+  /** The local time it runs at, "HH:MM", on `days`. */
+  time?: string
+  /** The days it runs at `time`; every day when unset. */
+  days?: Weekday[]
+  /** Or every this many hours. */
+  everyHours?: number
+  /** When it runs next, in ms since the epoch. */
+  nextAt: number
+}
+
 export interface Project {
   id: string
   name: string
@@ -156,6 +194,8 @@ export interface Project {
   color?: ProjectColor | `#${string}`
   /** Chosen by the user; unset shows the project's own icon (its favicon) if it has one. */
   icon?: ProjectIconName
+  /** Set when the project is a bot. */
+  bot?: BotLook
 }
 
 export interface Chat {
@@ -172,6 +212,11 @@ export interface Chat {
    * none of the conversation, so its next message tells it to read the saved one.
    */
   handoff?: AgentId
+  /**
+   * Set when a bot's conversation went on in a fresh session (see
+   * AgentManager.renewIfFull), until a message has told it so.
+   */
+  renewed?: boolean
   /** ACP session id, set once the first prompt has been sent. */
   sessionId?: string
   /**
@@ -185,6 +230,14 @@ export interface Chat {
   running: boolean
   /** True while a permission request in this chat waits for the user. */
   waiting?: boolean
+  /**
+   * While a turn runs, its newest call that has not ended, in the chat view's
+   * words ("Running npm test"); unset between calls and once the turn ends.
+   * A bot shows it as what it is doing (see main/activity.ts).
+   */
+  activity?: string
+  /** Set when the chat's last turn failed, until another turn ends; a bot looks worried. */
+  lastTurnFailed?: boolean
   /** The user's messages sent while the chat works, waiting to join its turn or follow it. */
   waitingMessages?: { id: string; text: string }[]
   /**
@@ -336,6 +389,12 @@ export const REMOTE_IMAGES = '/images'
 export function imageUrl(chatId: string, file: string, remote = false): string {
   return remote ? `${REMOTE_IMAGES}/${chatId}/${file}` : `${IMAGE_SCHEME}://${chatId}/${file}`
 }
+
+/** The scheme the window loads a bot's dashboard and its files with (see main/bots.ts). */
+export const BOT_SCHEME = 'bot'
+
+/** Where the remote link's server serves bots' dashboards, under a key per page (main/remote/server.ts). */
+export const REMOTE_BOTS = '/bot'
 
 export type Theme = 'system' | 'light' | 'dark'
 
@@ -490,14 +549,17 @@ export interface AgentStatus {
  * reporting that it ended; the timer the chat set; the app, reporting that
  * a chat this one started ended its turn without reporting back; or the agent
  * itself, which went on working between turns (Claude Code does when work it
- * left running in the background ends).
+ * left running in the background ends); or one of a bot's routines.
  */
 export type ChatSender =
   | { kind?: 'chat'; chatId: string; title: string }
   | { kind: 'command'; command: string }
   | { kind: 'timer'; note: string }
+  | { kind: 'routine'; note: string }
   | { kind: 'ended'; chatId: string; title: string }
   | { kind: 'self'; agent: AgentId }
+  /** The user answered an approval card after its ask_approval call had ended. */
+  | { kind: 'approval'; question: string }
 
 /** The chat a message came from, when another chat sent it. */
 export function senderChat(from: ChatSender | undefined): string | undefined {
@@ -577,6 +639,12 @@ export type ChatItem =
       message: string
       fields: FormField[]
       url?: string
+      /**
+       * What the user is asked to approve before it goes out (ask_approval),
+       * as Markdown, such as a draft letter. A form with it is an approval
+       * card, with APPROVAL_FIELDS.
+       */
+      details?: string
       /** Undefined while waiting on the user. */
       resolved?: 'accepted' | 'declined' | 'cancelled'
       /** What the user answered, field title and answer, to show afterwards. */
@@ -606,6 +674,25 @@ export type FormField = {
   | { type: 'number' | 'integer'; default?: number }
   | { type: 'boolean'; default?: boolean }
 )
+
+/**
+ * The fields of an approval card (ask_approval): Send, Change or Skip, and
+ * what to change. The chat shows the picks as buttons; Telegram as a form.
+ */
+export const APPROVAL_FIELDS: FormField[] = [
+  {
+    key: 'decision',
+    title: 'Answer',
+    required: true,
+    type: 'choice',
+    options: [
+      { value: 'send', title: 'Send' },
+      { value: 'change', title: 'Change' },
+      { value: 'skip', title: 'Skip' }
+    ]
+  },
+  { key: 'change', title: 'What to change', required: false, type: 'text' }
+]
 
 /** A form's answers, by field key, as the agent reads them. */
 export type FormAnswers = Record<string, string | number | boolean | string[]>

@@ -98,6 +98,7 @@ for (const chat of state.chats) {
   // Nothing can be running or waiting right after launch.
   chat.running = false
   chat.waiting = false
+  delete chat.activity
   delete chat.waitingMessages
   delete chat.background
   // The browser and code panels start closed; an agent or the header buttons open them.
@@ -234,7 +235,7 @@ export function removeProject(projectId: string): void {
 
 export function updateProject(
   projectId: string,
-  patch: Partial<Pick<Project, 'color' | 'icon'>>
+  patch: Partial<Pick<Project, 'color' | 'icon' | 'bot'>>
 ): void {
   Object.assign(getProject(projectId), patch)
   scheduleFlush()

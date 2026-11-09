@@ -51,6 +51,7 @@ import {
   type Timer
 } from './chats-mcp'
 import { listSkills, REMOTE_SKILL } from './skills'
+import * as bots from './bots'
 import { resolveProjectFile } from './files'
 import { formatRaw, imagesIn, limitOutput } from './tool-output'
 import { saveImage, saveImageFile, saveImages } from './images'
@@ -60,11 +61,20 @@ import {
   bypassOption,
   cancelPending,
   emitItem,
+  ofTurn,
   requestPermission,
   type AgentEvents,
   type Permissions
 } from './permissions'
 import { askForm, formContent, formFor, formSummary } from './forms'
+import {
+  approvalForm,
+  approvalOf,
+  approvalText,
+  approve,
+  APPROVAL_WAIT_MS,
+  type Approval
+} from './approvals'
 import { chatPreview } from './preview'
 import * as background from './background'
 import type { Finished, Running } from './background'
@@ -77,6 +87,7 @@ import { commandCode } from './harness/commandcode'
 import { openCode, opencodeMajor } from './harness/opencode'
 import { cline } from './harness/cline'
 import { custom } from './harness/custom'
+import { chatActivity } from './activity'
 import opencodePlugin from '../../resources/opencode-plugin/server.js?asset&asarUnpack'
 import adapterEnv from '../../resources/adapter-env.cjs?asset&asarUnpack'
 
@@ -543,6 +554,11 @@ interface AgentBackend {
   applyOption(chatId: string, optionId: string, value: string): Promise<void>
   release(chatId: string): Promise<void>
   /**
+   * How much of the model's context window the chat's session fills, in
+   * tokens; undefined when the agent does not say (Cline reports none).
+   */
+  context(chatId: string): Promise<Chat['context']>
+  /**
    * `notes` go after the text unless the agent has them already (see
    * hasChatNotes). The app's own agents are given none: they know the chat.
    */
@@ -809,7 +825,7 @@ class AgentProcess implements AgentBackend {
     }
     this.subagents.clear()
     for (const [id, pending] of this.permissions) {
-      if (this.owns(pending.chatId)) {
+      if (this.owns(pending.chatId) && ofTurn(pending)) {
         this.permissions.delete(id)
         this.resolvePermissionItem(pending.chatId, id, 'cancelled')
       }
@@ -1172,6 +1188,9 @@ class AgentProcess implements AgentBackend {
    * clutter the agent's own history; otherwise it is only closed.
    */
   async release(chatId: string): Promise<void> {
+    // A session still opening would be live once it opens, and the chat's next
+    // message would go to it; let it open, then let go of it.
+    await this.opening.get(chatId)?.catch(() => undefined)
     const chat = store.getChat(chatId)
     this.options.delete(chatId)
     const connection = this.connection
@@ -1202,6 +1221,11 @@ class AgentProcess implements AgentBackend {
 
   isLive(sessionId: string | undefined): sessionId is string {
     return !!sessionId && this.liveSessions.has(sessionId)
+  }
+
+  /** As the agent last reported it (see usage_update); kept with the chat across launches. */
+  context(chatId: string): Promise<Chat['context']> {
+    return Promise.resolve(store.getChat(chatId).context)
   }
 
   async prompt(
@@ -1282,7 +1306,7 @@ class AgentProcess implements AgentBackend {
   private stopIfStalled(chatId: string, turn: symbol): void {
     if (this.turns.get(chatId) !== turn || this.stalled.get(chatId)?.turn === turn) return
     // An unanswered permission request means the agent is waiting for the user.
-    if ([...this.permissions.values()].some((p) => p.chatId === chatId)) return
+    if ([...this.permissions.values()].some((p) => p.chatId === chatId && ofTurn(p))) return
     const last = this.activity.get(chatId)
     if (last === undefined) return
     // A running tool call is given longer (see TOOL_STALL_TIMEOUT_MS). Claude
@@ -1379,7 +1403,7 @@ class AgentProcess implements AgentBackend {
     if (!connection || !this.isLive(sessionId)) return
     const { methods } = await loadSdk()
     for (const [id, pending] of this.permissions) {
-      if (pending.chatId === chatId) {
+      if (pending.chatId === chatId && ofTurn(pending)) {
         cancelPending(pending)
         this.permissions.delete(id)
         this.resolvePermissionItem(chatId, id, 'cancelled')
@@ -2061,7 +2085,7 @@ export type TurnEnd =
 type Offered = { source: ModelSource; value: string }
 
 /** The answer the agent gave last in its chat's latest turn, if any. */
-function lastAnswer(chatId: string): string | undefined {
+export function lastAnswer(chatId: string): string | undefined {
   const items = store.getMessages(chatId)
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i]
@@ -2072,10 +2096,21 @@ function lastAnswer(chatId: string): string | undefined {
 }
 
 /**
- * Messages from other chats, commands and timers a chat got since the user
- * last wrote in it. Turns the agent started itself do not count: the app did
- * not send them.
+ * Whether a message counts against MAX_FROM_CHATS. Turns the agent started
+ * itself do not: the app did not send them. Nor do a bot's routines: the user
+ * asked for them, and they come only at the times set, so they cannot keep a
+ * chat going. Nor do answers to approval cards: the user gave them.
  */
+function counted(from: ChatSender | undefined): boolean {
+  return (
+    from !== undefined &&
+    from.kind !== 'self' &&
+    from.kind !== 'routine' &&
+    from.kind !== 'approval'
+  )
+}
+
+/** Messages from other chats, commands and timers a chat got since the user last wrote in it. */
 function fromChatsSinceUser(chatId: string): number {
   const items = store.getMessages(chatId)
   let count = 0
@@ -2083,7 +2118,7 @@ function fromChatsSinceUser(chatId: string): number {
     const item = items[i]
     if (item.kind !== 'user') continue
     if (!item.from) break
-    if (item.from.kind !== 'self') count++
+    if (counted(item.from)) count++
   }
   return count
 }
@@ -2112,18 +2147,47 @@ export class AgentManager implements ChatsApi {
   private readonly statuses = new Map<AgentId, Promise<AgentStatus>>()
   /** The app's own agents, one per provider API, each serving all its chats. */
   private readonly harness = new Map<HarnessAgentId, HarnessAgent>()
+  private readonly events: AgentEvents
 
   constructor(
-    private readonly events: AgentEvents,
+    events: AgentEvents,
     /** The page open in the built-in browser, for `@browser` messages. */
     private readonly browserPage: (chatId: string) => BrowserState | undefined
   ) {
+    // Every agent's calls pass through here, so each chat's activity follows them.
+    this.events = {
+      ...events,
+      item: (chatId, item) => {
+        events.item(chatId, item)
+        if (item.kind === 'tool') this.noteActivity(chatId)
+      }
+    }
     for (const provider of PROVIDERS) {
       this.harness.set(
         provider.id,
-        new HarnessAgent(provider, events, this.permissions, (chatId) => this.steer(chatId))
+        new HarnessAgent(provider, this.events, this.permissions, (chatId) => this.steer(chatId))
       )
     }
+  }
+
+  /** Set once a chat's activity changed, until the window is told; see noteActivity. */
+  private activityTimer: ReturnType<typeof setTimeout> | undefined
+
+  /**
+   * A call of a chat started, changed or ended: keep what the chat is doing
+   * (see chatActivity). Calls can start several a second, so the window is
+   * told at most twice a second, with what is newest then.
+   */
+  private noteActivity(chatId: string): void {
+    const chat = store.getState().chats.find((c) => c.id === chatId)
+    if (!chat?.running) return
+    const activity = chatActivity(store.getMessages(chatId))
+    if (chat.activity === activity) return
+    store.updateChat(chatId, { activity })
+    this.activityTimer ??= setTimeout(() => {
+      this.activityTimer = undefined
+      this.events.stateChanged()
+    }, 500)
   }
 
   /** The agent the chat runs in. */
@@ -2248,6 +2312,41 @@ export class AgentManager implements ChatsApi {
       )
     }
     this.events.stateChanged()
+  }
+
+  /**
+   * A bot's conversation goes on for good, and every turn gets slower and
+   * pricier as it grows; some agents never shorten it. So once its session's
+   * context is bots.RENEW_AT full, the message `current` starts a fresh one,
+   * told where what the bot knows is kept and the last messages (see
+   * bots.renewalNote). Returns that note, or undefined when the session goes on.
+   * A fresh session no message has reached yet (a failed send, a quit) is
+   * told with the next one (see Chat.renewed).
+   */
+  private async renewIfFull(chatId: string, current: string): Promise<string | undefined> {
+    if (store.getChat(chatId).renewed) return bots.renewalNote(chatId, current)
+    if (!bots.isBotConversation(chatId)) return undefined
+    const backend = this.processFor(chatId)
+    const context = await backend.context(chatId)
+    if (!context?.size || context.used < context.size * bots.RENEW_AT) return undefined
+    await backend.release(chatId)
+    store.updateChat(chatId, {
+      sessionId: undefined,
+      instructions: undefined,
+      context: undefined,
+      renewed: true
+    })
+    const { name } = store.getProject(store.getChat(chatId).projectId)
+    this.events.item(
+      chatId,
+      store.upsertItem(chatId, {
+        kind: 'notice',
+        id: crypto.randomUUID(),
+        text: `Started a fresh session to keep ${name} quick. What it knows carries over.`
+      })
+    )
+    this.events.stateChanged()
+    return bots.renewalNote(chatId, current)
   }
 
   async deleteChat(chatId: string): Promise<void> {
@@ -2425,7 +2524,9 @@ export class AgentManager implements ChatsApi {
     let outcome: TurnOutcome = 'failed'
     let failure: string | undefined
     try {
+      const renewal = compact ? undefined : await this.renewIfFull(chatId, userItem.id)
       const first = await this.promptFor(chatId, text, attachments, from, isFirst, steers)
+      if (renewal) first.prompt = `${renewal}\n\n${first.prompt}`
       // Messages that waited for this turn join it, so a run of follow-ups is
       // taken in one go. The app's own agents take them at their first step.
       const joined = compact || isHarnessAgent(chat.agent) ? [] : await this.steer(chatId, steers)
@@ -2441,6 +2542,8 @@ export class AgentManager implements ChatsApi {
       outcome = response.stopReason !== 'cancelled' ? 'done' : steered ? 'steered' : 'stopped'
       // The new agent has been told where the conversation is; a failed send tells it again.
       if (store.getChat(chatId).handoff) store.updateChat(chatId, { handoff: undefined })
+      // Likewise a bot's fresh session (see renewIfFull).
+      if (renewal) store.updateChat(chatId, { renewed: undefined })
       // opencode reports nothing while it compacts, so say when it is done.
       // Claude Code reports its compaction itself (see onCompaction).
       if (compact && response.stopReason === 'end_turn' && !backend.takeCompaction?.(chatId)) {
@@ -2506,7 +2609,9 @@ export class AgentManager implements ChatsApi {
     store.updateChat(chatId, {
       running: false,
       updatedAt: Date.now(),
-      preview: chatPreview(store.getMessages(chatId))
+      preview: chatPreview(store.getMessages(chatId)),
+      activity: undefined,
+      lastTurnFailed: outcome === 'failed' || undefined
     })
     // Told before a message that waited starts the next turn, which turnEnds can't be.
     this.events.turnEnded(chatId, this.endOf(chatId, outcome, failure))
@@ -2892,7 +2997,10 @@ export class AgentManager implements ChatsApi {
       )
     }
     const queued = this.inbox.get(target.id) ?? []
-    if (fromChatsSinceUser(target.id) + queued.filter((m) => m.from).length >= MAX_FROM_CHATS) {
+    if (
+      fromChatsSinceUser(target.id) + queued.filter((m) => counted(m.from)).length >=
+      MAX_FROM_CHATS
+    ) {
       throw new Error(
         `Not sent: chat ${to} has had ${MAX_FROM_CHATS} messages from other chats since the user last wrote in it, the most it takes. Stop messaging it, and tell the user where things stand instead.`
       )
@@ -3080,6 +3188,16 @@ export class AgentManager implements ChatsApi {
     return this.clearTimer(this.caller(caller).id)
   }
 
+  /** Wake a bot's conversation with one of its routines that came due (main/routines.ts). */
+  runRoutine(chatId: string, note: string): void {
+    this.wake(
+      chatId,
+      `A routine you set came due. Your note:\n\n${note}`,
+      { kind: 'routine', note },
+      'A routine came due'
+    )
+  }
+
   /**
    * Rename a chat, as the user does in the sidebar, from Telegram, or as its
    * agent does when asked (rename_chat); a renamed chat keeps its title.
@@ -3089,6 +3207,59 @@ export class AgentManager implements ChatsApi {
     if (!trimmed) return
     store.updateChat(chatId, { title: trimmed, renamed: true })
     this.events.stateChanged()
+  }
+
+  // --- Approval cards (ask_approval) -----------------------------------------
+
+  /** Each chat's open approval card, to close when the chat asks again: the newer draft replaces it. */
+  private readonly approvals = new Map<string, AbortController>()
+
+  async askApproval(
+    caller: string,
+    question: string,
+    details: string,
+    signal: AbortSignal
+  ): Promise<Approval | undefined> {
+    const chat = this.caller(caller)
+    this.approvals.get(chat.id)?.abort()
+    const card = new AbortController()
+    this.approvals.set(chat.id, card)
+    const answer = askForm(
+      this.events,
+      this.permissions,
+      chat.id,
+      approvalForm(question, details),
+      card.signal,
+      true
+    ).then((response) => {
+      if (this.approvals.get(chat.id) === card) this.approvals.delete(chat.id)
+      if (response.action === 'cancel') return 'closed' as const
+      const approval = approvalOf(response)
+      if (approval.decision === 'send') approve(chat.id)
+      return approval
+    })
+    // The call ends after APPROVAL_WAIT_MS, or sooner when the agent withdraws it.
+    let timer: NodeJS.Timeout | undefined
+    const ended = new Promise<'ended'>((resolve) => {
+      timer = setTimeout(() => resolve('ended'), APPROVAL_WAIT_MS)
+      if (signal.aborted) resolve('ended')
+      signal.addEventListener('abort', () => resolve('ended'), { once: true })
+    })
+    const first = await Promise.race([answer, ended])
+    clearTimeout(timer)
+    if (first === 'closed') return { decision: 'skip' }
+    if (first !== 'ended') return first
+    // The card stays; its answer comes as a message.
+    void answer.then((approval) => {
+      if (approval === 'closed') return
+      this.wake(
+        chat.id,
+        `The user answered your approval card "${question}": ${approvalText(approval)}`,
+        { kind: 'approval', question },
+        'You answered an approval card'
+      )
+    })
+    return undefined
   }
 
   /** Clear the chat's timer, for the chat or the user; false when it had none. */
@@ -3167,7 +3338,10 @@ export class AgentManager implements ChatsApi {
     const chat = store.getState().chats.find((c) => c.id === chatId)
     if (!chat) return
     const queued = this.inbox.get(chatId) ?? []
-    if (fromChatsSinceUser(chatId) + queued.filter((m) => m.from).length >= MAX_FROM_CHATS) {
+    if (
+      counted(from) &&
+      fromChatsSinceUser(chatId) + queued.filter((m) => counted(m.from)).length >= MAX_FROM_CHATS
+    ) {
       this.events.item(
         chatId,
         store.upsertItem(chatId, {

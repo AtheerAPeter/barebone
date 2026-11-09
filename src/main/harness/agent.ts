@@ -5,7 +5,7 @@ import { homedir } from 'node:os'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type * as acp from '@agentclientprotocol/sdk'
-import type { AgentCommand, AgentOption, ChatItem, ModelSource } from '../../shared/types'
+import type { AgentCommand, AgentOption, Chat, ChatItem, ModelSource } from '../../shared/types'
 import * as store from '../store'
 import { BROWSER_GUIDANCE } from '../browser-mcp'
 import { CHATS_GUIDANCE } from '../chats-mcp'
@@ -17,6 +17,7 @@ import {
   askUser,
   cancelPending,
   emitItem,
+  ofTurn,
   outsidePath,
   requestPermission,
   type AgentEvents,
@@ -299,6 +300,23 @@ How to communicate:
     this.limiters.delete(chatId)
     this.owners.delete(chatId)
     await rm(join(sessionsDir, `${chatId}.jsonl`), { force: true })
+  }
+
+  /**
+   * How much of the model's context window the chat's transcript fills;
+   * undefined before the chat has one, or when the provider does not say how
+   * big the model's window is.
+   */
+  async context(chatId: string): Promise<Chat['context']> {
+    if (!store.getChat(chatId).sessionId) return undefined
+    await this.loadSession(chatId)
+    const session = this.sessions.get(chatId)!
+    const { model } = await this.choice(chatId)
+    if (!model.context) return undefined
+    return {
+      used: contextTokens(session.system, session.tools ?? [], session.turns),
+      size: model.context
+    }
   }
 
   // --- Options --------------------------------------------------------------
@@ -1104,7 +1122,7 @@ How to communicate:
   /** Stop the chat's turn: the stream and any running command end now. */
   async cancel(chatId: string): Promise<void> {
     for (const [id, pending] of this.permissions) {
-      if (pending.chatId !== chatId) continue
+      if (pending.chatId !== chatId || !ofTurn(pending)) continue
       this.permissions.delete(id)
       cancelPending(pending)
       this.resolvePermissionItem(chatId, id, 'cancelled')

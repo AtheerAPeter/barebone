@@ -202,6 +202,21 @@ const RECT = `function (ref) {
   return { left, top, width, height };
 }`
 
+/**
+ * What a control says: its name as the snapshot gave it, and the value of a
+ * button or button input. Null when it is gone.
+ */
+const NAME_AND_VALUE = `function (ref) {
+  ${FIND}
+  if (!element) return null;
+  const named = element._ariaRef;
+  const button = element.matches('button, input[type=submit], input[type=button], input[type=image]');
+  return {
+    name: (named && named.name) || '',
+    value: button && typeof element.value === 'string' ? element.value : ''
+  };
+}`
+
 const OVERLAY = overlayFunction(INJECTED)
 
 /**
@@ -1414,6 +1429,19 @@ export class PageDriver {
 
   private mouse(type: string, point: Point, extra: object = {}): Promise<unknown> {
     return this.send('Input.dispatchMouseEvent', { type, ...this.inView(point), ...extra })
+  }
+
+  /** A control's name and value (see NAME_AND_VALUE), to tell what a click on it would do. */
+  async nameAndValue(ref: string): Promise<{ name: string; value: string }> {
+    const frame = await this.frameOf(ref)
+    const found = await this.call<{ name: string; value: string } | null>(
+      frame,
+      { contextId: await this.context(frame) },
+      NAME_AND_VALUE,
+      [ref]
+    )
+    if (!found) throw new Error(staleRef(ref))
+    return found
   }
 
   async click(ref: string): Promise<void> {

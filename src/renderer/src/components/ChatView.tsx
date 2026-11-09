@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
   AgentCommand,
   AgentId,
@@ -29,6 +29,9 @@ import {
   type Harness
 } from '../../../shared/tool-calls'
 import { renderMarkdown } from '../lib/markdown'
+import { BotCard } from './BotPane'
+import { BotAvatar } from './BotAvatar'
+import { BotsContext } from '../lib/bots'
 import type { VoiceState } from '../lib/voice'
 import { Composer } from './Composer'
 import { Collapse } from './Collapse'
@@ -66,6 +69,8 @@ interface ChatViewProps {
   speaking: boolean
   /** Show the chat's browser tab, through the remote link; none where it cannot. */
   onOpenBrowser?: () => void
+  /** Out of sight while a bot's other pane shows, kept with its place and live output. */
+  hidden?: boolean
 }
 
 export function ChatView({
@@ -76,7 +81,8 @@ export function ChatView({
   onOptionChange,
   folded,
   speaking,
-  onOpenBrowser
+  onOpenBrowser,
+  hidden = false
 }: ChatViewProps): React.JSX.Element {
   const [items, setItems] = useState<ChatItem[]>([])
   const [options, setOptions] = useState<AgentOption[]>()
@@ -99,6 +105,7 @@ export function ChatView({
     [items]
   )
   const turns = useMemo(() => toTurns(items), [items])
+  const bot = useContext(BotsContext).projects.find((p) => p.id === chat.projectId && p.bot)
   // Messages sent while the agent works (steering) start a part of the turn
   // it is working on: the parts at the end, which the turn's end has not
   // timed yet, are all its own, and stay open until it ends.
@@ -220,7 +227,7 @@ export function ChatView({
 
   return (
     // An empty chat centers its greeting and the composer, as ChatGPT does.
-    <div className={`chat${loaded && items.length === 0 ? ' empty' : ''}`}>
+    <div className={`chat${loaded && items.length === 0 ? ' empty' : ''}`} hidden={hidden}>
       <div
         className="chat-scroll"
         ref={scrollRef}
@@ -231,8 +238,13 @@ export function ChatView({
       >
         <div className="chat-items">
           {loaded && items.length === 0 && (
-            <div className="chat-empty">
-              <h2>{chat.title === 'New chat' ? 'What should we build?' : chat.title}</h2>
+            // A bot's conversation starts with who it is, as a contact's profile.
+            <div className={`chat-empty${bot ? ' bot-profile' : ''}`}>
+              {bot && <BotAvatar project={bot} size={72} chat={chat} />}
+              <h2>
+                {bot ? bot.name : chat.title === 'New chat' ? 'What should we build?' : chat.title}
+              </h2>
+              {bot && <p>{bot.bot?.job}</p>}
             </div>
           )}
           {turns.map((turn, index) => (
@@ -341,6 +353,13 @@ interface Turn {
 
 const WORK_KINDS = new Set<ChatItem['kind']>(['tool', 'thought', 'plan', 'permission', 'form'])
 
+/**
+ * An approval card still waiting for the user. It outlives the turn (see
+ * ask_approval), so it shows after the answer rather than folded into the work.
+ */
+const openApproval = (item: ChatItem): boolean =>
+  item.kind === 'form' && item.details !== undefined && !item.resolved
+
 function toTurns(items: ChatItem[]): Turn[] {
   const groups: { user?: UserItem; items: ChatItem[] }[] = []
   for (const item of items) {
@@ -348,13 +367,14 @@ function toTurns(items: ChatItem[]): Turn[] {
     else if (groups.length > 0) groups.at(-1)!.items.push(item)
     else groups.push({ items: [item] })
   }
-  return groups.map(({ user, items: turnItems }) => {
+  return groups.map(({ user, items: all }) => {
+    const turnItems = all.filter((item) => !openApproval(item))
     const end = turnItems.findLastIndex((item) => WORK_KINDS.has(item.kind)) + 1
     return {
-      id: user?.id ?? turnItems[0].id,
+      id: user?.id ?? all[0].id,
       user,
       work: turnItems.slice(0, end),
-      answer: turnItems.slice(end)
+      answer: [...turnItems.slice(end), ...all.filter(openApproval)]
     }
   })
 }
@@ -381,6 +401,7 @@ function TurnView({
   const work = useMemo(() => toBlocks(turn.work), [turn.work])
   const answer = useMemo(() => toBlocks(turn.answer), [turn.answer])
   const edits = useMemo(() => editedFiles(turn.work, projectPath), [turn.work, projectPath])
+  const bots = useMemo(() => madeBots(turn.work), [turn.work])
   const answerText = useMemo(
     () =>
       turn.answer
@@ -424,6 +445,11 @@ function TurnView({
           <EditsCard files={edits} />
         </BlockFrame>
       )}
+      {bots.map((projectId) => (
+        <BlockFrame key={projectId} id={`${turn.id}:bot:${projectId}`} loaded={loaded}>
+          <BotCard projectId={projectId} />
+        </BlockFrame>
+      ))}
       {!live && answerText && (
         <BlockFrame id={`${turn.id}:actions`} loaded={loaded}>
           <AnswerActions text={answerText} />
@@ -431,6 +457,16 @@ function TurnView({
       )}
     </>
   )
+}
+
+/** The bots the turn's calls made (create_bot), by their project IDs, which the call's result names. */
+function madeBots(work: ChatItem[]): string[] {
+  return work.flatMap((item) => {
+    if (item.kind !== 'tool' || item.status !== 'completed') return []
+    if (harnessTool(item)?.name !== 'create_bot') return []
+    const id = item.output?.match(/project ID ([0-9a-f-]{36})/)?.[1]
+    return id ? [id] : []
+  })
 }
 
 /** Under a finished answer, as in ChatGPT: copy its text as markdown. */
@@ -567,11 +603,15 @@ const Item = memo(function Item({
                   ? 'Background command ended'
                   : item.from.kind === 'timer'
                     ? 'Timer went off'
-                    : item.from.kind === 'ended'
-                      ? `${item.from.title} ended its turn`
-                      : item.from.kind === 'self'
-                        ? `${agentLabel(item.from.agent)} went on by itself`
-                        : `From ${item.from.title}`}
+                    : item.from.kind === 'routine'
+                      ? `Routine: ${item.from.note}`
+                      : item.from.kind === 'ended'
+                        ? `${item.from.title} ended its turn`
+                        : item.from.kind === 'self'
+                          ? `${agentLabel(item.from.agent)} went on by itself`
+                          : item.from.kind === 'approval'
+                            ? 'Your answer to an approval'
+                            : `From ${item.from.title}`}
               </div>
             )}
             {item.text}
@@ -707,6 +747,7 @@ function FormCard({ item, chatId }: { item: FormItem; chatId: string }): React.J
       </div>
     )
   }
+  if (item.details !== undefined) return <ApprovalCard item={item} chatId={chatId} />
   const pages = questionPages(item)
   if (pages) return <QuestionsCard item={item} chatId={chatId} pages={pages} />
   const missing = item.fields.some((f) => f.required && blank(answers[f.key]))
@@ -744,6 +785,54 @@ function FormCard({ item, chatId }: { item: FormItem; chatId: string }): React.J
           onClick={() => window.api.answerForm(chatId, item.id, item.url ? {} : answers)}
         >
           {item.url ? 'Open' : 'Send'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * An approval card (ask_approval): the agent's question, what will go out as
+ * it will go out, and Send, Change (once the box says what) or Skip.
+ */
+function ApprovalCard({ item, chatId }: { item: FormItem; chatId: string }): React.JSX.Element {
+  const [change, setChange] = useState('')
+  const details = useMemo(() => renderMarkdown(item.details ?? ''), [item.details])
+  return (
+    <div className="ask-card form-card approval-card">
+      <div className="ask-head">
+        <span className="ask-icon">
+          <ChatIcon width={15} height={15} />
+        </span>
+        <div className="ask-question">{item.message}</div>
+      </div>
+      <div className="approval-details markdown" dangerouslySetInnerHTML={{ __html: details }} />
+      <textarea
+        className="form-input approval-change"
+        rows={2}
+        aria-label="What to change"
+        placeholder="What to change"
+        value={change}
+        onChange={(e) => setChange(e.target.value)}
+      />
+      <div className="ask-actions">
+        <button className="btn" onClick={() => window.api.answerForm(chatId, item.id, null)}>
+          Skip
+        </button>
+        <button
+          className="btn"
+          disabled={!change.trim()}
+          onClick={() =>
+            window.api.answerForm(chatId, item.id, { decision: 'change', change: change.trim() })
+          }
+        >
+          Change
+        </button>
+        <button
+          className="btn primary"
+          onClick={() => window.api.answerForm(chatId, item.id, { decision: 'send' })}
+        >
+          Send
         </button>
       </div>
     </div>

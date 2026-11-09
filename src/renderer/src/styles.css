@@ -1456,6 +1456,10 @@ img.project-icon {
   font-size: 12px;
   font-weight: 500;
   opacity: 0.7;
+  /* One line: a routine's note, say, follows in full in the message. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .bubble .attachment {
@@ -2083,6 +2087,24 @@ img.project-icon {
   box-shadow:
     var(--glass-rim),
     inset 0 0 0 1px var(--accent);
+}
+
+/* An approval card (ask_approval): the draft set apart, at a pace a letter reads at. */
+.approval-details {
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 14px 18px;
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--border);
+  border-radius: var(--radius);
+  line-height: 1.6;
+}
+
+.approval-change {
+  height: auto;
+  padding: 7px 10px;
+  font: inherit;
+  resize: vertical;
 }
 
 /*
@@ -5853,7 +5875,7 @@ button,
   }
 }
 
-/* Two-way switches: one highlight slides between the options. */
+/* Switches of two or three options: one highlight slides between them. */
 .segmented {
   position: relative;
   isolation: isolate;
@@ -5886,6 +5908,15 @@ button,
 
 .segmented:has(> button.on:nth-child(2))::before {
   transform: translateX(100%);
+}
+
+/* Three options: the highlight is a third wide, so the options must be too (.bot-tabs). */
+.segmented:has(> button:nth-child(3))::before {
+  width: calc((100% - 6px) / 3);
+}
+
+.segmented:has(> button.on:nth-child(3))::before {
+  transform: translateX(200%);
 }
 
 .segmented button.on {
@@ -6065,4 +6096,361 @@ button,
   padding: 1px 5px;
   background: var(--code-bg);
   border-radius: var(--radius-sm);
+}
+
+/*
+ * Bots (main/bots.ts). A bot's chat is the same chat, in the bot's color
+ * (--bot, set on .main): a wash at the top, the user's messages, the send
+ * button, focus and links take it, and the composer has its edge.
+ */
+.chat[hidden] {
+  display: none;
+}
+
+/*
+ * A bot's character is alive: it floats and blinks, each bot at its own phase
+ * (--bot-phase), and hops when pointed at. Its mood (BotAvatar.tsx) moves it
+ * too: it hops and glances aside while it works, perks up now and then while
+ * it waits for the user, and breathes slowly while it sleeps.
+ */
+.bot-avatar {
+  flex-shrink: 0;
+  overflow: visible;
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.18));
+}
+
+.bot-figure {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: bot-float 3.4s ease-in-out var(--bot-phase, 0s) infinite;
+}
+
+.bot-eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bot-blink 5.2s var(--bot-phase, 0s) infinite;
+}
+
+.bot-avatar.bot-working .bot-pupils {
+  animation: bot-glance 2.6s ease-in-out var(--bot-phase, 0s) infinite;
+}
+
+.bot-avatar.bot-waiting .bot-figure {
+  animation: bot-perk 3s ease-out var(--bot-phase, 0s) infinite;
+}
+
+.bot-avatar.bot-asleep .bot-figure {
+  animation: bot-breathe 5s ease-in-out var(--bot-phase, 0s) infinite;
+}
+
+.bot-z {
+  fill: var(--text-muted);
+  font-size: 9px;
+  font-weight: 600;
+  animation: bot-z 3.2s ease-out var(--bot-phase, 0s) infinite;
+}
+
+.bot-avatar.bot-working .bot-figure,
+:is(.bot-row, .bot-card):hover .bot-figure {
+  animation: bot-hop 0.9s ease-in-out infinite;
+}
+
+/* A look to the other side and back, as when busy with something. */
+@keyframes bot-glance {
+  0%,
+  30%,
+  85%,
+  100% {
+    transform: translateX(0);
+  }
+  40%,
+  75% {
+    transform: translateX(-1.8px);
+  }
+}
+
+/* Still most of the time, then a quick double bounce, as when calling out. */
+@keyframes bot-perk {
+  0%,
+  70%,
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  76% {
+    transform: translateY(-12%) scale(0.97, 1.04);
+  }
+  82% {
+    transform: translateY(0) scale(1.03, 0.97);
+  }
+  88% {
+    transform: translateY(-5%) scale(1, 1);
+  }
+  94% {
+    transform: translateY(0) scale(1, 1);
+  }
+}
+
+@keyframes bot-breathe {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  50% {
+    transform: scale(1.04, 0.96);
+  }
+}
+
+/* A "z" that drifts up from a sleeping bot and fades. */
+@keyframes bot-z {
+  0% {
+    opacity: 0;
+    transform: translate(0, 2px);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(2px, -4px);
+  }
+}
+
+@keyframes bot-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5%);
+  }
+}
+
+@keyframes bot-blink {
+  0%,
+  92%,
+  98%,
+  100% {
+    transform: scaleY(1);
+  }
+  95% {
+    transform: scaleY(0.1);
+  }
+}
+
+/* Down into a squash, up with a stretch, and back down. */
+@keyframes bot-hop {
+  0%,
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  15% {
+    transform: translateY(0) scale(1.08, 0.92);
+  }
+  45% {
+    transform: translateY(-16%) scale(0.95, 1.05);
+  }
+  75% {
+    transform: translateY(0) scale(1.05, 0.95);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bot-figure,
+  .bot-eyes,
+  .bot-pupils,
+  .bot-z {
+    animation: none !important;
+  }
+}
+
+.main.bot-chat {
+  --accent: var(--bot);
+  --accent-hover: color-mix(in srgb, var(--bot) 88%, black);
+  --accent-text: color-mix(in oklab, var(--bot) 78%, black);
+  --accent-soft: color-mix(in srgb, var(--bot) 12%, transparent);
+  --accent-ring: color-mix(in srgb, var(--bot) 25%, transparent);
+  --focus-ring: color-mix(in srgb, var(--bot) 18%, transparent);
+  --bubble: color-mix(in srgb, var(--bot) 18%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bot) 10%, transparent), transparent 240px),
+    var(--panel-main);
+}
+
+@media (prefers-color-scheme: dark) {
+  .main.bot-chat {
+    --accent: color-mix(in srgb, var(--bot) 85%, black);
+    --accent-hover: color-mix(in srgb, var(--bot) 75%, black);
+    --accent-text: color-mix(in oklab, var(--bot) 70%, white);
+    --bubble: color-mix(in srgb, var(--bot) 50%, transparent);
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--bot) 14%, transparent), transparent 240px),
+      var(--panel-main);
+  }
+}
+
+.main.bot-chat .composer {
+  box-shadow:
+    var(--composer-edge),
+    0 0 0 1.5px color-mix(in srgb, var(--bot) 40%, transparent);
+}
+
+.main.bot-chat .composer:focus-within {
+  box-shadow:
+    var(--composer-edge),
+    0 0 0 1.5px color-mix(in srgb, var(--bot) 55%, transparent),
+    0 0 0 4px var(--focus-ring);
+}
+
+/* Equal columns, each as wide as the widest label, for the sliding highlight to line up. */
+.bot-tabs {
+  flex-shrink: 0;
+  display: grid;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
+}
+
+.bot-tabs button {
+  padding: 0 14px;
+}
+
+/* The dashboard and memory panes take the chat's place below the top bar. */
+.bot-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.bot-dashboard {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: transparent;
+}
+
+.bot-memory {
+  overflow-y: auto;
+  padding: 8px 24px 32px;
+}
+
+.bot-memory > .markdown {
+  width: 100%;
+  max-width: var(--chat-width);
+  margin: 0 auto;
+}
+
+.bot-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.bot-empty p {
+  margin: 0;
+  max-width: 360px;
+}
+
+/* The card under the answer of the turn that made a bot. */
+.bot-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 4px 0 8px;
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(120deg, color-mix(in srgb, var(--bot) 14%, transparent), transparent 70%),
+    var(--glass);
+  box-shadow: var(--glass-rim);
+}
+
+.bot-card h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.bot-card p {
+  margin: 2px 0 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.bot-card .btn.primary {
+  background: var(--bot);
+}
+
+/* A bot in the sidebar, as a contact in a messenger: its character, its name, the last thing said. */
+.chat-row.bot-row {
+  grid-template-columns: 30px minmax(0, 1fr);
+  column-gap: 10px;
+  min-height: 52px;
+  padding: 6px 8px;
+  border-radius: var(--radius-lg);
+}
+
+.bot-row-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.bot-row .chat-title {
+  font-weight: 600;
+}
+
+.bot-row-latest {
+  color: var(--text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Beside the bot's name in the top bar: what it does. */
+.bot-job {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* When the bot's next routine runs: after its job, quieter, and the first to give way. */
+.bot-next {
+  flex: 0 100 auto;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A narrow top bar keeps the bot's name and job. */
+@container topbar (max-width: 600px) {
+  .bot-next {
+    display: none;
+  }
+}
+
+/* A bot's conversation before its first message: who it is. */
+.chat-empty.bot-profile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-empty.bot-profile p {
+  margin: 0;
+  color: var(--text-muted);
 }
