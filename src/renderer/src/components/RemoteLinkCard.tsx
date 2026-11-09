@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { renderSVG } from 'uqr'
 import { errorMessage } from '../lib/errors'
 import { CopyIcon } from './icons'
+import { Switch } from './SettingsRow'
 import type { RemotePairing, RemoteStatus } from '../../../shared/types'
 
 /**
@@ -59,6 +60,7 @@ export function RemoteLinkBody({
       )}
       {error && <div className="msg-error">{error}</div>}
       {status && status.sessions.length > 0 && <Sessions status={status} />}
+      {status?.zrok === 'enabled' && <BrowserAccess on={status.browser} />}
     </>
   )
 }
@@ -197,6 +199,36 @@ const when = (time: number): string =>
     hour: '2-digit',
     minute: '2-digit'
   })
+
+/**
+ * Whether paired devices may see and use the browser's tabs, which are signed
+ * in to the user's accounts. Off until turned on here; the link cannot turn it on.
+ */
+function BrowserAccess({ on }: { on: boolean }): React.JSX.Element {
+  const [error, setError] = useState<string>()
+  return (
+    <div className="remote-list">
+      <div className="remote-list-row">
+        <div>
+          <div>Phones can use the browser</div>
+          <p>
+            Paired devices see and control this Mac&apos;s browser tabs, which are signed in to your
+            accounts.
+          </p>
+        </div>
+        <Switch
+          label="Phones can use the browser"
+          on={on}
+          onChange={(next) => {
+            setError(undefined)
+            window.api.remoteLink.setBrowser(next).catch((e) => setError(errorMessage(e)))
+          }}
+        />
+      </div>
+      {error && <div className="msg-error">{error}</div>}
+    </div>
+  )
+}
 
 function Sessions({ status }: { status: RemoteStatus }): React.JSX.Element {
   return (

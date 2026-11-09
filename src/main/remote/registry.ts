@@ -48,6 +48,22 @@ export function listen<A extends unknown[]>(
   if (remote) remoteSends.set(channel, ((_caller, ...args: A) => handler(...args)) as Handler)
 }
 
+/** A request from the remote link only, which the app's window has no use for. */
+export function handleRemote<A extends unknown[]>(
+  channel: string,
+  handler: (caller: Caller, ...args: A) => unknown
+): void {
+  remoteCalls.set(channel, handler as Handler)
+}
+
+/** A message with no answer, from the remote link only, whose handler needs to know who sent it. */
+export function listenRemote<A extends unknown[]>(
+  channel: string,
+  handler: (caller: Caller, ...args: A) => void
+): void {
+  remoteSends.set(channel, handler as Handler)
+}
+
 /** Run a request from the remote link; rejects for a channel it may not use. */
 export async function callFromRemote(
   caller: Caller,

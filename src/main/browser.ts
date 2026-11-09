@@ -156,8 +156,15 @@ export class ChatPage extends EventEmitter {
   favicon?: string
   /** The size an agent set the page to (set_viewport); it fills the panel while there is none. */
   viewport?: PageViewport
+  /** The device of the remote link that set that size to its own, if one did (remote/browser.ts). */
+  viewportBy?: string
   /** The share of that size the panel shows it at, while it has one. */
   scale = 1
+  /**
+   * A device of the remote link shows the page (remote/browser.ts). What it does
+   * there is done far from the Mac, where no one may be to answer a dialog.
+   */
+  viewedRemotely = false
   /**
    * A reopened tab that has not loaded its page yet. Every page is a renderer
    * process, so saved tabs load when they are first used, not all at once.
@@ -243,11 +250,13 @@ export class ChatPage extends EventEmitter {
     this.emit('dialog')
   }
 
-  /** Forget the dialog and take its message box off the screen. */
+  /** Forget the dialog and take its message box off the screen. Emits 'dialogClosed'. */
   closeDialog(): void {
     this.box?.abort()
     this.box = undefined
+    const had = this.dialog
     this.dialog = undefined
+    if (had) this.emit('dialogClosed')
   }
 
   /** Cancel the dialog if there is one, so the page can go on (or go away). */
@@ -287,8 +296,12 @@ export class BuiltinBrowser {
   /** The panel is open but its page is out of sight for a moment, while the user resizes it. */
   private panelHidden = false
   private waitingForPanel: (() => void)[] = []
+  /** Chats whose browser stays open whatever the panel shows, and how many keep each open. */
+  private kept = new Map<string, number>()
   /** Told where the panel's page is after every layout; undefined while none shows. */
   onPageArea?: (area: Electron.Rectangle | undefined) => void
+  /** Told when a chat's browser changed: its tabs, their pages, their sizes. */
+  onChatChanged?: (chatId: string) => void
 
   constructor(
     private readonly window: BrowserWindow,
@@ -355,6 +368,12 @@ export class BuiltinBrowser {
         .replace(` ${app.getName().replace(/\s/g, '')}/${app.getVersion()}`, '')
     )
     ipcMain.on('page:dialog', (event, type, message) => this.onPageDialog(event, type, message))
+    // A minimized window draws nothing, its pages included: whoever shows them is told.
+    for (const event of ['minimize', 'restore'] as const) {
+      window.on(event as 'minimize', () => {
+        for (const chatId of this.chats.keys()) this.onChatChanged?.(chatId)
+      })
+    }
   }
 
   /** A chat's browser, opened with its saved tabs if it is not open. */
@@ -416,7 +435,7 @@ export class BuiltinBrowser {
       'did-stop-loading'
     ] as const) {
       contents.on(event as 'did-stop-loading', () => {
-        if (chatId === this.activeChat) this.emitState()
+        this.changed(chatId)
       })
     }
     // Remember every page as it is reached, so the tab (and its agent) can pick
@@ -431,18 +450,20 @@ export class BuiltinBrowser {
     contents.on('did-navigate', () => (tab.favicon = undefined))
     contents.on('page-favicon-updated', (_event, favicons) => {
       tab.favicon = favicons[0]
-      if (chatId === this.activeChat) this.emitState()
+      this.changed(chatId)
     })
     // The agent's work moves to whichever tab it acts on.
     tab.on('automate', () => {
       if (browser.controlled === tab) return
       browser.controlled = tab
-      if (chatId === this.activeChat) this.emitState()
+      this.changed(chatId)
     })
     // A page with unsaved changes asks before it is left. Electron would
-    // silently stay; the agent was asked to leave, the user is asked.
+    // silently stay; the agent was asked to leave, the user is asked. A page
+    // used from the remote link leaves too: asking would hold the whole app
+    // (the box is modal) until someone at the Mac answered.
     contents.on('will-prevent-unload', (event) => {
-      if (tab.automated) {
+      if (tab.automated || tab.viewedRemotely) {
         event.preventDefault()
         return
       }
@@ -459,7 +480,7 @@ export class BuiltinBrowser {
     contents.on('render-process-gone', () => {
       tab.driver.detach()
       tab.closeDialog()
-      if (chatId === this.activeChat) this.emitState()
+      this.changed(chatId)
     })
     // Closed by the page itself (window.close()) or with the rest of the browser.
     contents.once('destroyed', () => this.removeTab(chatId, tab))
@@ -476,7 +497,7 @@ export class BuiltinBrowser {
     if (!browser.restoring) {
       this.layout()
       this.saveTabs(chatId)
-      if (chatId === this.activeChat) this.emitState()
+      this.changed(chatId)
     }
     return tab
   }
@@ -502,7 +523,7 @@ export class BuiltinBrowser {
     if (!browser.tabs.length) this.addTab(chatId, browser, { url: '' })
     this.layout()
     this.saveTabs(chatId)
-    if (chatId === this.activeChat) this.emitState()
+    this.changed(chatId)
   }
 
   private saveTabs(chatId: string): void {
@@ -539,7 +560,7 @@ export class BuiltinBrowser {
     void tab.load()
     this.layout()
     this.saveTabs(chatId)
-    if (chatId === this.activeChat) this.emitState()
+    this.changed(chatId)
     return tab
   }
 
@@ -642,11 +663,29 @@ export class BuiltinBrowser {
     }
   }
 
-  /** Close browsers that nothing needs: not shown in the panel and not running. */
+  /** Close browsers that nothing needs: not shown in the panel, not running, not kept open. */
   prune(): void {
     for (const chatId of [...this.chats.keys()]) {
       const shown = chatId === this.activeChat && this.panelBounds
-      if (!shown && !this.isRunning(chatId)) this.closeBrowser(chatId)
+      if (!shown && !this.isRunning(chatId) && !this.kept.has(chatId)) this.closeBrowser(chatId)
+    }
+  }
+
+  /**
+   * Keep a chat's browser open, opening it if needed, until the returned
+   * function is called: while a device of the remote link shows it.
+   */
+  keepOpen(chatId: string): () => void {
+    this.kept.set(chatId, (this.kept.get(chatId) ?? 0) + 1)
+    this.browserFor(chatId)
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const left = (this.kept.get(chatId) ?? 1) - 1
+      if (left > 0) this.kept.set(chatId, left)
+      else this.kept.delete(chatId)
+      this.prune()
     }
   }
 
@@ -655,7 +694,7 @@ export class BuiltinBrowser {
     for (const [chatId, browser] of this.chats) {
       if (!browser.controlled || this.isRunning(chatId)) continue
       browser.controlled = undefined
-      if (chatId === this.activeChat) this.emitState()
+      this.changed(chatId)
     }
   }
 
@@ -715,14 +754,17 @@ export class BuiltinBrowser {
    * Lay a tab's page out at a size (set_viewport), or at the panel's again
    * (undefined). Settles once the page has it; one turned into a phone's page
    * or back reloads, as pages read the touch screen and user agent as they load.
+   * `by` names the device of the remote link that set the size, when one did.
    */
   async setViewport(
     chatId: string,
     tab: ChatPage,
-    viewport: PageViewport | undefined
+    viewport: PageViewport | undefined,
+    by?: string
   ): Promise<void> {
     const reload = (tab.viewport?.mobile ?? false) !== (viewport?.mobile ?? false)
     tab.viewport = viewport
+    tab.viewportBy = viewport && by
     tab.scale = placed(viewport, this.pageArea).scale
     // So the page is laid out once: at its new size before its view changes
     // to show it, or at its view's size once the view fills the panel again.
@@ -732,7 +774,7 @@ export class BuiltinBrowser {
     }
     this.layout()
     if (!viewport) tab.driver.emulate(undefined)
-    if (chatId === this.activeChat) this.emitState()
+    this.changed(chatId)
     await tab.driver.emulating
     if (reload && tab.contents.getURL()) tab.contents.reload()
   }
@@ -847,32 +889,37 @@ export class BuiltinBrowser {
     await this.newTab(this.activeChat).contents.loadURL(normalizeUrl(url))
   }
 
-  // Toolbar actions act on the tab the panel shows. A dialog the page waits on
-  // is cancelled first, as Chrome does when you leave a page.
+  // Toolbar actions act on a chat's active tab: the one the panel shows, by
+  // default, or the one a device of the remote link shows. A dialog the page
+  // waits on is cancelled first, as Chrome does when you leave a page.
 
-  navigate(input: string): Promise<void> {
-    if (!this.activeChat) return Promise.resolve()
-    const page = this.tabs(this.activeChat).active
+  /**
+   * Go to an address, or search for the words. `focus` gives the page the
+   * window's keyboard focus, for an address entered in the panel: the page is
+   * where the user works next, as in Chrome.
+   */
+  navigate(input: string, chatId = this.activeChat, focus = true): Promise<void> {
+    if (!chatId) return Promise.resolve()
+    const page = this.tabs(chatId).active
     page.dismissDialog()
-    // The user entered the address, so the page is where they work next, as in Chrome.
-    page.contents.focus()
+    if (focus) page.contents.focus()
     return page.contents.loadURL(normalizeUrl(input))
   }
 
-  back(): void {
-    const page = this.activePage()
+  back(chatId = this.activeChat): void {
+    const page = this.activePage(chatId)
     page?.dismissDialog()
     if (page?.contents.navigationHistory.canGoBack()) page.contents.navigationHistory.goBack()
   }
 
-  forward(): void {
-    const page = this.activePage()
+  forward(chatId = this.activeChat): void {
+    const page = this.activePage(chatId)
     page?.dismissDialog()
     if (page?.contents.navigationHistory.canGoForward()) page.contents.navigationHistory.goForward()
   }
 
-  reload(): void {
-    const page = this.activePage()
+  reload(chatId = this.activeChat): void {
+    const page = this.activePage(chatId)
     page?.dismissDialog()
     page?.contents.reload()
   }
@@ -896,14 +943,19 @@ export class BuiltinBrowser {
     if (this.activeChat && page?.viewport) await this.setViewport(this.activeChat, page, undefined)
   }
 
+  /** Minimized: macOS draws nothing for it, so pages cannot be pictured until it is restored. */
+  get windowMinimized(): boolean {
+    return this.window.isMinimized()
+  }
+
   /** Minimized or hidden: macOS draws nothing for it, so pages cannot be captured. */
   get windowHidden(): boolean {
     return this.window.isMinimized() || !this.window.isVisible()
   }
 
-  /** The tab the panel shows, if the selected chat's browser is open. */
-  private activePage(): ChatPage | undefined {
-    return this.activeChat ? this.chats.get(this.activeChat)?.active : undefined
+  /** A chat's active tab (the one the panel shows by default), if its browser is open. */
+  activePage(chatId = this.activeChat): ChatPage | undefined {
+    return chatId ? this.chats.get(chatId)?.active : undefined
   }
 
   async clearData(): Promise<void> {
@@ -933,9 +985,9 @@ export class BuiltinBrowser {
       return { ...EMPTY_STATE, url: saved?.urls[saved.active] ?? '' }
     }
     const shownUrl = (url: string): string => (url === 'about:blank' ? '' : url)
-    const { viewport, scale } = browser.active!
+    const { viewport, scale, viewportBy } = browser.active!
     return {
-      viewport: viewport && { ...viewport, scale },
+      viewport: viewport && { ...viewport, scale, ...(viewportBy ? { by: viewportBy } : {}) },
       tabs: browser.tabs.map((tab) => ({
         id: tab.id,
         title: tab.contents.getTitle(),
@@ -971,6 +1023,12 @@ export class BuiltinBrowser {
 
   private emitState(): void {
     this.onState(this.state())
+  }
+
+  /** A chat's browser changed: the panel shows it anew if it is the selected chat's. */
+  private changed(chatId: string): void {
+    if (chatId === this.activeChat) this.emitState()
+    this.onChatChanged?.(chatId)
   }
 }
 

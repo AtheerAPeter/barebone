@@ -31,6 +31,12 @@ const WORLD = 'barebone'
 const INJECTED = '__bareboneInjected'
 /** DevTools commands answer in milliseconds; a page that takes this long is stuck. */
 const COMMAND_TIMEOUT = 10_000
+/** JPEG quality of screencast pictures, which go over the remote link: smaller over sharper. */
+const SCREENCAST_QUALITY = 70
+/** Chromium's own screencast frames, of which only when they come is used, are this small. */
+const SIGNAL_SIZE = 64
+/** A picture that could not be taken is tried again this much later. */
+const CAST_RETRY_MS = 1000
 /** How long an element may take to become ready for an action. */
 const ACTION_TIMEOUT = 5_000
 /** How long a snapshot may spend reading iframes. */
@@ -452,6 +458,28 @@ const VIEWPORT = `function () {
   return { width: innerWidth, height: innerHeight };
 }`
 
+/**
+ * The field that has keyboard focus, by its label: '' for one with none, or
+ * one inside an iframe, which this frame cannot read; null when what has focus
+ * takes no text.
+ */
+const FOCUSED_FIELD = `function () {
+  const field = document.activeElement;
+  if (!field || field === document.body) return null;
+  if (field.tagName === 'IFRAME') return '';
+  const takesText =
+    field.isContentEditable ||
+    field.matches('textarea, select, input:not([type=button], [type=submit], [type=reset], [type=checkbox], [type=radio], [type=range], [type=color], [type=file], [type=image], [type=hidden])');
+  if (!takesText) return null;
+  const label =
+    field.getAttribute('aria-label') ||
+    (field.labels && field.labels[0] && field.labels[0].innerText) ||
+    field.getAttribute('placeholder') ||
+    field.getAttribute('name') ||
+    '';
+  return label.replace(/\\s+/g, ' ').trim().slice(0, 60);
+}`
+
 /** A frame of the page, and the DevTools session its document lives in. */
 interface FrameTarget {
   frameId: string
@@ -568,6 +596,24 @@ function consoleArg(arg: ConsoleArg): string {
   }
 }
 
+/** A picture of the page from its screencast (Page.screencastFrame). */
+export interface ScreencastFrame {
+  /** JPEG. */
+  jpeg: Buffer
+  /** The page's viewport in CSS pixels, which the picture shows all of. */
+  width: number
+  height: number
+}
+
+/** What a screencast was started with, to start it again after the page reconnects. */
+interface Screencast {
+  maxWidth: number
+  maxHeight: number
+  onFrame: (frame: ScreencastFrame, ack: () => void) => void
+  /** Takes a picture again after one could not be taken. */
+  retry?: NodeJS.Timeout
+}
+
 /** One page error or warning, kept for the console tool. */
 export interface PageLogEntry {
   /** When it happened, as Date.now(). */
@@ -611,6 +657,8 @@ export class PageDriver {
   private emulated?: Emulation
   /** Settles once the latest emulate is applied, and rejects if that failed. */
   emulating: Promise<void> = Promise.resolve()
+  /** The screencast running, if one is (see screencast). */
+  private casting?: Screencast
 
   constructor(
     private readonly contents: WebContents,
@@ -653,8 +701,94 @@ export class PageDriver {
     await this.send('Log.enable')
     await this.send('Network.enable')
     await this.followIframes()
-    // Connected again after the page's renderer crashed: it keeps its size.
+    // Connected again after the page's renderer crashed: it keeps its size, and its screencast.
     await this.applyEmulation()
+    if (this.casting) await this.startCasting()
+  }
+
+  /**
+   * Send pictures of the page, one now and one each time it changes, each no
+   * bigger than the size given (in the display's pixels), until
+   * stopScreencast. The next comes only once the last is acknowledged, so a
+   * slow receiver gets fewer, not late ones. A page out of sight is made to
+   * draw first (see ensureDrawing); it keeps drawing from then on.
+   *
+   * Chromium's screencast tells when the page changed, but its own pictures
+   * are of the whole view: a parked view keeps the size it last had on screen,
+   * with a page laid out at a set size drawn in its corner (see screenshot).
+   * So each picture is taken as a screenshot is, of the page's area only.
+   */
+  async screencast(
+    maxWidth: number,
+    maxHeight: number,
+    onFrame: Screencast['onFrame']
+  ): Promise<void> {
+    const casting: Screencast = { maxWidth, maxHeight, onFrame }
+    this.casting = casting
+    await this.attach()
+    await this.ensureDrawing()
+    // Stopped while it attached.
+    if (this.casting !== casting) return
+    await this.startCasting()
+    await this.castPicture(casting, () => undefined)
+  }
+
+  private startCasting(): Promise<unknown> {
+    // Only when its frames come matters: they are kept small.
+    return this.send('Page.startScreencast', {
+      format: 'jpeg',
+      quality: 10,
+      maxWidth: SIGNAL_SIZE,
+      maxHeight: SIGNAL_SIZE
+    })
+  }
+
+  /**
+   * A picture of the page now, while it is cast: for a page that finished
+   * loading out of sight, which tells the screencast of no change until it is
+   * drawn again.
+   */
+  castNow(): void {
+    if (this.casting) void this.castPicture(this.casting, () => undefined)
+  }
+
+  /** Take a picture of the page and hand it on, with what lets the next one come. */
+  private async castPicture(casting: Screencast, ack: () => void): Promise<void> {
+    try {
+      const { image, width, height } = await this.picture()
+      if (this.casting !== casting) return
+      if (image.isEmpty()) throw new Error('The page has not drawn anything yet.')
+      clearTimeout(casting.retry)
+      casting.retry = undefined
+      const size = image.getSize()
+      const fit = Math.min(1, casting.maxWidth / size.width, casting.maxHeight / size.height)
+      const scaled =
+        fit < 1
+          ? image.resize({
+              width: Math.round(size.width * fit),
+              height: Math.round(size.height * fit),
+              quality: 'good'
+            })
+          : image
+      casting.onFrame({ jpeg: scaled.toJPEG(SCREENCAST_QUALITY), width, height }, ack)
+    } catch {
+      ack()
+      // A page changing as it was taken, or one with nothing drawn yet (a view that has never
+      // been on screen draws once something changes on it): the page may not change again.
+      if (this.casting === casting) {
+        casting.retry ??= setTimeout(() => {
+          casting.retry = undefined
+          if (this.casting === casting) void this.castPicture(casting, () => undefined)
+        }, CAST_RETRY_MS)
+      }
+    }
+  }
+
+  stopScreencast(): void {
+    if (!this.casting) return
+    clearTimeout(this.casting.retry)
+    this.casting = undefined
+    if (this.cdp.isAttached()) this.send('Page.stopScreencast').catch(() => undefined)
   }
 
   /**
@@ -819,6 +953,19 @@ export class PageDriver {
         ) {
           this.pageContexts.delete(frameId)
         }
+      }
+    } else if (!sessionId && method === 'Page.screencastFrame') {
+      // The page changed: a picture of it, and Chromium's next frame once it is shown.
+      const frame = params as { sessionId: number }
+      const casting = this.casting
+      if (casting) {
+        void this.castPicture(casting, () => {
+          // A frame of a screencast since stopped needs no answer.
+          if (this.casting !== casting) return
+          this.send('Page.screencastFrameAck', { sessionId: frame.sessionId }).catch(
+            () => undefined
+          )
+        })
       }
     } else if (method === 'Input.dragIntercepted') {
       this.interceptedDrag = params.data
@@ -1298,6 +1445,13 @@ export class PageDriver {
     await this.mouse('mouseMoved', (await this.target(ref, 'hover')).page)
   }
 
+  /** The label of the field that has keyboard focus; see FOCUSED_FIELD. */
+  async focusedField(): Promise<string | null> {
+    await this.attach()
+    const frame = await this.mainFrame()
+    return this.call(frame, { contextId: await this.context(frame) }, FOCUSED_FIELD, [])
+  }
+
   /** The viewport's size in CSS pixels, the unit of screenshots and of input at a point. */
   async viewport(): Promise<{ width: number; height: number }> {
     await this.attach()
@@ -1406,10 +1560,13 @@ export class PageDriver {
     })
   }
 
-  /** Turn the mouse wheel at a point of the viewport; positive pixels scroll down. */
-  async wheel(point: Point, pixels: number): Promise<void> {
+  /**
+   * Turn the mouse wheel at a point of the viewport; positive pixels scroll
+   * down, and positive `sideways` pixels right.
+   */
+  async wheel(point: Point, pixels: number, sideways = 0): Promise<void> {
     await this.inViewport(point)
-    await this.mouse('mouseWheel', point, { deltaX: 0, deltaY: pixels })
+    await this.mouse('mouseWheel', point, { deltaX: sideways, deltaY: pixels })
   }
 
   /**
@@ -1595,13 +1752,7 @@ export class PageDriver {
    * of it to the page's size would stretch the page out of shape.
    */
   async screenshot(): Promise<string> {
-    const { width, height } = await this.viewport()
-    const scale = this.emulated?.scale
-    const image = await this.capture(
-      scale && width > 0 && height > 0
-        ? { x: 0, y: 0, width: Math.round(width * scale), height: Math.round(height * scale) }
-        : undefined
-    )
+    const { image, width, height } = await this.picture()
     if (image.isEmpty()) throw new Error('The page has not drawn anything yet.')
     const size = image.getSize()
     // Both sides: a scaled page's view is rounded to whole points, unevenly.
@@ -1613,6 +1764,26 @@ export class PageDriver {
   }
 
   /**
+   * The page's viewport as an image at the display's pixels, and its size in
+   * CSS pixels. A page at a set size is taken from the top left of its view,
+   * where it is drawn (see screenshot).
+   */
+  private async picture(): Promise<{
+    image: Electron.NativeImage
+    width: number
+    height: number
+  }> {
+    const { width, height } = await this.viewport()
+    const scale = this.emulated?.scale
+    const image = await this.capture(
+      scale && width > 0 && height > 0
+        ? { x: 0, y: 0, width: Math.round(width * scale), height: Math.round(height * scale) }
+        : undefined
+    )
+    return { image, width, height }
+  }
+
+  /**
    * The page's viewport as an image, or the part of it in `area` (in points),
    * at the display's pixels; the page draws for it.
    */
@@ -1620,6 +1791,7 @@ export class PageDriver {
     // Chromium fails a capture with UnknownVizError until the page's surface
     // exists; the same capture works moments later (as ZCode found).
     const deadline = Date.now() + 2000
+    let drawn = false
     for (;;) {
       try {
         return await withTimeout(
@@ -1628,7 +1800,18 @@ export class PageDriver {
           () => new Error(`The page did not render within ${COMMAND_TIMEOUT / 1000}s.`)
         )
       } catch (error) {
-        if (!/UnknownVizError/.test((error as Error).message) || Date.now() > deadline) throw error
+        const message = (error as Error).message
+        // A view that has never been on screen has no surface at all, and Electron gives up
+        // before asking the page to draw (WebContents::CapturePage). DevTools' own screenshot
+        // does ask; once the page has drawn, the surface comes as above.
+        const noSurface = /display surface not available/.test(message)
+        if (noSurface && !drawn) {
+          drawn = true
+          await this.attach()
+          await this.send('Page.captureScreenshot', { format: 'jpeg', quality: 1 })
+          continue
+        }
+        if (!(noSurface || /UnknownVizError/.test(message)) || Date.now() > deadline) throw error
         await sleep(100)
       }
     }

@@ -55,6 +55,360 @@ html.remote .sidebar-hidden .topbar {
   white-space: nowrap;
 }
 
+/*
+ * The Mac's browser tab, live (BrowserSheet.tsx): in the code panel's place,
+ * and like it a sheet over everything on a phone. The page is a picture.
+ */
+html.remote .remote-browser {
+  width: 440px;
+  background: var(--panel-main);
+}
+
+.rb-top {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 6px 10px;
+}
+
+.rb-heading {
+  flex: 1;
+  padding-left: 6px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.rb-address {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 14px;
+  color: var(--text);
+  font-size: 15px;
+  background: var(--fill);
+  border-radius: var(--radius-pill);
+}
+
+.rb-address span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rb-address svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.rb-address.editing {
+  padding: 0 4px 0 0;
+  background: none;
+}
+
+.rb-address.editing input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  padding: 0 14px;
+  border: 0;
+  outline: none;
+  color: var(--text);
+  background: var(--panel-main);
+  border-radius: var(--radius-pill);
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 0 0 4px var(--focus-ring);
+}
+
+.rb-done {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.rb-agent {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 10px 8px;
+  padding: 7px 12px;
+  color: var(--accent-text);
+  font-size: 13px;
+  background: var(--accent-soft);
+  border-radius: var(--radius-lg);
+}
+
+.rb-warn {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+}
+
+.rb-agent-dot,
+.topbar .icon-btn .agent-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: agent-pulse 1.6s ease-in-out infinite;
+}
+
+.topbar .icon-btn {
+  position: relative;
+}
+
+.topbar .icon-btn .agent-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  box-shadow: 0 0 0 2px var(--panel-main);
+}
+
+/* The page: a picture of it, at its top, as wide as fits. Every touch is the page's. */
+.rb-page {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  border-top: 1px solid var(--border);
+  background: var(--well);
+}
+
+.rb-page > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: top center;
+  pointer-events: none;
+}
+
+.rb-message {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+  color: var(--text-soft);
+  text-align: center;
+}
+
+/* The page's alert() or confirm(), over the bottom of the page. */
+.rb-dialog {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  left: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  /* Over the page, as the app's menus float over what is under them. */
+  background: var(--menu);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--menu-shadow);
+  border-radius: var(--radius-xl);
+  animation: pop-up var(--move) var(--spring) both;
+}
+
+.rb-dialog p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 30dvh;
+  overflow-y: auto;
+}
+
+.rb-dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.rb-dialog-note {
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.rb-notice {
+  position: absolute;
+  bottom: calc(70px + env(safe-area-inset-bottom));
+  left: 50%;
+  translate: -50%;
+  max-width: calc(100% - 32px);
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--text-soft);
+  background: var(--menu);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--menu-shadow);
+  border-radius: var(--radius-lg);
+  animation: appear var(--move) var(--ease) both;
+}
+
+.rb-bottom,
+.rb-typebar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  border-top: 1px solid var(--border);
+}
+
+.rb-bottom {
+  justify-content: space-around;
+  padding: 6px 10px;
+}
+
+.rb-bottom .icon-btn {
+  width: 44px;
+  height: 40px;
+}
+
+.rb-tabs span {
+  min-width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1.7px solid currentColor;
+  border-radius: 5px;
+}
+
+.rb-typebar {
+  gap: 8px;
+  padding: 6px 8px 6px 16px;
+  color: var(--text-soft);
+  font-size: 14px;
+}
+
+.rb-typing {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rb-typing b {
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* The field the phone's keyboard types into: out of sight, but focusable. 16px, or the phone zooms. */
+.rb-keys {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  font-size: 16px;
+}
+
+.rb-tabs-grid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: start;
+  gap: 12px;
+  padding: 12px;
+  overflow-y: auto;
+  touch-action: pan-y;
+  background: var(--panel-main);
+}
+
+.rb-tab {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--sheet);
+  box-shadow: var(--sheet-edge);
+  border-radius: var(--radius-lg);
+}
+
+.rb-tab.on {
+  box-shadow: 0 0 0 2.5px var(--accent);
+}
+
+.rb-tab-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 8px;
+  font-size: 12px;
+}
+
+.rb-tab-icon {
+  position: relative;
+  display: inline-flex;
+  color: var(--text-muted);
+}
+
+.rb-tab-icon .rb-agent-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 7px;
+  height: 7px;
+}
+
+.rb-tab-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.rb-tab-preview {
+  position: relative;
+  height: 150px;
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 12px;
+  text-align: center;
+  overflow-wrap: anywhere;
+  background: var(--well);
+}
+
+.rb-tab-preview img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rb-agent-dot,
+  .topbar .icon-btn .agent-dot {
+    animation: none;
+  }
+}
+
 /* Touch screens have no hover: what shows on hover shows always, and small buttons grow to a fingertip. */
 @media (hover: none) {
   html.remote .chat-row .row-menu,
@@ -133,6 +487,11 @@ html.remote .sidebar-hidden .topbar {
 
   html.remote .composer-wrap {
     padding: 0 10px max(10px, env(safe-area-inset-bottom));
+  }
+
+  /* While the keyboard types into the page, the sheet ends above it (BrowserSheet.tsx). */
+  html.remote .remote-browser.typing {
+    padding-bottom: 0;
   }
 
   /*

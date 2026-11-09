@@ -12,6 +12,7 @@ import { SkillsView } from './components/SkillsView'
 import { SettingsView } from './components/SettingsView'
 import { BrowserPanel } from './components/BrowserPanel'
 import { CodePanel } from './components/CodePanel'
+import { BrowserSheet } from './remote/BrowserSheet'
 import { ProjectPicker } from './components/ProjectPicker'
 import {
   BranchIcon,
@@ -124,10 +125,32 @@ export default function App(): React.JSX.Element {
   const codeOpen = REMOTE
     ? Boolean(chat) && pageCodeOpen === chat?.id && view === 'chat'
     : Boolean(chat?.codeOpen)
+  // Through the remote link, the Mac's browser tab shows live while the Mac allows it
+  // (remote/BrowserSheet.tsx), in the code panel's place, as the browser panel is on the Mac.
+  const [remoteBrowserAllowed, setRemoteBrowserAllowed] = useState(false)
+  const [pageBrowserOpen, setPageBrowserOpen] = useState<string>()
+  useEffect(() => {
+    if (!REMOTE) return
+    window.api.remoteBrowser.allowed().then(setRemoteBrowserAllowed, () => undefined)
+    return window.api.remoteBrowser.onAllowed((on) => {
+      setRemoteBrowserAllowed(on)
+      // Turned off on the Mac: turned on again, the browser starts closed.
+      if (!on) setPageBrowserOpen(undefined)
+    })
+  }, [])
+  const remoteBrowserOpen =
+    remoteBrowserAllowed && Boolean(chat) && pageBrowserOpen === chat?.id && view === 'chat'
+  const toggleRemoteBrowser = (chatId: string | undefined, open?: boolean): void => {
+    if (!chatId) return
+    const opening = open ?? pageBrowserOpen !== chatId
+    setPageBrowserOpen(opening ? chatId : undefined)
+    if (opening) setPageCodeOpen(undefined)
+  }
   const toggleCode = (chatId: string | undefined, open?: boolean): void => {
     if (!chatId) return
     if (REMOTE) {
       const opening = open ?? pageCodeOpen !== chatId
+      if (opening) setPageBrowserOpen(undefined)
       return setPageCodeOpen(opening ? chatId : undefined)
     }
     const current = stateRef.current.chats.find((c) => c.id === chatId)
@@ -339,6 +362,20 @@ export default function App(): React.JSX.Element {
               <GlobeIcon />
             </button>
           )}
+          {REMOTE && remoteBrowserAllowed && (
+            <button
+              className={`icon-btn${remoteBrowserOpen ? ' on' : ''}`}
+              title={
+                chat?.running && chat.browserOpen ? 'Browser: the agent is using it' : 'Browser'
+              }
+              disabled={!chat}
+              onClick={() => toggleRemoteBrowser(chat?.id)}
+            >
+              <GlobeIcon />
+              {/* The agent works in the browser: its panel opens on the Mac as it starts. */}
+              {chat?.running && chat.browserOpen && <span className="agent-dot" />}
+            </button>
+          )}
         </header>
         {view === 'skills' ? (
           <SkillsView key={project?.id} project={project} />
@@ -362,6 +399,9 @@ export default function App(): React.JSX.Element {
             onOptionChange={changeOption}
             folded={folded}
             speaking={speech.speaking?.chatId === chat.id}
+            onOpenBrowser={
+              remoteBrowserAllowed ? () => toggleRemoteBrowser(chat.id, true) : undefined
+            }
           />
         ) : (
           <div className="welcome">
@@ -408,6 +448,13 @@ export default function App(): React.JSX.Element {
           onResize={setBrowserWidth}
           onClose={() => toggleCode(chat.id, false)}
           chatRef={mainRef}
+        />
+      )}
+      {remoteBrowserOpen && chat && (
+        <BrowserSheet
+          key={chat.id}
+          chatId={chat.id}
+          onClose={() => toggleRemoteBrowser(chat.id, false)}
         />
       )}
       {browserOpen && (

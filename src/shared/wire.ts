@@ -161,3 +161,32 @@ export function applyPatch(state: AppState, patch: StatePatch): AppState {
   next.chats = order.flatMap((id) => byId.get(id) ?? [])
   return next
 }
+
+/**
+ * A picture of a browser tab (main/remote/browser.ts), sent as a binary
+ * message: the length of its header, the header as JSON, then the JPEG.
+ * Binary, as base64 in JSON would make every picture a third bigger.
+ */
+export interface FrameHeader {
+  chatId: string
+  /** The tab's id, like t2. */
+  tab: string
+  /** The page's viewport in CSS pixels, which the picture shows all of. */
+  width: number
+  height: number
+}
+
+export function encodeFrame(header: FrameHeader, jpeg: Uint8Array): Uint8Array {
+  const head = new TextEncoder().encode(JSON.stringify(header))
+  const message = new Uint8Array(4 + head.length + jpeg.length)
+  new DataView(message.buffer).setUint32(0, head.length)
+  message.set(head, 4)
+  message.set(jpeg, 4 + head.length)
+  return message
+}
+
+export function decodeFrame(data: ArrayBuffer): { header: FrameHeader; jpeg: Uint8Array } {
+  const length = new DataView(data).getUint32(0)
+  const header = JSON.parse(new TextDecoder().decode(new Uint8Array(data, 4, length)))
+  return { header: header as FrameHeader, jpeg: new Uint8Array(data, 4 + length) }
+}

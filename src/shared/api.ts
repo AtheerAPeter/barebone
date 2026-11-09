@@ -22,6 +22,7 @@ import type {
   OrbState,
   Project,
   RecordingRequest,
+  RemoteBrowserView,
   RemotePairing,
   RemoteStatus,
   SpeechStatus,
@@ -36,6 +37,7 @@ import type {
   WalkControl,
   Walkthrough
 } from './types'
+import type { FrameHeader } from './wire'
 import type { MenuCommand } from '../main/menu'
 
 /**
@@ -194,7 +196,54 @@ export function makeApi(t: Transport) {
       setOn: (on: boolean): Promise<void> => invoke('remote:setOn', on),
       /** A new one-time link that pairs a device; the one before stops working. */
       pair: (): Promise<RemotePairing> => invoke('remote:pair'),
-      signOut: (sessionId: string): Promise<void> => invoke('remote:signOut', sessionId)
+      signOut: (sessionId: string): Promise<void> => invoke('remote:signOut', sessionId),
+      /** Let paired devices see and use the browser's tabs, or stop them. */
+      setBrowser: (on: boolean): Promise<void> => invoke('remote:setBrowser', on)
+    },
+
+    /**
+     * A chat's browser tab, live, in a browser through the remote link
+     * (main/remote/browser.ts), while Settings on the Mac allow it. Points are
+     * in the page's CSS pixels.
+     */
+    remoteBrowser: {
+      allowed: (): Promise<boolean> => invoke('remoteBrowser:allowed'),
+      onAllowed: (listener: (on: boolean) => void) => on('remoteBrowser:allowed', listener),
+      /** Show a chat's tab here, the page laid out at this size; another device showing it stops. */
+      open: (
+        chatId: string,
+        size: { width: number; height: number; ratio: number }
+      ): Promise<RemoteBrowserView> => invoke('remoteBrowser:open', chatId, size),
+      resize: (size: { width: number; height: number; ratio: number }): Promise<void> =>
+        invoke('remoteBrowser:resize', size),
+      close: (): Promise<void> => invoke('remoteBrowser:close'),
+      onState: (listener: (view: RemoteBrowserView) => void) => on('remoteBrowser:state', listener),
+      /** A picture of the page; call ack once it shows, for the next. */
+      onFrame: (listener: (header: FrameHeader, jpeg: Uint8Array) => void) =>
+        on('remoteBrowser:frame', listener),
+      ack: (): void => send('remoteBrowser:ack'),
+      /** It stopped showing here: another device opened it, or the Mac turned it off. */
+      onClosed: (listener: (chatId: string, reason: 'elsewhere' | 'off') => void) =>
+        on('remoteBrowser:closed', listener),
+      /** The connection to the Mac came back: what was shown here must be opened again. */
+      onReconnected: (listener: () => void) => on('remote:reconnected', listener),
+      tap: (x: number, y: number): Promise<void> => invoke('remoteBrowser:tap', x, y),
+      scroll: (x: number, y: number, dx: number, dy: number): Promise<void> =>
+        invoke('remoteBrowser:scroll', x, y, dx, dy),
+      type: (text: string): Promise<void> => invoke('remoteBrowser:type', text),
+      /** A key by name: Enter, Backspace, Tab. */
+      key: (key: string): Promise<void> => invoke('remoteBrowser:key', key),
+      /** The label of the field that has focus; '' for one without, null for none. */
+      focused: (): Promise<string | null> => invoke('remoteBrowser:focused'),
+      /** Answer the page's alert() or confirm(): OK, or Cancel. */
+      answer: (accept: boolean): Promise<void> => invoke('remoteBrowser:answer', accept),
+      navigate: (input: string): Promise<void> => invoke('remoteBrowser:navigate', input),
+      back: (): Promise<void> => invoke('remoteBrowser:back'),
+      forward: (): Promise<void> => invoke('remoteBrowser:forward'),
+      reload: (): Promise<void> => invoke('remoteBrowser:reload'),
+      selectTab: (tabId: string): Promise<void> => invoke('remoteBrowser:selectTab', tabId),
+      closeTab: (tabId: string): Promise<void> => invoke('remoteBrowser:closeTab', tabId),
+      newTab: (): Promise<void> => invoke('remoteBrowser:newTab')
     },
 
     /** The providers added in Settings, which the Custom providers agent runs on. */

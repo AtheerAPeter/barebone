@@ -64,6 +64,8 @@ interface ChatViewProps {
   folded: boolean
   /** The chat's agent is speaking (the speak tool). */
   speaking: boolean
+  /** Show the chat's browser tab, through the remote link; none where it cannot. */
+  onOpenBrowser?: () => void
 }
 
 export function ChatView({
@@ -73,7 +75,8 @@ export function ChatView({
   onAgentChange,
   onOptionChange,
   folded,
-  speaking
+  speaking,
+  onOpenBrowser
 }: ChatViewProps): React.JSX.Element {
   const [items, setItems] = useState<ChatItem[]>([])
   const [options, setOptions] = useState<AgentOption[]>()
@@ -83,6 +86,18 @@ export function ChatView({
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
   const plan = useMemo(() => items.findLast((i) => i.kind === 'plan'), [items])
+  // The agent waits for the user to click in the browser (wait_for_click).
+  const waitsForClick = useMemo(
+    () =>
+      items.some(
+        (i) =>
+          i.kind === 'tool' &&
+          isRunning(i) &&
+          harnessTool(i)?.server === 'browser' &&
+          harnessTool(i)?.name === 'wait_for_click'
+      ),
+    [items]
+  )
   const turns = useMemo(() => toTurns(items), [items])
   // Messages sent while the agent works (steering) start a part of the turn
   // it is working on: the parts at the end, which the turn's end has not
@@ -236,6 +251,17 @@ export function ChatView({
       </div>
       <div className="composer-wrap">
         {chat.background && <BackgroundStrip chatId={chat.id} background={chat.background} />}
+        {chat.running && waitsForClick && onOpenBrowser && (
+          <div className="background-strip">
+            <div className="background-row">
+              <GlobeIcon width={12} height={12} />
+              <span className="background-what">Waiting for you in the browser</span>
+              <button type="button" className="label-btn" onClick={onOpenBrowser}>
+                Open the browser
+              </button>
+            </div>
+          </div>
+        )}
         {plan?.entries.some((e) => e.status !== 'completed') && (
           <TodoStrip entries={plan.entries} />
         )}

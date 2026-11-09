@@ -50,7 +50,8 @@ const BROADCAST = new Set([
   'walk:at',
   'speech:stop',
   'speech:status',
-  'telegram:status'
+  'telegram:status',
+  'remoteBrowser:allowed'
 ])
 
 const TYPES: Record<string, string> = {
@@ -198,6 +199,33 @@ export class RemoteServer {
     }
     if (!BROADCAST.has(channel)) return
     for (const page of this.pages) this.post(page, { t: 'ev', ch: channel, args })
+  }
+
+  /** Tell one page something; false when it is gone. */
+  sendTo(caller: Caller, channel: string, args: unknown[]): boolean {
+    const page = this.pageOf(caller)
+    if (page) this.post(page, { t: 'ev', ch: channel, args })
+    return page !== undefined
+  }
+
+  /** Send one page a binary message (wire.ts encodeFrame); false when it is gone. */
+  sendBinary(caller: Caller, data: Uint8Array): boolean {
+    const page = this.pageOf(caller)
+    if (!page || page.socket.readyState !== page.socket.OPEN) return false
+    // Compressing a JPEG again gains nothing.
+    page.socket.send(data, { binary: true, compress: false })
+    return true
+  }
+
+  /** The device a page is open on, as Settings lists it: "iPhone · Safari". */
+  deviceOf(caller: Caller): string | undefined {
+    const page = this.pageOf(caller)
+    return page && loadConfig().sessions.find((s) => s.id === page.sessionId)?.device
+  }
+
+  private pageOf(caller: Caller): Page | undefined {
+    for (const page of this.pages) if (page.caller === caller) return page
+    return undefined
   }
 
   private toWatchers(chatId: string, channel: string, args: unknown[]): void {

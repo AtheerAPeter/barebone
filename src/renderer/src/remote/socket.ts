@@ -4,6 +4,7 @@ import { makeApi, type Api } from '../../../shared/api'
 import {
   applyPatch,
   decode,
+  decodeFrame,
   encode,
   type ClientMessage,
   type ServerMessage
@@ -85,6 +86,8 @@ export function remoteApi(): {
     const url = new URL('/ws', location.href)
     url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const ws = new WebSocket(url)
+    // Pictures of browser tabs come as bytes (shared/wire.ts encodeFrame).
+    ws.binaryType = 'arraybuffer'
     socket = ws
     let reconnected = false
     let opened = false
@@ -100,6 +103,8 @@ export function remoteApi(): {
       const queued = waiting
       waiting = []
       for (const message of queued) post(message)
+      // A browser tab shown here was closed with the old socket.
+      if (reconnected) emit('remote:reconnected')
       // The open chat missed what came while the socket was down.
       if (reconnected && watching) {
         const chatId = watching
@@ -109,7 +114,11 @@ export function remoteApi(): {
       }
     }
     ws.onmessage = (event) => {
-      if (socket === ws) receive(decode<ServerMessage>(String(event.data)))
+      if (socket !== ws) return
+      if (event.data instanceof ArrayBuffer) {
+        const { header, jpeg } = decodeFrame(event.data)
+        emit('remoteBrowser:frame', header, jpeg)
+      } else receive(decode<ServerMessage>(String(event.data)))
     }
     ws.onclose = async (event) => {
       if (socket !== ws) return

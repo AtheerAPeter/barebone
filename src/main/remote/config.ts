@@ -22,6 +22,8 @@ export interface RemoteConfig {
   on?: boolean
   /** The zrok name the link uses, so its address stays the same. */
   zrokName?: string
+  /** Paired devices may see and use the browser's tabs (remote/browser.ts). */
+  browser?: boolean
   sessions: StoredSession[]
 }
 
@@ -35,7 +37,12 @@ export function loadConfig(): RemoteConfig {
   if (!existsSync(path)) return config
   try {
     const saved = JSON.parse(readFileSync(path, 'utf8')) as Partial<RemoteConfig>
-    config = { on: saved.on, zrokName: saved.zrokName, sessions: saved.sessions ?? [] }
+    config = {
+      on: saved.on,
+      zrokName: saved.zrokName,
+      browser: saved.browser === true || undefined,
+      sessions: saved.sessions ?? []
+    }
   } catch (error) {
     // Unreadable: start over, closed, with no device paired.
     console.error(`${path} could not be read; the remote link starts unset:`, error)

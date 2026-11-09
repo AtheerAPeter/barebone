@@ -21,6 +21,7 @@ import {
   IconFolderPlus,
   IconGauge,
   IconGitBranch,
+  IconKeyboard,
   IconLayoutSidebar,
   IconLock,
   IconMessage,
@@ -92,6 +93,7 @@ export const GlobeIcon = fromTabler(IconWorld)
 export const BackIcon = fromTabler(IconChevronLeft)
 export const ForwardIcon = fromTabler(IconChevronRight)
 export const ReloadIcon = fromTabler(IconRefresh)
+export const KeyboardIcon = fromTabler(IconKeyboard)
 export const SendIcon = fromTabler(IconArrowUp)
 export const StopIcon = fromTabler(IconSquareFilled)
 export const MicIcon = fromTabler(IconMicrophone)

@@ -810,7 +810,7 @@ app.whenReady().then(async () => {
   )
   registerIpc(browser)
   telegram.start()
-  remote.start()
+  remote.start(browser)
   providePhone({
     on: () => telegram.sendsFiles(),
     sendFile: (chatId, path, caption) => telegram.sendFile(chatId, path, caption)

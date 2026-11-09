@@ -1,5 +1,7 @@
 import type { AppState, RemotePairing, RemoteStatus } from '../../shared/types'
+import type { BuiltinBrowser } from '../browser'
 import { endSession, newPairingCode } from './auth'
+import { RemoteBrowser } from './browser'
 import { loadConfig, saveConfig } from './config'
 import { handle, MAC_ONLY } from './registry'
 import { RemoteServer } from './server'
@@ -24,6 +26,8 @@ export class RemoteLink {
   private link: RemoteStatus['link'] = 'off'
   private url?: string
   private error?: string
+  /** The browser's tabs on the link's devices, once the app has a browser. */
+  private browser?: RemoteBrowser
 
   constructor(
     private host: {
@@ -33,8 +37,15 @@ export class RemoteLink {
   ) {}
 
   /** Register Settings' requests, and open the link if it was open when the app quit. */
-  start(): void {
+  start(browser: BuiltinBrowser): void {
+    this.browser = new RemoteBrowser(browser, {
+      chatExists: (chatId) => this.host.state().chats.some((chat) => chat.id === chatId),
+      sendTo: (caller, channel, args) => this.server?.sendTo(caller, channel, args) ?? false,
+      sendBinary: (caller, data) => this.server?.sendBinary(caller, data) ?? false,
+      deviceOf: (caller) => this.server?.deviceOf(caller)
+    })
     handle('remote:status', () => this.status(), MAC_ONLY)
+    handle('remote:setBrowser', (on: boolean) => this.setBrowser(on), MAC_ONLY)
     handle('remote:enableZrok', (token: string) => this.enableZrok(token), MAC_ONLY)
     handle('remote:setOn', (on: boolean) => this.setOn(on), MAC_ONLY)
     handle('remote:pair', () => this.pair(), MAC_ONLY)
@@ -58,6 +69,7 @@ export class RemoteLink {
     return {
       zrok: zrokEnabled() ? 'enabled' : 'disabled',
       on: Boolean(config.on),
+      browser: config.browser === true,
       link: this.link,
       url: this.link === 'online' ? this.url : undefined,
       error: this.link === 'error' ? this.error : undefined,
@@ -90,6 +102,13 @@ export class RemoteLink {
     if (this.link !== 'online' || !this.url) throw new Error('Turn the remote link on first.')
     const { code, expiresAt } = newPairingCode()
     return { url: `${this.url}/pair#${code}`, expiresAt }
+  }
+
+  /** Let paired devices use the browser, or stop them; they are told either way. */
+  private setBrowser(on: boolean): void {
+    this.browser?.setAllowed(on === true)
+    this.event('remoteBrowser:allowed', [on === true])
+    this.changed()
   }
 
   private signOut(id: string): void {

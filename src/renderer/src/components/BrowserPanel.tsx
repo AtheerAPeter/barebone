@@ -8,6 +8,7 @@ import {
   ForwardIcon,
   GlobeIcon,
   MoreIcon,
+  PhoneIcon,
   PlusIcon,
   ReloadIcon
 } from './icons'
@@ -244,14 +245,22 @@ function ViewportChip({
 }: {
   viewport: NonNullable<BrowserState['viewport']>
 }): React.JSX.Element {
-  const { width, height, mobile, scale } = viewport
+  const { width, height, mobile, scale, by } = viewport
   const percent = Math.round(scale * 100)
+  // Laid out at the size of a device that shows the tab through the remote link.
+  const why = by
+    ? ` for ${by}, which shows it through the remote link`
+    : mobile
+      ? ' as on a phone'
+      : ''
   return (
     <button
       className="viewport-chip"
-      title={`The page is laid out at ${width} × ${height}${mobile ? ' as on a phone' : ''}${scale < 1 ? `, shown at ${percent}%` : ''}. Click to fill the panel again.`}
+      title={`The page is laid out at ${width} × ${height}${why}${scale < 1 ? `, shown at ${percent}%` : ''}. Click to fill the panel again.`}
       onClick={() => window.api.browser.fillPanel()}
     >
+      {by && <PhoneIcon width={11} height={11} />}
+      {by && <span>On {by} ·</span>}
       {width} × {height}
       {scale < 1 && <span className="viewport-chip-scale">{percent}%</span>}
       <CloseIcon width={10} height={10} />

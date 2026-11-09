@@ -296,6 +296,8 @@ export interface RemoteStatus {
   url?: string
   error?: string
   sessions: RemoteSession[]
+  /** Paired devices may see and use this Mac's browser tabs. */
+  browser: boolean
 }
 
 export interface RemoteSession {
@@ -679,7 +681,31 @@ export interface BrowserState {
    * fraction of it the panel shows it at (1 when it fits). None while the page
    * fills the panel.
    */
-  viewport?: PageViewport & { scale: number }
+  viewport?: PageViewport & {
+    scale: number
+    /** The device of the remote link that laid the page out at its own size, if one did. */
+    by?: string
+  }
+}
+
+/**
+ * A chat's browser as a device of the remote link shows it
+ * (main/remote/browser.ts): its tabs, and what the page in it waits on.
+ */
+export interface RemoteBrowserView extends BrowserState {
+  chatId: string
+  /** The page is no web page (a file on the Mac, say), which the link does not show. */
+  local?: boolean
+  /** Barebone's window is minimized on the Mac, which draws nothing until it is restored. */
+  minimized?: boolean
+  /** An alert() or confirm() the page waits on. */
+  dialog?: {
+    type: 'alert' | 'confirm'
+    message: string
+    site: string
+    /** False for one only the Mac can answer (Electron shows it there itself). */
+    answerable: boolean
+  }
 }
 
 /** A page laid out at a set size, in CSS pixels, as on a phone (mobile) or another screen. */
