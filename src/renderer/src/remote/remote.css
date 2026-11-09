@@ -64,6 +64,15 @@ html.remote .remote-browser {
   background: var(--panel-main);
 }
 
+/* Wider than a phone, it has the Mac's panel's bars (BrowserSheet.tsx), whose toolbar draws the line. */
+html.remote .remote-browser.wide .rb-page {
+  border-top: 0;
+}
+
+html.remote .remote-browser.wide .rb-notice {
+  bottom: 16px;
+}
+
 .rb-top {
   flex-shrink: 0;
   display: flex;

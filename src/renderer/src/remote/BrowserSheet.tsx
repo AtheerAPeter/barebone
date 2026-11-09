@@ -11,14 +11,18 @@ import {
   PlusIcon,
   ReloadIcon
 } from '../components/icons'
+import { TabIcon } from '../components/BrowserPanel'
 import { dragDivider } from '../lib/side-panel'
+import { PHONE, useMedia } from '../lib/touch'
 
 /**
  * A chat's browser tab from the Mac, live, through the remote link
  * (main/remote/browser.ts). The page is a picture the Mac sends each time it
- * changes; a tap here is a click there, a drag a scroll, and the keyboard
- * button types into the page. On a phone it covers the screen, as the code
- * panel does.
+ * changes; a tap or click here is a click there, a drag or the wheel a scroll.
+ * On a phone it covers the screen, as the code panel does, with its buttons
+ * along the bottom, tabs as cards and a keyboard button that types into the
+ * page. On a wider screen it is the Mac's browser panel: tabs on top, the
+ * address under them, and keys go to the page once it is clicked.
  */
 
 interface Props {
@@ -43,6 +47,24 @@ const TAP_SLOP = 8
 const RESIZE_MS = 250
 /** Leaving the keyboard's field ends typing, unless something takes it back by then. */
 const BLUR_MS = 300
+/** A wheel step given in lines, in CSS pixels, as browsers scroll it. */
+const WHEEL_LINE = 40
+/** Keys that go to the page by name; text goes as typed. */
+const NAMED_KEYS = new Set([
+  'Enter',
+  'Tab',
+  'Backspace',
+  'Delete',
+  'Escape',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown'
+])
 
 interface Frame {
   url: string
@@ -75,6 +97,7 @@ export function BrowserSheet({
   const [typing, setTyping] = useState<{ field: string | null }>()
   const [notice, setNotice] = useState<string>()
   const keyboard = useKeyboardArea(typing !== undefined)
+  const phone = useMedia(PHONE)
 
   // Show the tab here, and again when the connection to the Mac comes back.
   useEffect(() => {
@@ -261,14 +284,25 @@ export function BrowserSheet({
     g.lastY = e.clientY
     sendScroll()
   }
+  const onWheel = (e: React.WheelEvent): void => {
+    const point = pagePoint(e.clientX, e.clientY)
+    if (!point || !frame) return
+    const unit = e.deltaMode === 1 ? WHEEL_LINE : e.deltaMode === 2 ? frame.height : 1
+    const s = scrolling.current
+    s.dx += (e.deltaX * unit) / point.scale
+    s.dy += (e.deltaY * unit) / point.scale
+    s.at = point
+    sendScroll()
+  }
   const onPointerUp = (e: React.PointerEvent): void => {
     const g = gesture.current
     gesture.current = undefined
     if (!g || g.moved) return
     const point = pagePoint(e.clientX, e.clientY)
     if (!point) return
-    // Still in the tap: the keyboard stays open for the field tapped next.
-    if (typing) keysRef.current?.focus()
+    // Still in the tap: the keyboard stays open for the field tapped next. With a
+    // keyboard of its own, the device's keys go to the page once it is clicked.
+    if (typing || !phone) keysRef.current?.focus()
     const wasTyping = typing !== undefined
     queue(async () => {
       await api().tap(point.x, point.y)
@@ -297,7 +331,7 @@ export function BrowserSheet({
 
   return (
     <aside
-      className={`side-panel remote-browser${typing ? ' typing' : ''}`}
+      className={`side-panel remote-browser${phone ? '' : ' wide'}${typing ? ' typing' : ''}`}
       style={
         keyboard ? { width, height: keyboard.height, top: keyboard.top, bottom: 'auto' } : { width }
       }
@@ -306,72 +340,76 @@ export function BrowserSheet({
         className="panel-resize"
         onPointerDown={(event) => dragDivider(event, chatRef.current, onResize)}
       />
-      <div className="rb-top">
-        {mode === 'address' ? (
-          <form
-            className="rb-address editing"
-            onSubmit={(e) => {
-              e.preventDefault()
-              const input = addressRef.current?.value.trim()
-              setMode('page')
-              if (input) api().navigate(input).catch(fail)
-            }}
-          >
-            <input
-              ref={addressRef}
-              placeholder="Search or enter address"
-              enterKeyHint="go"
-              inputMode="url"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              onBlur={() => setMode((m) => (m === 'address' ? 'page' : m))}
-            />
-            <button
-              type="button"
-              className="label-btn"
-              // Before the field's blur closes it, so the tap lands.
-              onPointerDown={(e) => e.preventDefault()}
-              onClick={() => setMode('page')}
-            >
-              Cancel
-            </button>
-          </form>
-        ) : mode === 'tabs' ? (
-          <>
-            <b className="rb-heading">Tabs</b>
-            <button
-              className="icon-btn"
-              title="New tab"
-              onClick={() => {
-                api().newTab().catch(fail)
-                openAddress('')
+      {!phone && <WideBar view={view} usable={Boolean(usable)} onClose={onClose} onError={fail} />}
+      {phone && (
+        <div className="rb-top">
+          {mode === 'address' ? (
+            <form
+              className="rb-address editing"
+              onSubmit={(e) => {
+                e.preventDefault()
+                const input = addressRef.current?.value.trim()
+                setMode('page')
+                if (input) api().navigate(input).catch(fail)
               }}
             >
-              <PlusIcon />
-            </button>
-            <button className="label-btn rb-done" onClick={() => setMode('page')}>
-              Done
-            </button>
-          </>
-        ) : (
-          <>
-            <button className="icon-btn" title="Close the browser" onClick={onClose}>
-              <CloseIcon />
-            </button>
-            <button className="rb-address" disabled={!usable} onClick={() => openAddress()}>
-              {view?.url.startsWith('https:') && <LockIcon width={13} height={13} />}
-              <span>{view?.url ? hostOf(view.url) : 'Search or enter address'}</span>
-            </button>
-          </>
-        )}
-      </div>
-      {mode === 'page' && showing && view.minimized && (
+              <input
+                ref={addressRef}
+                placeholder="Search or enter address"
+                enterKeyHint="go"
+                inputMode="url"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                onBlur={() => setMode((m) => (m === 'address' ? 'page' : m))}
+              />
+              <button
+                type="button"
+                className="label-btn"
+                // Before the field's blur closes it, so the tap lands.
+                onPointerDown={(e) => e.preventDefault()}
+                onClick={() => setMode('page')}
+              >
+                Cancel
+              </button>
+            </form>
+          ) : mode === 'tabs' ? (
+            <>
+              <b className="rb-heading">Tabs</b>
+              <button
+                className="icon-btn"
+                title="New tab"
+                onClick={() => {
+                  api().newTab().catch(fail)
+                  openAddress('')
+                }}
+              >
+                <PlusIcon />
+              </button>
+              <button className="label-btn rb-done" onClick={() => setMode('page')}>
+                Done
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="icon-btn" title="Close the browser" onClick={onClose}>
+                <CloseIcon />
+              </button>
+              <button className="rb-address" disabled={!usable} onClick={() => openAddress()}>
+                {view?.url.startsWith('https:') && <LockIcon width={13} height={13} />}
+                <span>{view?.url ? hostOf(view.url) : 'Search or enter address'}</span>
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {(mode === 'page' || !phone) && showing && view.minimized && (
         <div className="rb-agent rb-warn">
           Barebone is minimized on your Mac, so the page may not show. Open its window there.
         </div>
       )}
-      {mode === 'page' && showing && active?.controlled && (
+      {phone && mode === 'page' && showing && active?.controlled && (
         <div className="rb-agent">
           <span className="rb-agent-dot" />
           The agent is using this tab
@@ -384,6 +422,7 @@ export function BrowserSheet({
         onPointerMove={showing ? onPointerMove : undefined}
         onPointerUp={showing ? onPointerUp : undefined}
         onPointerCancel={() => (gesture.current = undefined)}
+        onWheel={showing ? onWheel : undefined}
       >
         {showing && frame && (
           <img
@@ -433,7 +472,7 @@ export function BrowserSheet({
             )}
           </div>
         )}
-        {mode === 'tabs' && view && (
+        {phone && mode === 'tabs' && view && (
           <TabGrid
             tabs={view.tabs}
             activeTab={view.activeTab}
@@ -447,7 +486,7 @@ export function BrowserSheet({
         )}
       </div>
       {notice && <div className="rb-notice">{notice}</div>}
-      {typing ? (
+      {!phone ? null : typing ? (
         <div className="rb-typebar">
           <KeyboardIcon width={14} height={14} />
           <span className="rb-typing">
@@ -525,8 +564,8 @@ export function BrowserSheet({
         enterKeyHint="enter"
         onKeyDown={(e) => {
           const key = e.key
-          const empty = !e.currentTarget.value
-          if (key === 'Enter' || key === 'Tab' || (key === 'Backspace' && empty)) {
+          // The field is emptied as each text arrives, so Backspace always deletes in the page.
+          if (NAMED_KEYS.has(key) && !e.nativeEvent.isComposing) {
             e.preventDefault()
             queue(() => api().key(key))
           }
@@ -543,6 +582,120 @@ export function BrowserSheet({
         }}
       />
     </aside>
+  )
+}
+
+/**
+ * The Mac's browser panel's bars, for a screen wide enough (BrowserPanel.tsx):
+ * the chat's tabs on top, then back, forward, reload and the address.
+ */
+function WideBar({
+  view,
+  usable,
+  onClose,
+  onError
+}: {
+  view?: RemoteBrowserView
+  usable: boolean
+  onClose: () => void
+  onError: (error: Error) => void
+}): React.JSX.Element {
+  const addressRef = useRef<HTMLInputElement>(null)
+  /** The text being typed in the address bar; null shows the current page's address. */
+  const [draft, setDraft] = useState<string | null>(null)
+  return (
+    <>
+      <div className="panel-tabs" role="tablist">
+        {view?.tabs.map((tab) => (
+          <div
+            key={tab.id}
+            role="tab"
+            aria-selected={tab.id === view.activeTab}
+            className={`panel-tab${tab.id === view.activeTab ? ' active' : ''}${tab.controlled ? ' controlled' : ''}`}
+            title={
+              tab.controlled ? `The agent is working in this tab\n${tab.url}` : tab.url || 'New tab'
+            }
+            onClick={() => api().selectTab(tab.id).catch(onError)}
+          >
+            <TabIcon tab={tab} />
+            <span className="panel-tab-title">{tab.title || hostOf(tab.url) || 'New tab'}</span>
+            <button
+              className="panel-tab-close"
+              title="Close tab"
+              onClick={(e) => {
+                e.stopPropagation()
+                api().closeTab(tab.id).catch(onError)
+              }}
+            >
+              <CloseIcon width={10} height={10} />
+            </button>
+          </div>
+        ))}
+        <button
+          className="icon-btn small panel-new-tab"
+          title="New tab"
+          disabled={!usable}
+          onClick={() => {
+            api().newTab().catch(onError)
+            addressRef.current?.focus()
+          }}
+        >
+          <PlusIcon width={14} height={14} />
+        </button>
+      </div>
+      <div className="panel-toolbar">
+        <button
+          className="icon-btn"
+          title="Back"
+          disabled={!usable || !view?.canGoBack}
+          onClick={() => api().back().catch(onError)}
+        >
+          <BackIcon />
+        </button>
+        <button
+          className="icon-btn"
+          title="Forward"
+          disabled={!usable || !view?.canGoForward}
+          onClick={() => api().forward().catch(onError)}
+        >
+          <ForwardIcon />
+        </button>
+        <button
+          className="icon-btn"
+          title="Reload"
+          disabled={!usable}
+          onClick={() => api().reload().catch(onError)}
+        >
+          <ReloadIcon className={view?.loading ? 'spin' : undefined} />
+        </button>
+        <form
+          className="address"
+          onSubmit={(e) => {
+            e.preventDefault()
+            const input = draft?.trim()
+            if (input) api().navigate(input).catch(onError)
+            addressRef.current?.blur()
+          }}
+        >
+          <input
+            ref={addressRef}
+            value={draft ?? view?.url ?? ''}
+            disabled={!usable}
+            spellCheck={false}
+            onFocus={(e) => {
+              setDraft(e.currentTarget.value)
+              e.currentTarget.select()
+            }}
+            onBlur={() => setDraft(null)}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Search or enter address"
+          />
+        </form>
+        <button className="icon-btn" title="Close the browser" onClick={onClose}>
+          <CloseIcon />
+        </button>
+      </div>
+    </>
   )
 }
 

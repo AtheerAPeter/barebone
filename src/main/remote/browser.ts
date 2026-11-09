@@ -365,7 +365,12 @@ export class RemoteBrowser {
       ...state,
       chatId: view.chatId,
       ...(this.browser.windowMinimized ? { minimized: true } : {}),
-      tabs: state.tabs.map((t) => (hidden(t) ? { ...t, url: '', title: 'A page on your Mac' } : t)),
+      // No favicons: they are other sites' images, which the link's page may not load (server.ts).
+      tabs: state.tabs.map((t) =>
+        hidden(t)
+          ? { ...t, url: '', title: 'A page on your Mac', favicon: undefined }
+          : { ...t, favicon: undefined }
+      ),
       ...(local ? { url: '', title: 'A page on your Mac', local: true } : {}),
       ...(dialog && !local
         ? {

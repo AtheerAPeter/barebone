@@ -272,7 +272,7 @@ function ViewportChip({
  * A tab's icon: a spinner while it loads, then the page's own icon, or a globe
  * for a page without one. The tab the agent works in has a pulsing dot on it.
  */
-function TabIcon({ tab }: { tab: BrowserTab }): React.JSX.Element {
+export function TabIcon({ tab }: { tab: BrowserTab }): React.JSX.Element {
   /** The icon address that failed to load, so the globe shows instead. */
   const [failed, setFailed] = useState<string>()
   return (

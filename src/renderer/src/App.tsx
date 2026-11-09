@@ -26,24 +26,13 @@ import { readPref, writePref } from './lib/prefs'
 import { usePageRecorder } from './lib/recording'
 import { useSpeechPlayer } from './lib/speech'
 import { LevelMeter } from './components/LevelMeter'
-import { PHONE } from './lib/touch'
+import { PHONE, useMedia } from './lib/touch'
 
 /** How often the orb is told the agent's voice level while it speaks. */
 const ORB_LEVEL_MS = 50
 
 /** In a browser through the remote link (main/remote); the browser panel is the Mac's own. */
 const REMOTE = window.api.remote
-
-function useMedia(query: string): boolean {
-  const [matches, setMatches] = useState(() => window.matchMedia(query).matches)
-  useEffect(() => {
-    const list = window.matchMedia(query)
-    const changed = (): void => setMatches(list.matches)
-    list.addEventListener('change', changed)
-    return () => list.removeEventListener('change', changed)
-  }, [query])
-  return matches
-}
 
 export default function App(): React.JSX.Element {
   const [state, setState] = useState<AppState>({ projects: [], chats: [] })
