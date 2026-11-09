@@ -45,10 +45,15 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
-  # Ad-hoc sign the whole bundle. Without a valid signature, macOS reports a
-  # downloaded app as "damaged"; with one it shows the normal unidentified-developer
-  # prompt. A Developer ID and notarization would remove that prompt too.
-  identity: '-'
+  # Signed with a self-signed certificate in the login keychain of the Mac that
+  # builds releases. macOS remembers a privacy grant (Desktop, microphone) by the
+  # signature's designated requirement: an ad-hoc one is the build's hash, so each
+  # update asked again; this certificate's stays the same across builds. Downloads
+  # still show the unidentified-developer prompt; a Developer ID and notarization
+  # would remove it. Without the certificate the build fails rather than ship an
+  # unsigned app, which macOS reports as "damaged".
+  identity: Barebone Code Signing
+  forceCodeSigning: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   # A map, merged into Info.plist; a list would nest each entry under "0", "1"…
