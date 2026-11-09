@@ -1471,10 +1471,9 @@ img.project-icon {
   padding: 0 4px;
 }
 
-/* A short progress note between tool calls. */
+/* A short progress note between tool calls: the agent says it to the user, so it reads like its answer. */
 .note {
   padding: 0 4px;
-  color: var(--text-soft);
 }
 
 .thinking-body {
