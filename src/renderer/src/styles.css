@@ -6312,6 +6312,17 @@ button,
   padding: 0 14px;
 }
 
+/* A top bar too narrow for the switch beside the name gives it the row below, edge to edge. */
+.bot-tabs-row {
+  flex-shrink: 0;
+  display: flex;
+  padding: 0 12px 8px;
+}
+
+.bot-tabs-row .bot-tabs {
+  flex: 1;
+}
+
 /* The dashboard and memory panes take the chat's place below the top bar. */
 .bot-pane {
   flex: 1;
@@ -6413,8 +6424,13 @@ button,
   text-overflow: ellipsis;
 }
 
-/* Beside the bot's name in the top bar: what it does. */
+/*
+ * Beside the bot's name in the top bar: what it does. It gives way before the
+ * name does: the name shrinks by its share too, and loses its last letters to
+ * a hundredth of a pixel, so the job's share is all of it.
+ */
 .bot-job {
+  flex: 0 1000000 auto;
   min-width: 0;
   color: var(--text-muted);
   font-size: 13px;
@@ -6425,7 +6441,7 @@ button,
 
 /* When the bot's next routine runs: after its job, quieter, and the first to give way. */
 .bot-next {
-  flex: 0 100 auto;
+  flex: 0 100000000 auto;
   min-width: 0;
   color: var(--text-muted);
   font-size: 12px;

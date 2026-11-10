@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState, type RefObject } from 'react'
 
 /**
  * A touch screen: focusing a field there opens the on-screen keyboard over
@@ -20,6 +20,22 @@ export function useMedia(query: string): boolean {
     return () => list.removeEventListener('change', changed)
   }, [query])
   return matches
+}
+
+/** Whether an element is narrower than a width, kept up to date as it resizes. */
+export function useNarrower(ref: RefObject<HTMLElement | null>, width: number): boolean {
+  const [narrower, setNarrower] = useState(false)
+  // Measured before the first paint, so nothing is drawn in the wrong place first.
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (!element) return
+    const measure = (): void => setNarrower(element.clientWidth < width)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [ref, width])
+  return narrower
 }
 
 /**

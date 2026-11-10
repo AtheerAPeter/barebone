@@ -30,13 +30,16 @@ import { readPref, writePref } from './lib/prefs'
 import { usePageRecorder } from './lib/recording'
 import { useSpeechPlayer } from './lib/speech'
 import { LevelMeter } from './components/LevelMeter'
-import { PHONE, useMedia } from './lib/touch'
+import { PHONE, useMedia, useNarrower } from './lib/touch'
 
 /** How often the orb is told the agent's voice level while it speaks. */
 const ORB_LEVEL_MS = 50
 
 /** In a browser through the remote link (main/remote); the browser panel is the Mac's own. */
 const REMOTE = window.api.remote
+
+/** The narrowest top bar that fits a bot's switch beside its name; below it the switch gets a row of its own. */
+const BOT_TABS_BESIDE = 600
 
 export default function App(): React.JSX.Element {
   const [state, setState] = useState<AppState>({ projects: [], chats: [] })
@@ -55,6 +58,8 @@ export default function App(): React.JSX.Element {
   /** The chat is folded into the agent orb over the browser, while the browser is open. */
   const [chatFolded, setChatFolded] = useState(() => readPref('chatFolded', false))
   const mainRef = useRef<HTMLElement>(null)
+  /** The top bar has no room for a bot's switch beside its name: a phone, or the chat next to the browser. */
+  const narrowBar = useNarrower(mainRef, BOT_TABS_BESIDE)
   /** Whether the user is picking the project of a new chat. */
   const [picking, setPicking] = useState(false)
   const [statuses, setStatuses] = useState<Partial<Record<AgentId, AgentStatus>>>({})
@@ -176,6 +181,9 @@ export default function App(): React.JSX.Element {
   // A bot's chat shows its dashboard or memory in its place until the user goes back to it.
   const [botPane, setBotPane] = useState<{ chatId: string; pane: BotPaneName }>()
   const pane: BotPaneName = bot && botPane && botPane.chatId === chat?.id ? botPane.pane : 'chat'
+  const botTabs = bot && chat && view === 'chat' && (
+    <BotTabs pane={pane} onPane={(next) => setBotPane({ chatId: chat.id, pane: next })} />
+  )
 
   const newChat = useCallback(
     async (projectId: string) => {
@@ -381,9 +389,7 @@ export default function App(): React.JSX.Element {
             </span>
           )}
           <span className="spacer" />
-          {bot && chat && view === 'chat' && (
-            <BotTabs pane={pane} onPane={(next) => setBotPane({ chatId: chat.id, pane: next })} />
-          )}
+          {botTabs && !narrowBar && botTabs}
           {browserOpen && view === 'chat' && chat && (
             <button
               className="icon-btn"
@@ -426,6 +432,7 @@ export default function App(): React.JSX.Element {
             </button>
           )}
         </header>
+        {botTabs && narrowBar && <div className="bot-tabs-row">{botTabs}</div>}
         {view === 'skills' ? (
           <SkillsView key={project?.id} project={project} />
         ) : view === 'settings' ? (
