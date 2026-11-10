@@ -105,7 +105,9 @@ export function ChatView({
     [items]
   )
   const turns = useMemo(() => toTurns(items), [items])
-  const bot = useContext(BotsContext).projects.find((p) => p.id === chat.projectId && p.bot)
+  const bot = useContext(BotsContext).projects.find(
+    (p) => p.id === chat.projectId && p.bot && !chat.startedBy
+  )
   // Messages sent while the agent works (steering) start a part of the turn
   // it is working on: the parts at the end, which the turn's end has not
   // timed yet, are all its own, and stay open until it ends.

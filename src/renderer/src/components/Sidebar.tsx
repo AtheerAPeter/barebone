@@ -481,6 +481,7 @@ export function Sidebar({
   /**
    * A bot: one row, as a contact in a messenger, for its one conversation:
    * its character, its name and the last thing said, and what its chats are doing.
+   * The chats it started, in any project, are under it, as under a lead chat.
    */
   function botRow(project: Project): React.JSX.Element | null {
     const own = state.chats.filter((c) => c.projectId === project.id)
@@ -488,11 +489,14 @@ export function Sidebar({
     const conversation = own.find((c) => !c.startedBy)
     // The bot speaks for whichever of its chats needs the user or works, else its conversation.
     const live = own.find((c) => c.waiting) ?? own.find((c) => c.running) ?? conversation
-    const selected = view === 'chat' && own.some((c) => c.id === selectedChatId)
-    return (
+    const selected = view === 'chat' && conversation?.id === selectedChatId
+    const led = conversation && !q ? started.get(conversation.id) : undefined
+    const workingLed = led?.filter((c) => c.running).length ?? 0
+    const isOpen = Boolean(conversation && openLeads.has(conversation.id))
+    const row = (
       <div
         key={project.id}
-        className={`chat-row bot-row${selected ? ' selected' : ''}`}
+        className={`chat-row bot-row${led ? ' lead' : ''}${selected ? ' selected' : ''}`}
         title={`${project.name}: ${project.bot?.job}`}
         onClick={() => onOpenBot(project.id)}
       >
@@ -500,6 +504,22 @@ export function Sidebar({
         <div className="bot-row-text">
           <div className="chat-line">
             <span className="chat-title">{project.name}</span>
+            {led && conversation && (
+              <button
+                className={`lead-toggle${isOpen ? ' open' : ''}`}
+                title={`Started ${led.length} ${led.length === 1 ? 'chat' : 'chats'}, ${workingLed} working. ${isOpen ? 'Hide' : 'Show'} them.`}
+                aria-expanded={isOpen}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  toggleLead(conversation.id)
+                }}
+              >
+                <span className={`lead-count${workingLed > 0 ? ' active' : ''}`}>
+                  {workingLed}/{led.length}
+                </span>
+                <ChevronIcon width={10} height={10} className="chevron" />
+              </button>
+            )}
             <FolderStatus chats={own} working={working} />
           </div>
           <span className="bot-row-latest">
@@ -507,6 +527,15 @@ export function Sidebar({
           </span>
         </div>
       </div>
+    )
+    if (!led) return row
+    return (
+      <Fragment key={project.id}>
+        {row}
+        <Collapse open={isOpen} className="chat-children">
+          {led.map(chatRow)}
+        </Collapse>
+      </Fragment>
     )
   }
 

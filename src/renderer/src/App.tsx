@@ -176,8 +176,8 @@ export default function App(): React.JSX.Element {
     if (!REMOTE) window.api.showingChat(view === 'chat' ? (chatId ?? null) : null)
   }, [chatId, view])
   const project = state.projects.find((p) => p.id === chat?.projectId) ?? state.projects[0]
-  /** The open chat's bot, when it is one of a bot's chats. */
-  const bot = chat && project?.bot ? project : undefined
+  /** The open chat's bot, when it is a bot's one conversation; a chat a bot started is a chat like any other. */
+  const bot = chat && project?.bot && !chat.startedBy ? project : undefined
   // A bot's chat shows its dashboard or memory in its place until the user goes back to it.
   const [botPane, setBotPane] = useState<{ chatId: string; pane: BotPaneName }>()
   const pane: BotPaneName = bot && botPane && botPane.chatId === chat?.id ? botPane.pane : 'chat'

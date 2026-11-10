@@ -21,6 +21,7 @@ import type {
   ChatItem,
   ChatSender,
   FormAnswers,
+  Project,
   ToolStatus
 } from '../shared/types'
 import { AGENTS, modelOptions, senderChat, type ModelSource } from '../shared/types'
@@ -2124,6 +2125,32 @@ function fromChatsSinceUser(chatId: string): number {
 }
 
 /**
+ * Whether `self` can reach `chat` with the chat tools: a chat of its project, a
+ * chat it started, or the chat that started it, wherever they are.
+ */
+function reaches(self: Chat, chat: Chat): boolean {
+  return (
+    chat.projectId === self.projectId || chat.startedBy === self.id || chat.id === self.startedBy
+  )
+}
+
+/**
+ * The project start_chat was asked to start a chat in, by its name or folder.
+ * Not another bot's: a bot keeps its one conversation.
+ */
+function projectNamed(name: string, parent: Chat): Project {
+  const wanted = name.trim().toLowerCase()
+  const open = store
+    .getState()
+    .projects.filter((p) => !p.bot || p.id === parent.projectId)
+  const project = open.find((p) => p.name.toLowerCase() === wanted || p.path === name.trim())
+  if (project) return project
+  throw new Error(
+    `Not started: no project is named "${name}". The projects: ${open.map((p) => `"${p.name}"`).join(', ')}.`
+  )
+}
+
+/**
  * The end of an agent's stderr, to explain a crash: the last lines, with the
  * home folder shortened and anything that looks like a credential hidden.
  */
@@ -2770,14 +2797,17 @@ export class AgentManager implements ChatsApi {
   /** Chats whose turn is being ended to take the messages waiting for it (see steerAfterStep). */
   private readonly steering = new Set<string>()
 
-  /** The chat of the project a chat ID names: the chats a chat can reach. */
-  private chatById(id: string, projectId: string): Chat {
+  /**
+   * The chat a chat ID names, among those `self` can reach: the chats of its
+   * project, the chats it started and the chat that started it, wherever they are.
+   */
+  private chatById(id: string, self: Chat): Chat {
     const chat = store
       .getState()
-      .chats.find((c) => browserId(c.id) === id && c.projectId === projectId)
+      .chats.find((c) => browserId(c.id) === id && reaches(self, c))
     if (chat) return chat
     throw new Error(
-      `No chat of this project has the ID "${id}". list_chats shows the running ones.`
+      `No chat you can reach has the ID "${id}". list_chats shows the running ones.`
     )
   }
 
@@ -2812,11 +2842,13 @@ export class AgentManager implements ChatsApi {
   async startChat(
     caller: string,
     prompt: string,
-    choice: ModelChoice
+    choice: ModelChoice,
+    project?: string
   ): Promise<{ id: string; title: string }> {
     // Looked up first, so the checks below hold when the chat is made.
     const picked = await this.pickedModel(caller, choice)
     const parent = this.caller(caller)
+    const projectId = project ? projectNamed(project, parent).id : parent.projectId
     // Only a turn the user started: a chain of chats ends at the chats it started.
     const turn = store.getMessages(caller).findLast((i): i is UserItem => i.kind === 'user')
     if (turn?.from) {
@@ -2826,7 +2858,7 @@ export class AgentManager implements ChatsApi {
     }
     if (!prompt.trim()) throw new Error('"prompt" must describe the task.')
     const chat = store.createChat({
-      projectId: parent.projectId,
+      projectId,
       agent: picked?.agent ?? parent.agent,
       // On the caller's agent, only what was picked changes; another agent starts from its own.
       settings:
@@ -2988,7 +3020,7 @@ export class AgentManager implements ChatsApi {
   /** Start a turn in another chat of the caller's project, or queue the message for its next one. */
   message(caller: string, to: string, text: string): 'started' | 'steering' {
     const sender = this.caller(caller)
-    const target = this.chatById(to, sender.projectId)
+    const target = this.chatById(to, sender)
     if (target.id === sender.id) throw new Error(`"${to}" is your own chat ID.`)
     if (!text.trim()) throw new Error('"message" is empty.')
     if (!this.mayMessage(sender, target)) {
@@ -3029,7 +3061,9 @@ export class AgentManager implements ChatsApi {
     const self = this.caller(caller)
     return store
       .getState()
-      .chats.filter((c) => c.projectId === self.projectId && (c.running || c.startedBy === self.id))
+      .chats.filter(
+        (c) => (c.projectId === self.projectId && c.running) || c.startedBy === self.id
+      )
       .map((c) => ({
         id: browserId(c.id),
         title: c.title,
@@ -3055,7 +3089,7 @@ export class AgentManager implements ChatsApi {
   /** Delete a chat the caller started; one that is working is stopped first. */
   async deleteStartedChat(caller: string, id: string): Promise<string> {
     const lead = this.caller(caller)
-    const target = this.chatById(id, lead.projectId)
+    const target = this.chatById(id, lead)
     if (target.startedBy !== lead.id) {
       throw new Error(
         `Not deleted: chat ${id} was not started by this chat, and a chat can delete only the chats it started.`

@@ -49,7 +49,7 @@ const MAX_TIMER_SECONDS = 24 * 60 * 60
 
 /** Sent to the model as the server's instructions; the harness puts it in its system prompt. */
 export const CHATS_GUIDANCE =
-  "These tools start and message other chats of the user's project in Barebone. Start new " +
+  "These tools start and message other chats of the user's projects in Barebone. Start new " +
   'chats only when the user asks for them; each one runs on its own and costs its own requests, ' +
   'so otherwise do the work yourself. A chat you start works alongside you and reports back with ' +
   'send_message. Its report arrives as a new message once your turn has ended, and when it ends ' +
@@ -124,18 +124,20 @@ function chatForKey(key: string): string {
 export interface ChatsApi {
   /**
    * Start a chat like the caller's and send it the task, on the agent and model
-   * chosen, or the caller's own; returns its ID and title.
+   * chosen, or the caller's own, in the project named, or the caller's; returns
+   * its ID and title.
    */
   startChat(
     caller: string,
     prompt: string,
-    choice: ModelChoice
+    choice: ModelChoice,
+    project?: string
   ): Promise<{ id: string; title: string }>
   /** The agents a started chat can run on, with their models, and what the caller runs on. */
   listModels(caller: string): Promise<ModelsListing>
   /** Send a message: 'started' when it started a turn, 'steering' when it joins the running turn at its next step. */
   message(caller: string, to: string, text: string): 'started' | 'steering'
-  /** The chats the caller started, and the project's other working chats. */
+  /** The chats the caller started, wherever they are, and its project's other working chats. */
   listChats(caller: string): ChatListing[]
   /** Delete a chat the caller started, stopping it first if it works; returns its title. */
   deleteStartedChat(caller: string, id: string): Promise<string>
@@ -425,9 +427,15 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
   server.registerTool(
     'start_chat',
     {
-      description: `Start a new chat in this project, with the same permissions as yours, and send it a task. Only when the user asks for new chats; otherwise do the work yourself. A chat another chat started cannot start chats. It runs on the same agent, model and thinking level as yours. Only when the user asks for another agent, provider, model or thinking level for it, pick that one with "agent", "provider", "model" and "thinking", as list_models lists them; never pick one yourself. The new chat is not given this conversation, only told the file it is saved in, to look things up there: put everything it needs in "prompt" (the goal, the relevant paths, constraints, and what to report). It works on its own, alongside you, and reports back with send_message. Its report arrives here as a new message once your turn has ended; if it ends its turn without reporting (it finished, failed or was stopped), you are told that instead, with why. So do not wait or poll for it: start the chats you need, tell the user, and end your turn.`,
+      description: `Start a new chat, in this project or another one you name with "project", with the same permissions as yours, and send it a task. Only when the user asks for new chats; otherwise do the work yourself. A chat another chat started cannot start chats. It runs on the same agent, model and thinking level as yours. Only when the user asks for another agent, provider, model or thinking level for it, pick that one with "agent", "provider", "model" and "thinking", as list_models lists them; never pick one yourself. The new chat is not given this conversation, only told the file it is saved in, to look things up there: put everything it needs in "prompt" (the goal, the relevant paths, constraints, and what to report). It works on its own, alongside you, and reports back with send_message. Its report arrives here as a new message once your turn has ended; if it ends its turn without reporting (it finished, failed or was stopped), you are told that instead, with why. So do not wait or poll for it: start the chats you need, tell the user, and end your turn.`,
       inputSchema: {
         prompt: z.string().describe('The complete task, with all the context it needs'),
+        project: z
+          .string()
+          .optional()
+          .describe(
+            "The project to start it in, by its name or folder path, when the task is work in another of the user's projects. Not another bot's. Left out, it is yours."
+          ),
         agent: z
           .enum(AGENTS.map((a) => a.id) as [AgentId, ...AgentId[]])
           .optional()
@@ -455,21 +463,22 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
         ...chatArg
       }
     },
-    async ({ prompt, agent, provider, model, thinking, chat }) => {
-      const started = await chats.startChat(chatForKey(chat), prompt, {
-        agent,
-        provider,
-        model,
-        thinking
-      })
+    async ({ prompt, project, agent, provider, model, thinking, chat }) => {
+      const started = await chats.startChat(
+        chatForKey(chat),
+        prompt,
+        { agent, provider, model, thinking },
+        project
+      )
       const picks = [
         ...(agent || model ? [agent ? agentLabel(agent) : 'your agent'] : []),
         ...(model ? [`model "${model}"`] : []),
         ...(thinking ? [`thinking level "${thinking}"`] : [])
       ]
       const on = picks.length > 0 ? ` on ${picks.join(', ')}` : ''
+      const where = project ? ` in ${project}` : ''
       return text(
-        `Started chat ${started.id} ("${started.title}")${on}. It reports back here when it is done.`
+        `Started chat ${started.id} ("${started.title}")${where}${on}. It reports back here when it is done.`
       )
     }
   )
@@ -496,7 +505,7 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
   server.registerTool(
     'send_message',
     {
-      description: `Send a message to another chat of this project, by its chat ID (from start_chat, list_chats, or a message it sent you). It starts a turn in that chat, so it also gets a chat that stopped, failed or finished going again. If the chat is working, the message joins its turn at its next step, so you can steer it. Use it to report back to the chat that started you, or to coordinate with chats working alongside you. Do not send messages only to acknowledge or thank: a chat takes at most ${MAX_FROM_CHATS} messages from other chats between the user's messages. A chat with broader permissions than yours does not take messages from you, except the chat that started you.`,
+      description: `Send a message to another chat of this project, or to a chat you started or the chat that started you wherever it is, by its chat ID (from start_chat, list_chats, or a message it sent you). It starts a turn in that chat, so it also gets a chat that stopped, failed or finished going again. If the chat is working, the message joins its turn at its next step, so you can steer it. Use it to report back to the chat that started you, or to coordinate with chats working alongside you. Do not send messages only to acknowledge or thank: a chat takes at most ${MAX_FROM_CHATS} messages from other chats between the user's messages. A chat with broader permissions than yours does not take messages from you, except the chat that started you.`,
       inputSchema: {
         to: z.string().describe('The chat ID of the chat to send it to'),
         message: z.string().describe('The message, with everything the other chat needs'),
