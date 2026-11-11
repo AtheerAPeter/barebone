@@ -248,7 +248,7 @@ export function setVoiceDescription(description: string): void {
   scheduleFlush()
 }
 
-/** Turn make_music on or off. */
+/** Turn music on or off: make_music, and the music speak plays with a message. */
 export function setMusic(on: boolean): void {
   state.music = on || undefined
   scheduleFlush()

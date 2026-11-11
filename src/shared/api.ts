@@ -141,7 +141,7 @@ export function makeApi(t: Transport) {
       remove: (id: DownloadId): Promise<void> => invoke('downloads:remove', id)
     },
 
-    /** Give agents make_music, or take it away. */
+    /** Let agents make music (make_music, and speak's music), or stop them. */
     setMusic: (on: boolean): Promise<void> => invoke('music:set', on),
 
     /** The voices agents speak with (the speak tool), run on this Mac (main/speech). */

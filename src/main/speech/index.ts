@@ -24,7 +24,8 @@ import type { FromWorker, ToWorker } from './worker'
  *   languages; a little slower than speech on an M4. It speaks in one voice
  *   made once from a description (makeVoice), so every message sounds like
  *   the same person.
- * - Stable Audio 3 Small Music, which makes music from a description.
+ * - Stable Audio 3 Small Music, which makes music from a description: for
+ *   videos, and played with a message, like a drum roll before the news.
  *
  * VoxCPM2 and Stable Audio run on audio.cpp (audiocpp.ts). The user downloads
  * each in Settings, turns the voices on or off, and picks which voice speaks
@@ -123,6 +124,17 @@ export interface Delivery {
   pace?: number
   /** The mood to say it in, like "excited" or "calm and reassuring"; VoxCPM2 only. */
   mood?: string
+  /** Music made for it and played with it, out loud only. */
+  music?: MessageMusic
+}
+
+/** Music a message plays with, like a drum roll before the news. */
+export interface MessageMusic {
+  /** What it sounds like, in English. */
+  description: string
+  seconds: number
+  /** Under the words, quieter while the voice talks; else before them. */
+  under: boolean
 }
 
 /** A message on its way out. */
@@ -152,6 +164,8 @@ interface Job {
     done: (audio: { samples: Float32Array; sampleRate: number }) => void
     fail: (error: Error) => void
   }
+  /** Music to play under the words, kept until the voice's first piece is made. */
+  under?: { samples: Float32Array; sampleRate: number }
 }
 
 export class Speech {
@@ -320,6 +334,9 @@ export class Speech {
     { model, recorded = false }: VoiceChoice = {}
   ): Spoken {
     if (!text.trim()) throw new Error('There is nothing to say: the text is empty.')
+    if (delivery.music && !this.packages.music.ready()) {
+      throw new Error('The music model is not on this Mac. The user can download it in Settings.')
+    }
     const job: Job = {
       id: crypto.randomUUID(),
       chatId,
@@ -341,7 +358,12 @@ export class Speech {
    * Say a message into a new WAV file instead of out loud; resolves with how
    * long it is, in seconds, once the file is written. Throws why it cannot be.
    */
-  async save(path: string, text: string, lang: Language, delivery: Delivery = {}): Promise<number> {
+  async save(
+    path: string,
+    text: string,
+    lang: Language,
+    delivery: Omit<Delivery, 'music'> = {}
+  ): Promise<number> {
     if (!text.trim()) throw new Error('There is nothing to say: the text is empty.')
     // A file is for a video or audio of the agent's own, so it keeps the voice Settings picks.
     const model = this.voiceFor(lang, { live: false })
@@ -418,17 +440,27 @@ export class Speech {
     if (!this.packages.music.ready()) {
       throw new Error('The music model is not on this Mac. The user can download it in Settings.')
     }
-    const response = await this.audiocpp.request('/v1/tasks/run', {
-      model: 'music',
-      request: { text: description, duration_seconds: seconds }
-    })
+    const { bytes, samples, sampleRate } = await this.music(description, seconds)
+    await writeNew(path, bytes)
+    return samples.length / sampleRate
+  }
+
+  /** Music made from a description: its WAV file, and its samples. */
+  private async music(
+    description: string,
+    seconds: number,
+    signal?: AbortSignal
+  ): Promise<{ bytes: Buffer; samples: Float32Array; sampleRate: number }> {
+    const response = await this.audiocpp.request(
+      '/v1/tasks/run',
+      { model: 'music', request: { text: description, duration_seconds: seconds } },
+      signal
+    )
     const result = (await response.json()) as { result?: { audio?: string }; audio?: string }
     const audio = result.result?.audio ?? result.audio
     if (!audio) throw new Error('The music model returned no audio.')
     const bytes = Buffer.from(audio.replace(/^data:[^,]*,/, ''), 'base64')
-    const { samples, sampleRate } = readWav(bytes)
-    await writeNew(path, bytes)
-    return samples.length / sampleRate
+    return { bytes, ...readWav(bytes) }
   }
 
   /** Once everything a chat has said so far has been heard, or will not be. */
@@ -484,6 +516,9 @@ export class Speech {
     const current: NonNullable<Speech['current']> = { job, done, abort }
     this.current = current
     try {
+      if (job.delivery.music && !job.file)
+        await this.playMusic(job, job.delivery.music, abort.signal)
+      if (abort.signal.aborted) return
       if (job.model === 'supertonic') {
         this.send({
           type: 'speak',
@@ -528,8 +563,33 @@ export class Speech {
     }
   }
 
+  /**
+   * Make a message's music. Music before the words goes to the player now, and
+   * plays while the voice is made; music under them waits for the voice's first
+   * piece, so the voice comes in after the music's short intro, not seconds
+   * later. Music that cannot be made is left out: the words are what the
+   * message is for.
+   */
+  private async playMusic(job: Job, music: MessageMusic, signal: AbortSignal): Promise<void> {
+    try {
+      const { samples, sampleRate } = await this.music(music.description, music.seconds, signal)
+      if (signal.aborted) return
+      if (music.under) job.under = { samples, sampleRate }
+      else this.deliver(job, samples, sampleRate, false, 'before')
+    } catch (error) {
+      if (!signal.aborted)
+        console.error('[speech] no music for the message:', (error as Error).message)
+    }
+  }
+
   /** A piece of a message is made: to the player, or to its file. */
-  private deliver(job: Job, samples: Float32Array, sampleRate: number, last: boolean): void {
+  private deliver(
+    job: Job,
+    samples: Float32Array,
+    sampleRate: number,
+    last: boolean,
+    music?: SpokenAudio['music']
+  ): void {
     if (!this.messages.has(job.id)) return
     if (job.file) {
       job.file.pieces.push(samples)
@@ -545,13 +605,20 @@ export class Speech {
       job.file.done({ samples: whole, sampleRate })
       return
     }
+    if (job.under) {
+      const under = job.under
+      job.under = undefined
+      this.deliver(job, under.samples, under.sampleRate, false, 'under')
+      if (!this.messages.has(job.id)) return
+    }
     const played = this.events.audio({
       id: job.id,
       ...(job.chatId ? { chatId: job.chatId } : {}),
       text: job.text,
       samples,
       sampleRate,
-      last
+      last,
+      ...(music ? { music } : {})
     })
     if (!played) this.stopMessage(job.id)
     else if (last) this.messages.delete(job.id)

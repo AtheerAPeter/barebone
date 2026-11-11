@@ -22,11 +22,19 @@ interface Sound {
   last: boolean
   buffer: AudioBuffer
   speaking: Speaking
+  /** Music played with the message, before its words or under them. */
+  music?: 'before' | 'under'
 }
 
 /** A piece scheduled to play at `startAt`. */
 interface Piece extends Sound {
   source: AudioBufferSourceNode
+  /** What it plays out of: its source, or music's volume. */
+  out: AudioNode
+  /** Music's volume, turned down under the voice and faded out after it. */
+  gain?: GainNode
+  /** Music under the words is turned down already, for its message's voice. */
+  ducked?: boolean
   startAt: number
   /** A first piece's cue: main is told its message begins. */
   cue?: ReturnType<typeof setTimeout>
@@ -41,6 +49,15 @@ const PAUSE_S = 0.8
  * it (a tutorial step) appears a moment before the voice talks about it.
  */
 const CUE_S = 0.4
+/** Music's volume, a little below the voice's. */
+const MUSIC_GAIN = 0.7
+/** Music under the words: its volume while the voice talks, and how long it takes to get there. */
+const UNDER_GAIN = 0.2
+const DUCK_S = 0.3
+/** Music under the words plays this long, at most, before the voice comes in. */
+const INTRO_S = 1.5
+/** How long music under the words fades out once the voice has ended. */
+const FADE_S = 0.8
 /** The loudness range the level spans, as for the microphone (lib/voice.ts). */
 const QUIET_DB = -50
 const LOUD_DB = -10
@@ -122,15 +139,26 @@ export function useSpeechPlayer(): {
     ): Piece => {
       const source = context.createBufferSource()
       source.buffer = sound.buffer
-      source.connect(analyser)
+      let out: AudioNode = source
+      let gain: GainNode | undefined
+      if (sound.music) {
+        gain = context.createGain()
+        gain.gain.value = MUSIC_GAIN
+        source.connect(gain)
+        out = gain
+      }
+      out.connect(analyser)
       const chatId = sound.speaking.chatId
-      if (chatId) for (const tap of taps.get(chatId) ?? []) source.connect(tap)
-      const piece: Piece = { ...sound, source, startAt: at }
+      if (chatId) for (const tap of taps.get(chatId) ?? []) out.connect(tap)
+      const piece: Piece = { ...sound, source, out, gain, ducked: false, startAt: at }
       if (sound.first) {
         const notice = Math.max(0, (at - CUE_S - context.currentTime) * 1000)
         piece.cue = setTimeout(() => window.api.speech.begun(sound.id), notice)
       }
-      lastEnd = at + sound.buffer.duration
+      const end = at + sound.buffer.duration
+      // Music under the words plays a moment on its own, then the voice comes in over it.
+      lastEnd = sound.music === 'under' ? Math.min(end, at + INTRO_S) : end
+      if (!sound.music) underVoice(context, sound, at, end)
       source.onended = () => {
         if (piece.last) window.api.speech.ended(piece.id)
         const head = queue[0] === piece
@@ -141,6 +169,28 @@ export function useSpeechPlayer(): {
       }
       source.start(at)
       return piece
+    }
+
+    /**
+     * A piece of a message's voice is scheduled: the music under it, if any,
+     * turns down as the voice begins and fades out once its last piece ends.
+     */
+    const underVoice = (context: AudioContext, sound: Sound, at: number, end: number): void => {
+      const music = queue.find((p) => p.id === sound.id && p.music === 'under')
+      if (!music?.gain) return
+      const volume = music.gain.gain
+      if (!music.ducked) {
+        music.ducked = true
+        volume.setValueAtTime(MUSIC_GAIN, Math.max(context.currentTime, at - DUCK_S))
+        volume.linearRampToValueAtTime(UNDER_GAIN, at)
+      }
+      if (sound.last) {
+        // A voice moved up after a stop ends sooner: its earlier fade is replaced.
+        volume.cancelScheduledValues(end)
+        volume.setValueAtTime(UNDER_GAIN, end)
+        volume.linearRampToValueAtTime(0, end + FADE_S)
+        music.source.stop(end + FADE_S)
+      }
     }
 
     /** Silence a piece without it counting as having played to its end. */
@@ -164,7 +214,7 @@ export function useSpeechPlayer(): {
       const chatTaps = taps.get(chatId) ?? new Set()
       taps.set(chatId, chatTaps.add(tap))
       // What the chat is saying already is in it from here on.
-      for (const piece of queue) if (piece.speaking.chatId === chatId) piece.source.connect(tap)
+      for (const piece of queue) if (piece.speaking.chatId === chatId) piece.out.connect(tap)
       return {
         stream: tap.stream,
         close: () => {
@@ -173,7 +223,7 @@ export function useSpeechPlayer(): {
           chatTaps.delete(tap)
           if (!chatTaps.size) taps.delete(chatId)
           for (const piece of queue) {
-            if (piece.speaking.chatId === chatId) piece.source.disconnect(tap)
+            if (piece.speaking.chatId === chatId) piece.out.disconnect(tap)
           }
         }
       }
@@ -189,7 +239,8 @@ export function useSpeechPlayer(): {
         first: !arrived.has(audio.id),
         last: audio.last,
         buffer,
-        speaking: { ...(audio.chatId ? { chatId: audio.chatId } : {}), text: audio.text }
+        speaking: { ...(audio.chatId ? { chatId: audio.chatId } : {}), text: audio.text },
+        music: audio.music
       }
       if (audio.last) arrived.delete(audio.id)
       else arrived.add(audio.id)

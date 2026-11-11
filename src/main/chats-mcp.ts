@@ -234,13 +234,18 @@ export interface SpeechApi {
   on(): boolean
   /** Whether VoxCPM2 speaks: moods mean something, and set_voice is offered. */
   natural(): boolean
-  /** Whether make_music is offered: on in Settings, and the music model on this Mac. */
+  /** Whether make_music and speak's music are offered: on in Settings, and the music model on this Mac. */
   music(): boolean
   maxMusicSeconds: number
   /** Say a message out loud, after what plays already; throws why it cannot be said. */
   speak(chatId: string, text: string, language: Language, delivery?: Delivery): Spoken
   /** Say a message into a new WAV file; resolves with its length in seconds once written. */
-  save(path: string, text: string, language: Language, delivery?: Delivery): Promise<number>
+  save(
+    path: string,
+    text: string,
+    language: Language,
+    delivery?: Omit<Delivery, 'music'>
+  ): Promise<number>
   /** Once everything the chat has said so far has been heard, or will not be. */
   said(chatId: string): Promise<void>
   /** Make the voice VoxCPM2 speaks in from a description, for every chat. */
@@ -286,6 +291,40 @@ export const paceArg = z
   .optional()
   .describe(
     'How fast to talk: 1 is normal (when left out); slower, down to 0.7, for something tricky or calming; faster, up to 1.5, for something light or quick'
+  )
+
+/** How long the music with a message is when left out, and at most, in seconds. */
+const DEFAULT_MESSAGE_MUSIC_SECONDS = 4
+const MAX_MESSAGE_MUSIC_SECONDS = 15
+
+/** Music played with what speak says, while make_music is offered. */
+const musicArg = z
+  .object({
+    description: z
+      .string()
+      .min(3)
+      .max(300)
+      .describe(
+        'The music in English, instrumental only: "snare drum roll building up, ending with a cymbal crash", "short triumphant brass fanfare", "funky upbeat groove, drums and bass, 110 BPM"'
+      ),
+    seconds: z
+      .number()
+      .min(2)
+      .max(MAX_MESSAGE_MUSIC_SECONDS)
+      .optional()
+      .describe(
+        `How long, 2 to ${MAX_MESSAGE_MUSIC_SECONDS} seconds; ${DEFAULT_MESSAGE_MUSIC_SECONDS} when left out`
+      ),
+    under: z
+      .boolean()
+      .optional()
+      .describe(
+        'true: it starts first and goes on quietly under your words. Left out: it plays whole, then you speak, as after a drum roll'
+      )
+  })
+  .optional()
+  .describe(
+    "Music made on the user's Mac and played with what you say; it takes a few seconds to make"
   )
 
 /** The mood to say something in, while VoxCPM2 speaks. */
@@ -910,16 +949,17 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
 
   if (speech && speechOffered()) {
     const voice = speech
+    const music = voice.music()
     server.registerTool(
       'speak',
       {
-        description:
-          "Say something out loud in Barebone's voice, a natural voice that runs on the user's Mac. It is the voice for anything spoken, so never use macOS say or another text-to-speech. Without path, it plays to the user now, alongside your written reply: when you need their answer or permission, when a long task is done or something went wrong, or to keep them in the loop while they watch the browser. Keep that short: one to three plain sentences, never code, file paths, URLs, lists or tables. It returns at once, while the voice plays. With path, it saves the speech to a new .wav file instead, for audio or a video you make yourself, and returns once it is written. To narrate a step of a tutorial or video in the browser, use show_step's say instead.",
+        description: `Say something out loud in Barebone's voice, a natural voice that runs on the user's Mac. It is the voice for anything spoken, so never use macOS say or another text-to-speech. Without path, it plays to the user now, alongside your written reply: when you need their answer or permission, when a long task is done or something went wrong, or to keep them in the loop while they watch the browser. Keep that short: one to three plain sentences, never code, file paths, URLs, lists or tables. It returns at once, while the voice plays.${music ? ' When you tell the user a task is done or something went well, play music with it for fun: a drum roll before the news, a short fanfare, a little groove under your words. Make it different each time; leave it out when you need their answer or something went wrong.' : ''} With path, it saves the speech to a new .wav file instead, for audio or a video you make yourself, and returns once it is written. To narrate a step of a tutorial or video in the browser, use show_step's say instead.`,
         inputSchema: {
           text: z.string().describe('What to say: plain spoken sentences'),
           language: languageArg,
           pace: paceArg,
           ...(voice.natural() ? { mood: moodArg } : {}),
+          ...(music ? { music: musicArg } : {}),
           path: z
             .string()
             .optional()
@@ -929,12 +969,30 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
           ...chatArg
         }
       },
-      async ({ text: said, language, pace, mood, path, chat }) => {
+      async ({ text: said, language, pace, mood, music, path, chat }) => {
         const caller = chatForKey(chat)
         const delivery = { pace, mood }
         if (path === undefined) {
-          voice.speak(caller, said, language, delivery)
-          return text('Speaking it to the user now.')
+          voice.speak(caller, said, language, {
+            ...delivery,
+            ...(music
+              ? {
+                  music: {
+                    description: music.description,
+                    seconds: music.seconds ?? DEFAULT_MESSAGE_MUSIC_SECONDS,
+                    under: music.under === true
+                  }
+                }
+              : {})
+          })
+          return text(
+            music
+              ? 'Playing the music, then speaking it to the user.'
+              : 'Speaking it to the user now.'
+          )
+        }
+        if (music) {
+          throw new Error('Music plays only out loud: leave out path, or make it with make_music.')
         }
         if (!isAbsolute(path)) throw new Error(`"path" must be absolute: ${path}`)
         if (!path.toLowerCase().endsWith('.wav')) {

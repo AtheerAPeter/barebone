@@ -283,22 +283,25 @@ export function SettingsView({
     {
       id: 'music',
       group: 'Abilities',
-      name: 'Music for videos',
-      summary: 'Agents can make music on this Mac, to play under the videos they record.',
-      keywords: 'music soundtrack background track stable audio video demo',
+      name: 'Music',
+      summary:
+        'Agents can make music on this Mac: a drum roll when a task is done, tracks for videos.',
+      keywords:
+        'music soundtrack background track stable audio video demo drum roll fanfare jingle',
       state: music ? 'on' : 'off',
       needs: music && downloads?.music.state === 'missing',
       icon: <MusicIcon />,
       tone: 'pink',
       pill: music ? 'On' : 'Off',
       pillTone: music ? 'on' : 'off',
-      action: onOff('music', 'Music for videos', music, window.api.setMusic),
+      action: onOff('music', 'Music', music, window.api.setMusic),
       detail: (
         <>
           <p>
-            Gives every agent a tool that makes instrumental music from a description, with Stable
-            Audio 3 Small on this Mac, and plays it quietly under the voice of a video it records.
-            The model is downloaded once
+            Agents make instrumental music from a description, with Stable Audio 3 Small on this
+            Mac. When an agent tells you out loud that a task is done, it can play a drum roll
+            before the news or a little tune under its words. It can also make a track to play
+            quietly under the voice of a video it records. The model is downloaded once
             {downloads ? `, ${megabytes(downloads.music.total)}` : ''}.
           </p>
           <DownloadBody id="music" what="the music model" status={downloads?.music} />

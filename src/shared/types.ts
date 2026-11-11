@@ -421,7 +421,7 @@ export interface AppState {
   supertonicInChats?: boolean
   /** How VoxCPM2's voice sounds, as it was made from; a default voice when missing. */
   voiceDescription?: string
-  /** Whether agents get make_music, which makes music for videos (main/speech). Off when missing. */
+  /** Whether agents make music (main/speech): make_music for videos, and speak's music. Off when missing. */
   music?: boolean
   /** Whether agents get the device tools, for mobile apps (main/devices.ts). Off when missing. */
   mobile?: boolean
@@ -480,6 +480,11 @@ export interface SpokenAudio {
   sampleRate: number
   /** The message's last piece. */
   last: boolean
+  /**
+   * Music played with the message: before its words, as a piece of its own, or
+   * under them, starting first and quieter once the voice talks.
+   */
+  music?: 'before' | 'under'
 }
 
 /** What to stop playing: one message, what one chat said, or everything when empty. */
