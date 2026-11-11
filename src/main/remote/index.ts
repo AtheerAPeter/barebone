@@ -1,3 +1,4 @@
+import { powerSaveBlocker } from 'electron'
 import type { AppState, RemotePairing, RemoteStatus } from '../../shared/types'
 import type { BuiltinBrowser } from '../browser'
 import { endSession, newPairingCode } from './auth'
@@ -28,6 +29,12 @@ export class RemoteLink {
   private error?: string
   /** The browser's tabs on the link's devices, once the app has a browser. */
   private browser?: RemoteBrowser
+  /**
+   * Keeps the Mac from going to sleep while the link is open: asleep, it
+   * answers no one. The display may still sleep, and a closed lid still
+   * sleeps a Mac on battery.
+   */
+  private awake?: number
 
   constructor(
     private host: {
@@ -64,6 +71,8 @@ export class RemoteLink {
   }
 
   async stop(): Promise<void> {
+    if (this.awake !== undefined) powerSaveBlocker.stop(this.awake)
+    this.awake = undefined
     await this.tunnel.stop()
     await this.server?.stop()
     this.server = undefined
@@ -136,6 +145,7 @@ export class RemoteLink {
     config.zrokName ??= newShareName()
     saveConfig()
     this.setLink('starting')
+    this.awake = powerSaveBlocker.start('prevent-app-suspension')
     try {
       this.server = new RemoteServer({
         state: this.host.state,

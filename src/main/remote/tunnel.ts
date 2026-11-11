@@ -93,6 +93,11 @@ async function ensureName(zrok: string, name: string): Promise<string> {
 /** How often, and how long, to check that the share answers from the internet. */
 const PROBE_EVERY_MS = 1000
 const PROBE_FOR_MS = 60_000
+/** While the share is up, how often to check it still answers, and how many misses in a row restart it. */
+const WATCH_EVERY_MS = 60_000
+const WATCH_MISSES = 3
+/** How long zrok has to exit once asked before it is killed. */
+const EXIT_GRACE_MS = 5000
 
 /**
  * Whether the app's pairing page answers at the public address: the share is
@@ -182,19 +187,34 @@ export class ZrokTunnel {
         if (clean) last = clean
       }
     }
-    // Up once the pairing page answers at the public address.
+    // Up once the pairing page answers at the public address. zrok can keep
+    // running with its share out of reach (it never came up, or went after
+    // the Mac slept or changed networks): then it is ended, and the exit
+    // handler below starts it again.
+    const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+    const restart = (why: string): void => {
+      last = why
+      endProcess(child)
+    }
     void (async () => {
       const until = Date.now() + PROBE_FOR_MS
-      while (this.child === child && Date.now() < until) {
-        if (await answers(url)) {
-          if (this.child !== child) return
-          this.restartIn = RESTART_MS
-          return this.events.online(url)
-        }
-        await new Promise((resolve) => setTimeout(resolve, PROBE_EVERY_MS))
+      while (!(await answers(url))) {
+        if (this.child !== child) return
+        if (Date.now() >= until) return restart('The link does not answer from the internet.')
+        await wait(PROBE_EVERY_MS)
       }
-      if (this.child === child)
-        this.events.failed('The link does not answer from the internet yet.')
+      if (this.child !== child) return
+      this.restartIn = RESTART_MS
+      this.events.online(url)
+      let misses = 0
+      while (this.child === child) {
+        await wait(WATCH_EVERY_MS)
+        if (this.child !== child) return
+        misses = (await answers(url)) ? 0 : misses + 1
+        if (misses >= WATCH_MISSES && this.child === child) {
+          return restart('The link stopped answering from the internet.')
+        }
+      }
     })()
     child.stdout?.on('data', read)
     child.stderr?.on('data', read)
@@ -214,12 +234,15 @@ export class ZrokTunnel {
     const child = this.child
     if (!child || child.exitCode !== null) return
     await new Promise<void>((resolve) => {
-      const force = setTimeout(() => child.kill('SIGKILL'), 5000)
-      child.once('exit', () => {
-        clearTimeout(force)
-        resolve()
-      })
-      child.kill('SIGTERM')
+      child.once('exit', () => resolve())
+      endProcess(child)
     })
   }
+}
+
+/** Ask zrok to exit, which takes its share down; kill it if it does not. */
+function endProcess(child: ChildProcess): void {
+  const force = setTimeout(() => child.kill('SIGKILL'), EXIT_GRACE_MS)
+  child.once('exit', () => clearTimeout(force))
+  child.kill('SIGTERM')
 }

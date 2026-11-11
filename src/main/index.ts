@@ -2,6 +2,7 @@
 import './former-name'
 import { app, shell, BrowserWindow, ipcMain, dialog, nativeTheme, protocol } from 'electron'
 import { handle, handleAs, listen, MAC_ONLY, onCallerGone, type Caller } from './remote/registry'
+import { appendFileSync, mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -84,6 +85,26 @@ import {
   watchBot
 } from './bots'
 import { availableUpdate, checkForUpdates, installUpdate, watchForUpdates } from './updates'
+
+/**
+ * An error nothing caught is written to ~/Library/Logs/Barebone/main.log.
+ * Electron's own handler shows a box instead, and the box holds this whole
+ * process until someone at the Mac clicks OK: the remote link and Telegram
+ * stop answering with it, locking out a user who is away.
+ */
+function logUncaught(kind: string, error: unknown): void {
+  const text = error instanceof Error ? (error.stack ?? error.message) : String(error)
+  console.error(`${kind}:`, text)
+  try {
+    const dir = app.getPath('logs')
+    mkdirSync(dir, { recursive: true })
+    appendFileSync(join(dir, 'main.log'), `${new Date().toISOString()} ${kind}: ${text}\n`)
+  } catch {
+    // Nowhere to write it; the console has it.
+  }
+}
+process.on('uncaughtException', (error) => logUncaught('Uncaught exception', error))
+process.on('unhandledRejection', (reason) => logUncaught('Unhandled rejection', reason))
 
 let mainWindow: BrowserWindow
 let browser: BuiltinBrowser | undefined
@@ -284,10 +305,12 @@ function createWindow(): BuiltinBrowser {
     recorder?.abandon("Barebone's window crashed")
     if (details.reason === 'clean-exit' || mainWindow.isDestroyed()) return
     if (Date.now() - lastReload < 30_000) {
-      dialog.showErrorBox(
-        'Barebone stopped responding',
-        'The window crashed again right after reloading. Quit and open the app again.'
-      )
+      // A sheet on the window: an error box would hold the whole app, and the remote link with it.
+      void dialog.showMessageBox(mainWindow, {
+        type: 'error',
+        message: 'Barebone stopped responding',
+        detail: 'The window crashed again right after reloading. Quit and open the app again.'
+      })
       return
     }
     lastReload = Date.now()

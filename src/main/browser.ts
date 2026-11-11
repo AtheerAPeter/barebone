@@ -185,8 +185,9 @@ export class ChatPage extends EventEmitter {
     readonly openedBy?: ChatPage
   ) {
     super()
+    this.contents = view.webContents
     this.driver = new PageDriver(
-      view.webContents,
+      this.contents,
       (native) => {
         if (native) this.openDialog({ ...native, site: siteOf(this.contents.getURL()) })
         else if (this.dialog && !this.dialog.answer) this.closeDialog()
@@ -195,9 +196,12 @@ export class ChatPage extends EventEmitter {
     )
   }
 
-  get contents(): WebContents {
-    return this.view.webContents
-  }
+  /**
+   * The page's contents. Kept from the start: once they are destroyed, the
+   * view's webContents is undefined, and code still holding the tab (the remote
+   * link's view of it) must be able to ask whether they are.
+   */
+  readonly contents: WebContents
 
   /**
    * Load the page of a reopened tab, if it has not been loaded yet. Settles
@@ -460,10 +464,11 @@ export class BuiltinBrowser {
     })
     // A page with unsaved changes asks before it is left. Electron would
     // silently stay; the agent was asked to leave, the user is asked. A page
-    // used from the remote link leaves too: asking would hold the whole app
-    // (the box is modal) until someone at the Mac answered.
+    // used from the remote link leaves too, and so does one left while the
+    // window is not in front, which no one at the Mac did: asking would hold
+    // the whole app (the box is modal) until someone at the Mac answered.
     contents.on('will-prevent-unload', (event) => {
-      if (tab.automated || tab.viewedRemotely) {
+      if (tab.automated || tab.viewedRemotely || !this.window.isFocused()) {
         event.preventDefault()
         return
       }
