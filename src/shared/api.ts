@@ -25,7 +25,8 @@ import type {
   RemoteBrowserView,
   RemotePairing,
   RemoteStatus,
-  SpeechStatus,
+  DownloadId,
+  Downloads,
   SpeechStop,
   SpokenAudio,
   Rect,
@@ -33,6 +34,7 @@ import type {
   SkillScope,
   TelegramStatus,
   Theme,
+  VoiceModelId,
   WalkAt,
   WalkControl,
   Walkthrough
@@ -128,20 +130,35 @@ export function makeApi(t: Transport) {
       draft: (text: string): void => send('orb:draft', text)
     },
 
-    /** The voice agents speak with (the speak tool), run on this Mac (main/speech). */
+    /** What the app downloads when asked: the voices, the music model, ffmpeg (main/downloads.ts). */
+    downloads: {
+      status: (): Promise<Downloads> => invoke('downloads:status'),
+      onStatus: (listener: (downloads: Downloads) => void) => on('downloads:status', listener),
+      /** Download one; resolves once it has started. */
+      fetch: (id: DownloadId): Promise<void> => invoke('downloads:fetch', id),
+      cancel: (id: DownloadId): Promise<void> => invoke('downloads:cancel', id),
+      /** Delete one from this Mac, to free its space. */
+      remove: (id: DownloadId): Promise<void> => invoke('downloads:remove', id)
+    },
+
+    /** Give agents make_music, or take it away. */
+    setMusic: (on: boolean): Promise<void> => invoke('music:set', on),
+
+    /** The voices agents speak with (the speak tool), run on this Mac (main/speech). */
     speech: {
-      /** Turn speech on or off; on downloads the voice when it is not on this Mac yet. */
+      /** Turn speech on or off; on downloads Supertonic when no voice is on this Mac yet. */
       set: (on: boolean): Promise<void> => invoke('speech:set', on),
-      status: (): Promise<SpeechStatus> => invoke('speech:status'),
-      onStatus: (listener: (status: SpeechStatus) => void) => on('speech:status', listener),
-      /** Download the voice again, after a failed or cancelled download. */
-      download: (): Promise<void> => invoke('speech:download'),
-      cancelDownload: (): Promise<void> => invoke('speech:cancelDownload'),
-      /** Delete the voice from this Mac; speech turns off. */
-      remove: (): Promise<void> => invoke('speech:remove'),
-      /** Say a sample, to hear the voice. */
-      sample: (text: string, language: string): Promise<void> =>
-        invoke('speech:sample', text, language),
+      /** Turn a voice on or off; a downloaded one stays on this Mac. */
+      setVoiceOn: (model: VoiceModelId, on: boolean): Promise<void> =>
+        invoke('speech:setVoiceOn', model, on),
+      /** Pick the voice that speaks Arabic, or the one for every other language. */
+      setVoiceFor: (which: 'arabic' | 'other', model: VoiceModelId): Promise<void> =>
+        invoke('speech:setVoiceFor', which, model),
+      /** Make VoxCPM2's voice from a description; resolves once it is made. */
+      makeVoice: (description: string): Promise<void> => invoke('speech:makeVoice', description),
+      /** Say a sample, to hear a voice: the one Settings picks for the language, or `model`. */
+      sample: (text: string, language: string, model?: VoiceModelId): Promise<void> =>
+        invoke('speech:sample', text, language, model),
       /** Stop what a chat says; every chat when undefined. */
       stop: (chatId?: string): Promise<void> => invoke('speech:stop', chatId),
       /** A piece of a spoken message, to play. */

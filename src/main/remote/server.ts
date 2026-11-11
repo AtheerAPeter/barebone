@@ -50,7 +50,7 @@ const BROADCAST = new Set([
   'walk:start',
   'walk:at',
   'speech:stop',
-  'speech:status',
+  'downloads:status',
   'telegram:status',
   'remoteBrowser:allowed',
   'bots:changed'

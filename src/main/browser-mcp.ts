@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http'
 import { randomBytes } from 'node:crypto'
 import { once } from 'node:events'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
@@ -17,6 +17,7 @@ import {
   formatDuration,
   SERVER_NAME as CHATS_SERVER,
   languageArg,
+  moodArg,
   offeredSpeech,
   paceArg,
   provideSpeech,
@@ -408,18 +409,34 @@ const narrations = new Map<string, Promise<void>>()
 const AFTER_TELLING_MS = 800
 
 /** What the voice says with a step, as show_step takes it. */
-const sayArg = z
-  .object({
-    text: z
-      .string()
-      .describe(
-        'One to three plain spoken sentences, in the language you write to the user in; never code, paths or URLs'
-      ),
-    language: languageArg,
-    pace: paceArg
-  })
+const sayFields = {
+  text: z
+    .string()
+    .describe(
+      'One to three plain spoken sentences, in the language you write to the user in; never code, paths or URLs'
+    ),
+  language: languageArg,
+  pace: paceArg
+}
+const sayArg = z.object(sayFields).optional().describe('What the voice says as the step shows')
+/** The same, with a mood, while the voice takes one (VoxCPM2). */
+const sayWithMoodArg = z
+  .object({ ...sayFields, mood: moodArg })
   .optional()
   .describe('What the voice says as the step shows')
+
+/** Music under a video is read whole, so a file larger than this is turned away. */
+const MAX_MUSIC_BYTES = 50_000_000
+/** play lets a page play for at most this long. */
+const MAX_PLAY_SECONDS = 120
+
+/** The recorder, once the server runs: whether videos get thumbnails, for the tools listed. */
+let videoRecorder: PageRecorder | undefined
+
+/** Whether mark_thumbnail is listed now: ffmpeg is on this Mac. */
+export function thumbnailsOffered(): boolean {
+  return videoRecorder?.thumbnails() === true
+}
 
 /** A box or an arrow to draw, as annotate and show_step take it. */
 const shapeArg = z.object({
@@ -1219,7 +1236,7 @@ async function buildServer(
               'At most two or three: a box around the area that matters, an arrow to something small'
             ),
           // Only while the voice is offered, as the speak tool is.
-          ...(speechOffered() ? { say: sayArg } : {}),
+          ...(speechOffered() ? { say: offeredSpeech()?.natural() ? sayWithMoodArg : sayArg } : {}),
           ...pageArgs
         }
       },
@@ -1234,7 +1251,12 @@ async function buildServer(
             // The step shows as its voice begins, so what the user sees matches what they hear.
             // Its voice comes after what is being said already, as a step without one does.
             const spoken =
-              say && voice ? voice.speak(chatId, say.text, say.language, say.pace) : undefined
+              say && voice
+                ? voice.speak(chatId, say.text, say.language, {
+                    pace: say.pace,
+                    mood: 'mood' in say ? (say.mood as string | undefined) : undefined
+                  })
+                : undefined
             let heard: boolean | undefined
             if (spoken) {
               const told = spoken.ended.then(() => sleep(AFTER_TELLING_MS))
@@ -1526,19 +1548,83 @@ async function buildServer(
     server.registerTool(
       'start_recording',
       {
-        description: `Record the tab as a video, an MP4 file with sound, when the user asks for a video: a demo, a walkthrough, a bug report. The page is in it as the user sees it${drawing ? ', with the drawings, the pointer and the caption' : ''}${voice ? `, and what you say with speak${drawing ? " or show_step's say" : ''} is its sound` : ''}. It records this tab, at the size it has now (set a phone's or a video's size with set_viewport first), until stop_recording; tabs opened meanwhile are not in it. A chat records one tab at a time. While you work out your next step it pauses, so the video has no waits however long you take.${voice ? ' Narrate it with this voice only, never another text-to-speech or sound added afterwards.' : ''}${drawing && voice ? ` For a narrated walkthrough, read the Video section of the browser-tutorial skill first: ${BROWSER_TUTORIAL_SKILL}` : ''} The browser is signed in to the user's accounts, so what the page shows is in the video.`,
+        description: `Record the tab as a video, an MP4 file with sound, when the user asks for a video: a demo, a walkthrough, a bug report. The page is in it as the user sees it${drawing ? ', with the drawings, the pointer and the caption' : ''}${voice ? `, and what you say with speak${drawing ? " or show_step's say" : ''} is its sound` : ''}. It records this tab, at the size it has now (set a phone's or a video's size with set_viewport first), until stop_recording; tabs opened meanwhile are not in it. A chat records one tab at a time. While you work out your next step it pauses, so the video has no waits however long you take.${voice ? ' Narrate it with this voice only, never another text-to-speech or sound added afterwards; music goes in with music.' : ''}${drawing && voice ? ` For a narrated walkthrough, read the Video section of the browser-tutorial skill first: ${BROWSER_TUTORIAL_SKILL}` : ''} The browser is signed in to the user's accounts, so what the page shows is in the video. For a launch video, a demo or an animated video, read the Video section of the browser-tutorial skill first: ${BROWSER_TUTORIAL_SKILL}`,
         inputSchema: {
           path: z.string().describe('Absolute path of the .mp4 file to write'),
+          music: z
+            .string()
+            .optional()
+            .describe(
+              `Absolute path of an audio file (WAV, MP3, M4A) to play on a loop under the voice for the whole video, quieter while the voice talks${offeredSpeech()?.music() ? '; make one with make_music' : ''}. Only for demos and launch videos, not for walkthroughs or bug reports`
+            ),
           ...pageArgs
         }
       },
-      ({ path, browser: id, tab }) =>
+      ({ path, music, browser: id, tab }) =>
         act(id, tab, async (page) => {
           if (!isAbsolute(path)) throw new Error(`"path" must be absolute: ${path}`)
-          await recorder.start(chatFor(id), page, path)
-          return text(`Recording tab ${page.id} to ${path}. Call stop_recording to save it.`)
+          let bytes: Uint8Array | undefined
+          if (music !== undefined) {
+            if (!isAbsolute(music)) throw new Error(`"music" must be absolute: ${music}`)
+            const size = (await stat(music)).size
+            if (size > MAX_MUSIC_BYTES) {
+              throw new Error(`The music is ${Math.round(size / 1e6)} MB; give a file under 50 MB.`)
+            }
+            bytes = new Uint8Array(await readFile(music))
+          }
+          await recorder.start(chatFor(id), page, path, bytes)
+          return text(
+            `Recording tab ${page.id} to ${path}${bytes ? ', with the music under it' : ''}. Call stop_recording to save it.`
+          )
         })
     )
+
+    server.registerTool(
+      'play',
+      {
+        description:
+          'Let the page play for some seconds while you record: an animation, a video on the page, a page that changes by itself. Recording pauses while you work, so without this a page that moves by itself is not in the video. With run, a script starts it the moment the recording goes on (like "start()"), so nothing is missed. What the voice says meanwhile (speak, called just before) plays over it.',
+        inputSchema: {
+          seconds: z.number().min(0.5).max(MAX_PLAY_SECONDS).describe('How long it plays'),
+          run: z
+            .string()
+            .optional()
+            .describe(
+              'A JavaScript expression run in the page as it starts playing, like "start()"'
+            ),
+          ...pageArgs
+        }
+      },
+      ({ seconds, run, browser: id, tab }) =>
+        act(
+          id,
+          tab,
+          async (page) => {
+            if (run) {
+              const result = await untilDialog(page, () => page.driver.evaluate(run))
+              if ('dialog' in result) return text(dialogNote(result.dialog))
+            }
+            await sleep(seconds * 1000)
+            return text(`Played the page for ${seconds}s${run ? `, started with ${run}` : ''}.`)
+          },
+          { afterVoice: false, recorded: true }
+        )
+    )
+
+    if (recorder.thumbnails()) {
+      server.registerTool(
+        'mark_thumbnail',
+        {
+          description:
+            "Mark what the video shows now as its thumbnail, the still every player and site shows before it plays: pick the strongest settled moment, with the product's name or its result fully on screen, not mid-change. Without it, the thumbnail is the video's last moment.",
+          inputSchema: { ...browserArg }
+        },
+        ({ browser: id }) => {
+          const at = recorder.markThumbnail(chatFor(id))
+          return text(`Marked ${formatDuration(at)} into the video as its thumbnail.`)
+        }
+      )
+    }
 
     server.registerTool(
       'stop_recording',
@@ -1556,8 +1642,13 @@ async function buildServer(
         release()
         const video = await recorder.stop(chatId)
         const early = video.endedBy ? ` It ended before you stopped it: ${video.endedBy}.` : ''
+        const thumbnail = video.thumbnail
+          ? ` Its thumbnail is ${video.thumbnail}, and the video's first frame.`
+          : video.thumbnailError
+            ? ` It has no thumbnail: ${video.thumbnailError}.`
+            : ''
         return text(
-          `Saved a ${formatDuration(video.duration)} video of tab ${video.tab} to ${video.path} (${(video.bytes / 1e6).toFixed(1)} MB).${early}`
+          `Saved a ${formatDuration(video.duration)} video of tab ${video.tab} to ${video.path} (${(video.bytes / 1e6).toFixed(1)} MB).${early}${thumbnail}`
         )
       }
     )
@@ -1582,6 +1673,7 @@ export async function startBrowserMcp(
   devices: { manager: DeviceManager; routing: DevicesRouting }
 ): Promise<BrowserMcpEndpoint> {
   provideSpeech(speech)
+  videoRecorder = recorder
   const saved = readSaved()
   const token = saved?.token ?? randomBytes(24).toString('hex')
   const http = createServer(async (req, res) => {

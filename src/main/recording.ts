@@ -1,6 +1,6 @@
 import { ipcMain, type IpcMainEvent, type WebContents } from 'electron'
 import { createWriteStream, type WriteStream } from 'node:fs'
-import { mkdir, rm } from 'node:fs/promises'
+import { mkdir, rm, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { RecordingRequest } from '../shared/types'
 import type { ChatPage } from './browser'
@@ -24,6 +24,8 @@ import { withTimeout } from './page-driver'
 const START_TIMEOUT = 10_000
 /** How long it keeps recording after what it held: the page settling, a breath after the words. */
 const TAIL_MS = 600
+/** Without a marked thumbnail, the frame this long before the end: what the demo ends on. */
+const THUMBNAIL_BEFORE_END_MS = 400
 
 /** A recording that has ended, and its file written. */
 export interface Recorded {
@@ -35,6 +37,10 @@ export interface Recorded {
   bytes: number
   /** Why it ended before it was stopped, if it did: the tab closed, the window reloaded. */
   endedBy?: string
+  /** Its thumbnail, a JPEG beside it, when ffmpeg is on this Mac (video.ts). */
+  thumbnail?: string
+  /** Why it has no thumbnail though ffmpeg is there. */
+  thumbnailError?: string
 }
 
 interface Recording {
@@ -58,6 +64,8 @@ interface Recording {
   pausedMs: number
   /** Pauses it once the tail after the last hold is over. */
   pauseTimer?: ReturnType<typeof setTimeout>
+  /** Where in the video its thumbnail is, in milliseconds, once marked. */
+  thumbnailAt?: number
   started: { resolve: () => void; reject: (error: Error) => void }
   /** Settles once the file is closed. */
   done: Promise<Recorded>
@@ -77,7 +85,14 @@ export class PageRecorder {
     /** Whether a chat's agent is working on a turn now. */
     private readonly working: (chatId: string) => boolean,
     /** A chat's video was saved: its agent stopped the recording and the file is closed. */
-    private readonly saved: (chatId: string, video: Recorded) => void
+    private readonly saved: (chatId: string, video: Recorded) => void,
+    /**
+     * Give a video its thumbnail, the frame `at` ms in; resolves with the
+     * JPEG's path, or undefined when it cannot have one (video.ts).
+     */
+    private readonly thumbnail: (path: string, at: number) => Promise<string | undefined>,
+    /** Whether videos get thumbnails now: ffmpeg is on this Mac. */
+    readonly thumbnails: () => boolean
   ) {
     const from = <Args extends unknown[]>(
       channel: string,
@@ -103,8 +118,11 @@ export class PageRecorder {
     })
   }
 
-  /** Start recording a chat's tab to an MP4 file; throws why it cannot. */
-  async start(chatId: string, tab: ChatPage, path: string): Promise<void> {
+  /**
+   * Start recording a chat's tab to an MP4 file, with `music` (an audio
+   * file's bytes) under its voice; throws why it cannot.
+   */
+  async start(chatId: string, tab: ChatPage, path: string, music?: Uint8Array): Promise<void> {
     const running = this.latest.get(chatId)
     if (running && !running.endedBy) {
       throw new Error(
@@ -134,7 +152,8 @@ export class PageRecorder {
       chatId,
       sourceId: contents.getMediaSourceId(this.window),
       width,
-      height
+      height,
+      ...(music ? { music } : {})
     }
     let started!: Recording['started']
     const starting = new Promise<void>((resolve, reject) => (started = { resolve, reject }))
@@ -203,8 +222,35 @@ export class PageRecorder {
     this.end(recording)
     const recorded = await recording.done
     if (this.latest.get(chatId) === recording) this.latest.delete(chatId)
+    // The frame marked, else one just before the end, where a demo shows what it made.
+    const at = recording.thumbnailAt ?? Math.max(0, recorded.duration - THUMBNAIL_BEFORE_END_MS)
+    if (recorded.bytes > 0) {
+      await this.thumbnail(recorded.path, at).then(
+        async (jpeg) => {
+          recorded.thumbnail = jpeg
+          // Made again with its thumbnail in front, so its size changed.
+          if (jpeg) recorded.bytes = (await stat(recorded.path)).size
+        },
+        (error: Error) => (recorded.thumbnailError = error.message.split('\n')[0])
+      )
+    }
     this.saved(chatId, recorded)
     return recorded
+  }
+
+  /**
+   * Mark what the chat's video shows now as its thumbnail; returns where in
+   * the video that is, in ms. Throws when the chat is not recording.
+   */
+  markThumbnail(chatId: string): number {
+    const recording = this.latest.get(chatId)
+    if (!recording || !this.recording(chatId)) {
+      throw new Error('This chat is not recording. Start with start_recording.')
+    }
+    const now = Date.now()
+    const paused = recording.pausedMs + (recording.pausedAt ? now - recording.pausedAt : 0)
+    recording.thumbnailAt = Math.max(0, now - recording.startedAt - paused)
+    return recording.thumbnailAt
   }
 
   /** Whether a chat is recording now. */

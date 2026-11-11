@@ -443,6 +443,12 @@ export default function App(): React.JSX.Element {
             codeTours={state.codeTours === true}
             mobile={state.mobile === true}
             speech={state.speech !== false}
+            voices={{
+              off: state.voicesOff ?? [],
+              voiceFor: state.voiceFor ?? {},
+              description: state.voiceDescription
+            }}
+            music={state.music === true}
             onProvidersChange={() => readStatus('custom-api')}
           />
         ) : chat && project ? (

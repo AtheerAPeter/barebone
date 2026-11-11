@@ -11,9 +11,10 @@ import {
   chatsMcpEndpoint,
   devicesMcpEndpoint,
   SERVER_NAME as BROWSER_SERVER,
+  thumbnailsOffered,
   type BrowserMcpEndpoint
 } from '../browser-mcp'
-import { chatKey, SERVER_NAME as CHATS_SERVER, speechOffered } from '../chats-mcp'
+import { chatKey, SERVER_NAME as CHATS_SERVER, voiceTools } from '../chats-mcp'
 import { SERVER_NAME as DEVICES_SERVER } from '../devices-mcp'
 import { exaKey } from '../exa-key'
 import { getState } from '../store'
@@ -633,16 +634,18 @@ export const browserTools = appServerTools({
   chatValue: browserId,
   server: BROWSER_SERVER,
   kind: 'fetch',
-  // Settings adds or removes the tools that draw on pages and record videos, and the voice
-  // show_step's say.
+  // Settings adds or removes the tools that draw on pages and record videos, the voice
+  // show_step's say and its mood, and mark_thumbnail with ffmpeg's download.
   variant: () =>
-    `${getState().annotations === true} ${getState().recording === true} ${speechOffered()}`,
+    `${getState().annotations === true} ${getState().recording === true} ${voiceTools()} ${thumbnailsOffered()}`,
   paths: (name, args) =>
     name === 'upload' || name === 'paste_image'
       ? Object.values(args).flatMap(stringsIn)
-      : name === 'pdf' || name === 'start_recording'
+      : name === 'pdf'
         ? stringsIn(args.path)
-        : []
+        : name === 'start_recording'
+          ? [...stringsIn(args.path), ...stringsIn(args.music)]
+          : []
 })
 
 /** The tools that start and message other chats, with the chat's own key filled in the same way. */
@@ -652,9 +655,9 @@ export const chatTools = appServerTools({
   chatValue: chatKey,
   server: CHATS_SERVER,
   kind: 'other',
-  // The speak tool comes and goes with Settings and the voice's download.
-  variant: speechOffered,
-  paths: (name, args) => (name === 'speak' ? stringsIn(args.path) : [])
+  // The voice's tools come and go with Settings and the downloads.
+  variant: voiceTools,
+  paths: (name, args) => (name === 'speak' || name === 'make_music' ? stringsIn(args.path) : [])
 })
 
 /**

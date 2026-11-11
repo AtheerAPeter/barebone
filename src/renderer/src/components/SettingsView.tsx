@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { renderSVG } from 'uqr'
-import type { MobileToolCheck, SpeechStatus, TelegramStatus } from '../../../shared/types'
+import type {
+  DownloadId,
+  Downloads,
+  DownloadStatus,
+  MobileToolCheck,
+  TelegramStatus,
+  VoiceModelId
+} from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
 import { useRemoteStatus } from '../lib/remote'
 import { useTelegramStatus } from '../lib/telegram'
@@ -8,6 +15,7 @@ import { useUpdateInstall } from '../lib/update'
 import {
   CloseIcon,
   DownloadIcon,
+  MusicIcon,
   GlobeIcon,
   MicIcon,
   PencilIcon,
@@ -81,6 +89,8 @@ export function SettingsView({
   codeTours,
   mobile,
   speech,
+  voices,
+  music,
   onProvidersChange
 }: {
   instructions: string | undefined
@@ -89,6 +99,8 @@ export function SettingsView({
   codeTours: boolean
   mobile: boolean
   speech: boolean
+  voices: Voices
+  music: boolean
   onProvidersChange: () => void
 }): React.JSX.Element {
   const [query, setQuery] = useState('')
@@ -98,7 +110,7 @@ export function SettingsView({
   const [hints, setHints] = useState<KeyHints>({})
   const [providers, setProviders] = useState<number>()
   const [version, setVersion] = useState<string>()
-  const [speechStatus, setSpeechStatus] = useState<SpeechStatus>()
+  const [downloads, setDownloads] = useState<Downloads>()
   /** What went wrong saving a switch, per setting. */
   const [errors, setErrors] = useState<Record<string, string | undefined>>({})
   const telegram = useTelegramStatus()
@@ -112,8 +124,8 @@ export function SettingsView({
     window.api.telegram.keyHint().then((hint) => setHints((h) => ({ ...h, telegram: hint })))
     window.api.providers.list().then((list) => setProviders(list.length))
     window.api.appVersion().then(setVersion)
-    window.api.speech.status().then(setSpeechStatus)
-    return window.api.speech.onStatus(setSpeechStatus)
+    window.api.downloads.status().then(setDownloads)
+    return window.api.downloads.onStatus(setDownloads)
   }, [])
 
   function setHint(name: keyof KeyHints, hint: string | null): void {
@@ -259,6 +271,38 @@ export function SettingsView({
           </p>
           <Scope />
           {errors.recording && <div className="msg-error">{errors.recording}</div>}
+          <h4 className="settings-subhead">Thumbnails</h4>
+          <p>
+            With ffmpeg on this Mac, every video gets a thumbnail: its best still, saved as a JPEG
+            beside it and put in as its first frame, so players and sites show that one.
+          </p>
+          <DownloadBody id="ffmpeg" what="ffmpeg" status={downloads?.ffmpeg} />
+        </>
+      )
+    },
+    {
+      id: 'music',
+      group: 'Abilities',
+      name: 'Music for videos',
+      summary: 'Agents can make music on this Mac, to play under the videos they record.',
+      keywords: 'music soundtrack background track stable audio video demo',
+      state: music ? 'on' : 'off',
+      needs: music && downloads?.music.state === 'missing',
+      icon: <MusicIcon />,
+      tone: 'pink',
+      pill: music ? 'On' : 'Off',
+      pillTone: music ? 'on' : 'off',
+      action: onOff('music', 'Music for videos', music, window.api.setMusic),
+      detail: (
+        <>
+          <p>
+            Gives every agent a tool that makes instrumental music from a description, with Stable
+            Audio 3 Small on this Mac, and plays it quietly under the voice of a video it records.
+            The model is downloaded once
+            {downloads ? `, ${megabytes(downloads.music.total)}` : ''}.
+          </p>
+          <DownloadBody id="music" what="the music model" status={downloads?.music} />
+          {errors.music && <div className="msg-error">{errors.music}</div>}
         </>
       )
     },
@@ -356,7 +400,10 @@ export function SettingsView({
       summary: 'Agents can say things out loud in a natural voice on this Mac.',
       keywords: 'voice speak out loud supertonic audio language arabic german',
       state: speech ? 'on' : 'off',
-      needs: speech && speechStatus?.state === 'missing',
+      needs:
+        speech &&
+        downloads !== undefined &&
+        VOICES.every(({ id }) => downloads[id].state !== 'ready'),
       icon: <SpeakerIcon />,
       tone: 'teal',
       pill: speech ? 'On' : 'Off',
@@ -366,11 +413,10 @@ export function SettingsView({
         <>
           <p>
             Agents can say things out loud, such as when they need you or finish a long task, in a
-            natural voice that runs on this Mac: Arabic, English, German and 28 more languages. The
-            voice (Supertonic 3) is downloaded once
-            {speechStatus ? `, ${megabytes(speechStatus.total)}` : ''}.
+            voice that runs on this Mac. Download a voice, turn it on, and pick which one speaks
+            Arabic and which every other language.
           </p>
-          <SpeechBody on={speech} status={speechStatus} />
+          <VoicesBody on={speech} voices={voices} downloads={downloads} />
           {errors.speech && <div className="msg-error">{errors.speech}</div>}
         </>
       )
@@ -698,13 +744,33 @@ function InstructionsForm({ saved }: { saved: string }): React.JSX.Element {
   )
 }
 
-/** What the samples say, in the languages the voice was chosen for. */
-const SAMPLES = [
+/** What Settings has for the voices: the ones turned off, and which speaks what. */
+export interface Voices {
+  off: VoiceModelId[]
+  voiceFor: { arabic?: VoiceModelId; other?: VoiceModelId }
+  description?: string
+}
+
+/** The voices, as Settings lists them. */
+const VOICES: { id: VoiceModelId; name: string; about: string }[] = [
   {
-    language: 'ar',
-    name: 'Arabic',
-    text: 'مرحبا، أنا الصوت الذي يتحدث به وكلاؤك. سأخبرك عندما يحتاج شيء إلى انتباهك.'
+    id: 'supertonic',
+    name: 'Supertonic 3',
+    about: 'Fast and clear, in 31 languages, always in the same tone.'
   },
+  {
+    id: 'voxcpm2',
+    name: 'VoxCPM2',
+    about:
+      'Natural, and it speaks in the mood each message asks for, in 30 languages. A little slower than speech, so live answers pause between sentences.'
+  }
+]
+
+/** The voice VoxCPM2 speaks in until another is described (main/speech). */
+const DEFAULT_VOICE = 'A warm, friendly man in his thirties with a clear, natural voice'
+
+/** What the samples say. */
+const SAMPLES = [
   {
     language: 'en',
     name: 'English',
@@ -717,19 +783,13 @@ const SAMPLES = [
   }
 ]
 
-const megabytes = (bytes: number): string => `${Math.round(bytes / 1_000_000)} MB`
+const megabytes = (bytes: number): string =>
+  bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`
 
-/** The voice's download, the samples, and removing it, under the Spoken messages row. */
-function SpeechBody({
-  on,
-  status
-}: {
-  on: boolean
-  status: SpeechStatus | undefined
-}): React.JSX.Element {
+/** Runs an action, keeping what went wrong to show under it. */
+function useAction(): [string | undefined, (action: () => Promise<unknown>) => Promise<void>] {
   const [error, setError] = useState<string>()
-
-  async function run(action: () => Promise<void>): Promise<void> {
+  const run = async (action: () => Promise<unknown>): Promise<void> => {
     setError(undefined)
     try {
       await action()
@@ -737,72 +797,227 @@ function SpeechBody({
       setError(errorMessage(e))
     }
   }
+  return [error, run]
+}
 
+/**
+ * Something the app downloads (a voice, the music model, ffmpeg): its download
+ * with a bar and Cancel, the button that starts it, and Remove once it is
+ * here. `ready` is what shows beside Remove then.
+ */
+function DownloadBody({
+  id,
+  what,
+  status,
+  ready
+}: {
+  id: DownloadId
+  what: string
+  status: DownloadStatus | undefined
+  ready?: ReactNode
+}): React.JSX.Element | null {
+  const [error, run] = useAction()
+  if (!status) return null
   return (
     <>
-      {status?.state === 'downloading' && (
+      {status.state === 'downloading' && (
         <div className="speech-download">
           <div className="speech-progress">
             <div style={{ width: `${(100 * status.received) / status.total}%` }} />
           </div>
           <span>
-            Downloading the voice: {megabytes(status.received)} of {megabytes(status.total)}
+            {megabytes(status.received)} of {megabytes(status.total)}
           </span>
-          <button type="button" className="btn" onClick={() => window.api.speech.cancelDownload()}>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => void run(() => window.api.downloads.cancel(id))}
+          >
             Cancel
           </button>
         </div>
       )}
-      {on && status?.state === 'missing' && (
+      {status.state === 'missing' && (
         <div className="settings-row">
           <button
             type="button"
             className="btn primary"
-            onClick={() => void run(() => window.api.speech.download())}
+            onClick={() => void run(() => window.api.downloads.fetch(id))}
           >
-            Download the voice
+            Download {what} ({megabytes(status.total)})
           </button>
         </div>
       )}
-      {status?.state === 'failed' && (
+      {status.state === 'failed' && (
         <>
           <div className="msg-error">{status.message}</div>
           <div className="settings-row">
             <button
               type="button"
               className="btn"
-              onClick={() => void run(() => window.api.speech.download())}
+              onClick={() => void run(() => window.api.downloads.fetch(id))}
             >
               Try again
             </button>
           </div>
         </>
       )}
-      {status?.state === 'ready' && (
+      {status.state === 'ready' && (
         <div className="settings-row speech-ready">
-          <span className="settings-label">Hear it</span>
-          {SAMPLES.map((sample) => (
-            <button
-              key={sample.language}
-              type="button"
-              className="btn"
-              onClick={() => void run(() => window.api.speech.sample(sample.text, sample.language))}
-            >
-              {sample.name}
-            </button>
-          ))}
+          {ready}
           <span className="spacer" />
           <button
             type="button"
             className="btn"
-            onClick={() => void run(() => window.api.speech.remove())}
+            onClick={() => void run(() => window.api.downloads.remove(id))}
           >
-            Remove the voice
+            Remove ({megabytes(status.total)})
           </button>
         </div>
       )}
       {error && <div className="msg-error">{error}</div>}
     </>
+  )
+}
+
+/**
+ * The voices under the Spoken messages row: each one's download, its switch
+ * and samples; which speaks Arabic and which every other language; and the
+ * voice VoxCPM2 speaks in, made from a description.
+ */
+function VoicesBody({
+  on,
+  voices,
+  downloads
+}: {
+  on: boolean
+  voices: Voices
+  downloads: Downloads | undefined
+}): React.JSX.Element | null {
+  const [error, run] = useAction()
+  if (!downloads) return null
+  const usable = (id: VoiceModelId): boolean =>
+    on && downloads[id].state === 'ready' && !voices.off.includes(id)
+  const picked = (which: 'arabic' | 'other'): VoiceModelId => voices.voiceFor[which] ?? 'supertonic'
+
+  return (
+    <>
+      {VOICES.map((voice) => {
+        const ready = downloads[voice.id].state === 'ready'
+        const voiceOn = !voices.off.includes(voice.id)
+        return (
+          <div key={voice.id} className="voice-model">
+            <div className="voice-model-head">
+              <div>
+                <div className="settings-label">{voice.name}</div>
+                <p>{voice.about}</p>
+              </div>
+              {ready && (
+                <Switch
+                  label={voice.name}
+                  on={voiceOn}
+                  onChange={(value) =>
+                    void run(() => window.api.speech.setVoiceOn(voice.id, value))
+                  }
+                />
+              )}
+            </div>
+            <DownloadBody
+              id={voice.id}
+              what={voice.name}
+              status={downloads[voice.id]}
+              ready={
+                usable(voice.id) && (
+                  <>
+                    <span className="settings-label">Hear it</span>
+                    {SAMPLES.map((sample) => (
+                      <button
+                        key={sample.language}
+                        type="button"
+                        className="btn"
+                        onClick={() =>
+                          void run(() =>
+                            window.api.speech.sample(sample.text, sample.language, voice.id)
+                          )
+                        }
+                      >
+                        {sample.name}
+                      </button>
+                    ))}
+                  </>
+                )
+              }
+            />
+            {voice.id === 'voxcpm2' && usable('voxcpm2') && (
+              // An agent can change the voice too (set_voice): the field starts anew then.
+              <VoiceDescription
+                key={voices.description ?? DEFAULT_VOICE}
+                description={voices.description ?? DEFAULT_VOICE}
+              />
+            )}
+          </div>
+        )
+      })}
+      {(['arabic', 'other'] as const).map((which) => (
+        <div key={which} className="provider-field">
+          <span>{which === 'arabic' ? 'Arabic speaks with' : 'Other languages speak with'}</span>
+          <div className="segmented">
+            {VOICES.map((voice) => (
+              <button
+                key={voice.id}
+                type="button"
+                className={picked(which) === voice.id ? 'on' : ''}
+                disabled={!usable(voice.id)}
+                onClick={() => void run(() => window.api.speech.setVoiceFor(which, voice.id))}
+              >
+                {voice.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+      {error && <div className="msg-error">{error}</div>}
+    </>
+  )
+}
+
+/** The voice VoxCPM2 speaks in: a description, made into a voice on this Mac. */
+function VoiceDescription({ description }: { description: string }): React.JSX.Element {
+  const [text, setText] = useState(description)
+  const [making, setMaking] = useState(false)
+  const [error, run] = useAction()
+
+  return (
+    <form
+      className="provider-field"
+      onSubmit={(e) => {
+        e.preventDefault()
+        setMaking(true)
+        void run(() => window.api.speech.makeVoice(text)).finally(() => setMaking(false))
+      }}
+    >
+      <span>Its voice</span>
+      <div className="settings-row">
+        <input
+          value={text}
+          placeholder={DEFAULT_VOICE}
+          aria-label="The voice VoxCPM2 speaks in"
+          onChange={(e) => setText(e.target.value)}
+        />
+        <button
+          type="submit"
+          className="btn primary"
+          disabled={making || !text.trim() || text.trim() === description}
+        >
+          {making ? 'Making it…' : 'Make this voice'}
+        </button>
+      </div>
+      <p>
+        Describe who speaks and how they sound. Agents can change it too, when a video needs another
+        voice.
+      </p>
+      {error && <div className="msg-error">{error}</div>}
+    </form>
   )
 }
 

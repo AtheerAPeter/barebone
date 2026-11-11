@@ -5370,6 +5370,35 @@ img.project-icon {
   flex: 1;
 }
 
+/* A voice under Spoken messages: its name and what it is like, its switch, its download. */
+.voice-model {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--well);
+  border-radius: var(--radius);
+}
+
+.voice-model-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.voice-model-head p {
+  margin-top: 2px;
+}
+
+/* A part of a setting's explanation with a name of its own, like Thumbnails under Recording videos. */
+.settings-subhead {
+  margin: 4px 0 -4px;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
 .settings-row input {
   flex: 1;
   min-width: 0;

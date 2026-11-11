@@ -24,7 +24,10 @@ import type {
   Project,
   Rect,
   SkillScope,
-  Theme
+  Theme,
+  DownloadId,
+  Downloads,
+  VoiceModelId
 } from '../shared/types'
 import { BOT_SCHEME, REMOTE_BOTS } from '../shared/types'
 import * as store from './store'
@@ -60,8 +63,9 @@ import {
 import { installMenu } from './menu'
 import { AgentOrb } from './orb'
 import { PageRecorder } from './recording'
-import { Speech } from './speech'
+import { MAX_MUSIC_SECONDS, Speech } from './speech'
 import type { Language } from './speech/supertonic'
+import { VideoTools } from './video'
 import { loadShellPath } from './shell-env'
 import * as skills from './skills'
 import { listProjectFiles } from './files'
@@ -85,6 +89,8 @@ let mainWindow: BrowserWindow
 let browser: BuiltinBrowser | undefined
 /** The voice agents speak with; made once the app has its name, which its data folder is under. */
 let speech: Speech
+/** ffmpeg, for videos' thumbnails; made with the voice. */
+let videoTools: VideoTools
 /** Records browser tabs as videos, in the window; made with the window. */
 let recorder: PageRecorder | undefined
 /** Plays agents' code walkthroughs, with the voice; made with the voice. */
@@ -111,6 +117,20 @@ const remote = new RemoteLink({
   state: () => store.getState(),
   statusChanged: (status) => send('remote:status', status)
 })
+
+/** What is downloaded, and what is downloading: the voices, the music model and ffmpeg. */
+function downloads(): Downloads {
+  return { ...speech.downloads(), ffmpeg: videoTools.ffmpeg.status() }
+}
+
+/**
+ * Download Supertonic when speech is on and no voice is on this Mac: the
+ * first time, and after the user deleted every voice and turned speech on.
+ */
+function fetchFirstVoice(): void {
+  const { supertonic, voxcpm2 } = speech.downloads()
+  if (supertonic.state === 'missing' && voxcpm2.state === 'missing') void speech.fetch('supertonic')
+}
 
 /** Chats, projects or settings changed: the window and the Telegram bot show them anew. */
 function stateChanged(): void {
@@ -624,24 +644,41 @@ function registerIpc(browser: BuiltinBrowser): void {
     store.setRecording(on)
     stateChanged()
   })
-  // Speech: turning it on downloads the voice when it is not on this Mac yet.
+  // Speech: turning it on downloads Supertonic when no voice is on this Mac yet.
   handle('speech:set', (on: boolean) => {
     store.setSpeech(on)
     stateChanged()
-    if (on) void speech.fetchModel()
+    if (on) fetchFirstVoice()
     else speech.stop()
   })
-  handle('speech:status', () => speech.status())
-  handle('speech:download', () => void speech.fetchModel())
-  handle('speech:cancelDownload', () => speech.cancelDownload())
-  handle('speech:remove', async () => {
-    await speech.remove()
-    store.setSpeech(false)
+  handle('speech:setVoiceOn', (model: VoiceModelId, on: boolean) => {
+    store.setVoiceOn(model, on)
     stateChanged()
   })
-  handle('speech:sample', (text: string, language: Language) => {
-    speech.speak(undefined, text, language)
+  handle('speech:setVoiceFor', (which: 'arabic' | 'other', model: VoiceModelId) => {
+    store.setVoiceFor(which, model)
+    stateChanged()
   })
+  handle('speech:makeVoice', (description: string) => speech.makeVoice(description))
+  handle('speech:sample', (text: string, language: Language, model?: VoiceModelId) => {
+    speech.speak(undefined, text, language, {}, model)
+  })
+  handle('music:set', (on: boolean) => {
+    store.setMusic(on)
+    stateChanged()
+  })
+  // What is downloaded: the voices, the music model, and ffmpeg for thumbnails.
+  handle('downloads:status', () => downloads())
+  handle(
+    'downloads:fetch',
+    (id: DownloadId) => void (id === 'ffmpeg' ? videoTools.ffmpeg.fetch() : speech.fetch(id))
+  )
+  handle('downloads:cancel', (id: DownloadId) =>
+    id === 'ffmpeg' ? videoTools.ffmpeg.cancel() : speech.cancel(id)
+  )
+  handle('downloads:remove', (id: DownloadId) =>
+    id === 'ffmpeg' ? videoTools.ffmpeg.remove() : speech.remove(id)
+  )
   handle('speech:stop', (chatId?: string) => speech.stop(chatId))
   listen('speech:begun', (id: string) => speech.begun(id))
   listen('speech:ended', (id: string) => speech.ended(id))
@@ -882,24 +919,42 @@ app.whenReady().then(async () => {
   // Set before the window exists so it opens in the right appearance.
   nativeTheme.themeSource = store.getState().theme ?? 'system'
   installMenu((command) => send('menu', command), nativeTheme.themeSource, setTheme)
-  speech = new Speech({
-    status: (status) => send('speech:status', status),
-    audio: (audio) => send('speech:audio', audio),
-    stop: (which) => send('speech:stop', which)
-  })
-  // A walkthrough speaks only while the voice is on and on this Mac, as the speak tool does.
+  const announce = (): void => void send('downloads:status', downloads())
+  speech = new Speech(
+    app.getPath('userData'),
+    () => {
+      const state = store.getState()
+      return {
+        on: store.speechOn(),
+        off: state.voicesOff ?? [],
+        voiceFor: state.voiceFor ?? {},
+        description: state.voiceDescription
+      }
+    },
+    {
+      downloads: announce,
+      described: (description) => {
+        store.setVoiceDescription(description)
+        stateChanged()
+      },
+      audio: (audio) => send('speech:audio', audio),
+      stop: (which) => send('speech:stop', which)
+    }
+  )
+  videoTools = new VideoTools(announce)
+  // A walkthrough speaks only while a voice is on and on this Mac, as the speak tool does.
   walks = new WalkPlayer(
     (chatId, text, language, pace) =>
-      language && store.speechOn() && speech.status().state === 'ready'
-        ? speech.speak(chatId, text, language, pace)
-        : undefined,
+      language && speech.offered() ? speech.speak(chatId, text, language, { pace }) : undefined,
     (chatId, at) => send('walk:at', chatId, at)
   )
   browser = createWindow()
   recorder = new PageRecorder(
     mainWindow.webContents,
     (chatId) => store.getState().chats.find((chat) => chat.id === chatId)?.running === true,
-    (chatId, video) => telegram.video(chatId, video)
+    (chatId, video) => telegram.video(chatId, video),
+    (path, at) => videoTools.thumbnail(path, at),
+    () => videoTools.ffmpeg.ready()
   )
   registerIpc(browser)
   telegram.start()
@@ -912,7 +967,7 @@ app.whenReady().then(async () => {
   registerBotsIpc()
   registerDevicesIpc()
   // On by default: the voice downloads in the background the first time.
-  if (store.speechOn()) void speech.fetchModel()
+  if (store.speechOn()) fetchFirstVoice()
   watchForUpdates((version) => send('update:available', version))
   const endpoint = await startBrowserMcp(
     browser,
@@ -922,17 +977,22 @@ app.whenReady().then(async () => {
     },
     agents,
     {
-      // Offered once the voice is on this Mac, so an agent never speaks into a missing one.
-      on: () => store.speechOn() && speech.status().state === 'ready',
-      speak: (chatId, text, language, pace) => {
-        const spoken = speech.speak(chatId, text, language, pace)
+      // Offered once a voice is on this Mac, so an agent never speaks into a missing one.
+      on: () => speech.offered(),
+      natural: () => speech.natural(),
+      music: () => store.getState().music === true && speech.musicReady(),
+      maxMusicSeconds: MAX_MUSIC_SECONDS,
+      makeVoice: (description) => speech.makeVoice(description),
+      makeMusic: (path, description, seconds) => speech.makeMusic(path, description, seconds),
+      speak: (chatId, text, language, delivery) => {
+        const spoken = speech.speak(chatId, text, language, delivery)
         // What the chat says is in its video: it records from just before the voice to its end.
         void spoken.started.then((begun) => {
           if (begun) void spoken.ended.then(recorder?.hold(chatId))
         })
         return spoken
       },
-      save: (path, text, language, pace) => speech.save(path, text, language, pace),
+      save: (path, text, language, delivery) => speech.save(path, text, language, delivery),
       said: (chatId) => speech.said(chatId)
     },
     recorder,

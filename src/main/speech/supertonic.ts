@@ -73,9 +73,15 @@ function prepare(text: string, lang: Language): string {
   return `<${lang}>${t}</${lang}>`
 }
 
-/** Text in chunks of whole sentences, paragraph by paragraph (utils.py, chunk_text). */
-export function chunks(text: string, lang: Language): string[] {
-  const max = lang === 'ko' ? MAX_CHUNK_KO : MAX_CHUNK
+/**
+ * Text in chunks of whole sentences up to `max` characters, paragraph by
+ * paragraph (utils.py, chunk_text); a longer sentence is a chunk of its own.
+ */
+export function chunks(
+  text: string,
+  lang: Language,
+  max = lang === 'ko' ? MAX_CHUNK_KO : MAX_CHUNK
+): string[] {
   const result: string[] = []
   for (const paragraph of text.trim().split(/\n\s*\n+/)) {
     let current = ''

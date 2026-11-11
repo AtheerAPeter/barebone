@@ -413,6 +413,14 @@ export interface AppState {
   codeTours?: boolean
   /** False when the user turned off speech: the speak tool, which says a message out loud (main/speech). On when missing. */
   speech?: boolean
+  /** Voice models the user turned off; a downloaded one stays on this Mac. */
+  voicesOff?: VoiceModelId[]
+  /** The voice model that speaks Arabic, and the one for every other language; Supertonic when missing. */
+  voiceFor?: { arabic?: VoiceModelId; other?: VoiceModelId }
+  /** How VoxCPM2's voice sounds, as it was made from; a default voice when missing. */
+  voiceDescription?: string
+  /** Whether agents get make_music, which makes music for videos (main/speech). Off when missing. */
+  music?: boolean
   /** Whether agents get the device tools, for mobile apps (main/devices.ts). Off when missing. */
   mobile?: boolean
 }
@@ -444,12 +452,20 @@ export interface MobileToolCheck {
   install: string
 }
 
-/** The voice agents speak with (main/speech): its model on this Mac, and its download. */
-export type SpeechStatus =
+/** Something the app downloads when the user asks (main/downloads.ts): on this Mac or not, and its download. */
+export type DownloadStatus =
   | { state: 'missing'; total: number }
   | { state: 'downloading'; received: number; total: number }
   | { state: 'ready'; total: number }
   | { state: 'failed'; message: string; total: number }
+
+/** The voice models agents speak with (main/speech). */
+export const VOICE_MODELS = ['supertonic', 'voxcpm2'] as const
+export type VoiceModelId = (typeof VOICE_MODELS)[number]
+
+/** What can be downloaded: the voice models, the music model, and ffmpeg for videos' thumbnails. */
+export type DownloadId = VoiceModelId | 'music' | 'ffmpeg'
+export type Downloads = Record<DownloadId, DownloadStatus>
 
 /** A piece of a spoken message, as the window plays it. */
 export interface SpokenAudio {
@@ -480,6 +496,8 @@ export interface RecordingRequest {
   /** The tab's size in points; the video keeps it to the end. */
   width: number
   height: number
+  /** An audio file's bytes, played on a loop under the voice for the whole video. */
+  music?: Uint8Array
 }
 
 /** A session option exposed by the agent (model, mode, reasoning effort, ...). */

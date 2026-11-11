@@ -44,6 +44,7 @@ import {
   IconTrash,
   IconUserCog,
   IconVideo,
+  IconMusic,
   IconVolume,
   IconWorld,
   IconX
@@ -156,6 +157,8 @@ export const TextIcon = fromTabler(IconAlignLeft)
 export const VideoIcon = fromTabler(IconVideo)
 export const RouteIcon = fromTabler(IconRoute)
 export const SpeakerIcon = fromTabler(IconVolume)
+/** Music agents make for their videos. */
+export const MusicIcon = fromTabler(IconMusic)
 export const DownloadIcon = fromTabler(IconDownload)
 export const PhoneIcon = fromTabler(IconDeviceMobile)
 /** Telegram's paper plane, on the Control from Telegram settings. */

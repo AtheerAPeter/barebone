@@ -18,7 +18,8 @@ import {
   type Chat,
   type ChatItem,
   type Project,
-  type Theme
+  type Theme,
+  type VoiceModelId
 } from '../shared/types'
 import { cleanStoredOutput } from './tool-output'
 import { chatPreview } from './preview'
@@ -220,6 +221,31 @@ export function setSpeech(on: boolean): void {
 
 export function speechOn(): boolean {
   return state.speech !== false
+}
+
+/** Turn a voice model on or off; a downloaded one stays on this Mac. */
+export function setVoiceOn(model: VoiceModelId, on: boolean): void {
+  const off = (state.voicesOff ?? []).filter((id) => id !== model)
+  state.voicesOff = on ? (off.length ? off : undefined) : [...off, model]
+  scheduleFlush()
+}
+
+/** Pick the voice model that speaks Arabic, or the one for every other language. */
+export function setVoiceFor(which: 'arabic' | 'other', model: VoiceModelId): void {
+  state.voiceFor = { ...state.voiceFor, [which]: model }
+  scheduleFlush()
+}
+
+/** How VoxCPM2's voice sounds, once made from this description. */
+export function setVoiceDescription(description: string): void {
+  state.voiceDescription = description
+  scheduleFlush()
+}
+
+/** Turn make_music on or off. */
+export function setMusic(on: boolean): void {
+  state.music = on || undefined
+  scheduleFlush()
 }
 
 export function addProject(project: Project): void {

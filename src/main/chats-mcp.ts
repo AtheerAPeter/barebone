@@ -17,7 +17,7 @@ import { approvalText, type Approval } from './approvals'
 import type { Finished, Running } from './background'
 import type { NewBot } from './bots'
 import type { Routines } from './routines'
-import type { Spoken } from './speech'
+import type { Delivery, Spoken } from './speech'
 import { LANGUAGES, type Language } from './speech/supertonic'
 import * as store from './store'
 
@@ -230,14 +230,23 @@ function describeRoutine(routine: BotRoutine): string {
 
 /** The voice agents speak with (main/speech), as the speak tool and show_step use it. */
 export interface SpeechApi {
-  /** Whether speech is on and the voice is on this Mac; the tools offer it only then. */
+  /** Whether speech is on and a voice is on this Mac; the tools offer it only then. */
   on(): boolean
+  /** Whether VoxCPM2 speaks: moods mean something, and set_voice is offered. */
+  natural(): boolean
+  /** Whether make_music is offered: on in Settings, and the music model on this Mac. */
+  music(): boolean
+  maxMusicSeconds: number
   /** Say a message out loud, after what plays already; throws why it cannot be said. */
-  speak(chatId: string, text: string, language: Language, pace?: number): Spoken
+  speak(chatId: string, text: string, language: Language, delivery?: Delivery): Spoken
   /** Say a message into a new WAV file; resolves with its length in seconds once written. */
-  save(path: string, text: string, language: Language, pace?: number): Promise<number>
+  save(path: string, text: string, language: Language, delivery?: Delivery): Promise<number>
   /** Once everything the chat has said so far has been heard, or will not be. */
   said(chatId: string): Promise<void>
+  /** Make the voice VoxCPM2 speaks in from a description, for every chat. */
+  makeVoice(description: string): Promise<void>
+  /** Make music into a new WAV file; resolves with its length in seconds. */
+  makeMusic(path: string, description: string, seconds: number): Promise<number>
 }
 
 /** The voice the chat servers speak with; given once, when they start (browser-mcp.ts). */
@@ -257,6 +266,11 @@ export function offeredSpeech(): SpeechApi | undefined {
   return speechOffered() ? speech : undefined
 }
 
+/** Which of the voice's tools the chats' server lists now, which changes them. */
+export function voiceTools(): string {
+  return `${speechOffered()} ${speechOffered() && speech?.natural() === true} ${speech?.music() === true}`
+}
+
 /** The language of something to say, as the voice takes it. */
 export const languageArg = z
   .enum(LANGUAGES)
@@ -272,6 +286,15 @@ export const paceArg = z
   .optional()
   .describe(
     'How fast to talk: 1 is normal (when left out); slower, down to 0.7, for something tricky or calming; faster, up to 1.5, for something light or quick'
+  )
+
+/** The mood to say something in, while VoxCPM2 speaks. */
+export const moodArg = z
+  .string()
+  .max(120)
+  .optional()
+  .describe(
+    'The mood and manner to say it in, in a few English words: "excited", "calm and reassuring", "proud, upbeat", "serious and quiet", "whispering". Match what you say: good news sounds glad, a problem sounds calm and steady. Left out, it sounds friendly and natural'
   )
 
 /** A chat as list_chats shows it. */
@@ -896,6 +919,7 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
           text: z.string().describe('What to say: plain spoken sentences'),
           language: languageArg,
           pace: paceArg,
+          ...(voice.natural() ? { mood: moodArg } : {}),
           path: z
             .string()
             .optional()
@@ -905,10 +929,11 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
           ...chatArg
         }
       },
-      async ({ text: said, language, pace, path, chat }) => {
+      async ({ text: said, language, pace, mood, path, chat }) => {
         const caller = chatForKey(chat)
+        const delivery = { pace, mood }
         if (path === undefined) {
-          voice.speak(caller, said, language, pace)
+          voice.speak(caller, said, language, delivery)
           return text('Speaking it to the user now.')
         }
         if (!isAbsolute(path)) throw new Error(`"path" must be absolute: ${path}`)
@@ -917,8 +942,68 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
             `The speech is saved as a WAV file: "path" must end in .wav, not ${path}.`
           )
         }
-        const seconds = await voice.save(path, said, language, pace)
+        const seconds = await voice.save(path, said, language, delivery)
         return text(`Saved ${seconds.toFixed(1)}s of speech to ${path}.`)
+      }
+    )
+
+    if (voice.natural()) {
+      server.registerTool(
+        'set_voice',
+        {
+          description:
+            "Change the voice you speak with, for every chat from now on, when the user asks for another voice or a video needs one that fits: say who speaks and how they sound. The new voice is made on the user's Mac in about ten seconds. Moods (speak's mood) change how it speaks each time; this changes who speaks.",
+          inputSchema: {
+            description: z
+              .string()
+              .min(3)
+              .max(300)
+              .describe(
+                'The voice in English: who it is and how it sounds, like "A cheerful young woman with a bright, clear voice" or "A deep, calm male narrator, like a documentary"'
+              ),
+            ...chatArg
+          }
+        },
+        async ({ description }) => {
+          await voice.makeVoice(description)
+          return text(`The voice is now: ${description}. Every chat speaks with it from now on.`)
+        }
+      )
+    }
+  }
+
+  if (speech?.music()) {
+    const voice = speech
+    server.registerTool(
+      'make_music',
+      {
+        description: `Make music on the user's Mac from a description, into a new .wav file: a track under a video's voice (give it to start_recording's music), an intro, or music the user asked for. Instrumental only, no singing. A track takes from a few seconds to a minute or two to make. Returns its path and length.`,
+        inputSchema: {
+          description: z
+            .string()
+            .min(3)
+            .max(500)
+            .describe(
+              'The music in English: genre, mood, instruments and tempo, like "light upbeat electronic, soft synths and claps, 110 BPM" or "calm ambient piano with warm pads". For music under a voice, ask for something simple without a strong lead melody'
+            ),
+          seconds: z
+            .number()
+            .min(3)
+            .max(voice.maxMusicSeconds)
+            .describe(
+              'How long it is, in seconds; a video loops it, so 20 to 40 is enough under one'
+            ),
+          path: z.string().describe('Absolute path of a new .wav file to save it to'),
+          ...chatArg
+        }
+      },
+      async ({ description, seconds, path }) => {
+        if (!isAbsolute(path)) throw new Error(`"path" must be absolute: ${path}`)
+        if (!path.toLowerCase().endsWith('.wav')) {
+          throw new Error(`The music is saved as a WAV file: "path" must end in .wav, not ${path}.`)
+        }
+        const made = await voice.makeMusic(path, description, seconds)
+        return text(`Saved ${made.toFixed(1)}s of music to ${path}.`)
       }
     )
   }
