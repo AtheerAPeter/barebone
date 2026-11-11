@@ -9,6 +9,7 @@ import type {
   AppState,
   BrowserState,
   Chat,
+  ChatPermissions,
   ChatItem,
   CodeDoc,
   CustomProvider,
@@ -297,7 +298,7 @@ export function makeApi(t: Transport) {
       projectId: string,
       agent: AgentId,
       settings: Record<string, string>,
-      permissions: Pick<Chat, 'bypassPermissions' | 'projectOnly'> = {}
+      permissions: ChatPermissions = {}
     ): Promise<Chat> => invoke('chat:create', projectId, agent, settings, permissions),
     deleteChat: (chatId: string): Promise<void> => invoke('chat:delete', chatId),
     /** Keep what is typed in a chat's composer; empty text clears it. */
@@ -333,11 +334,9 @@ export function makeApi(t: Transport) {
       invoke('chat:stopSubagent', chatId, id),
     /** Clear the chat's timer. */
     clearTimer: (chatId: string): Promise<void> => invoke('chat:clearTimer', chatId),
-    /** Set the permission mode: both settings in one call, so they never apply half-changed. */
-    setPermissions: (
-      chatId: string,
-      permissions: Pick<Chat, 'bypassPermissions' | 'projectOnly'>
-    ): Promise<void> => invoke('chat:setPermissions', chatId, permissions),
+    /** Set the permission mode: its settings in one call, so they never apply half-changed. */
+    setPermissions: (chatId: string, permissions: ChatPermissions): Promise<void> =>
+      invoke('chat:setPermissions', chatId, permissions),
     setOption: (chatId: string, optionId: string, value: string): Promise<void> =>
       invoke('chat:setOption', chatId, optionId, value),
     resolvePermission: (chatId: string, permissionId: string, optionId: string): Promise<void> =>

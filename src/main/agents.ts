@@ -24,7 +24,14 @@ import type {
   Project,
   ToolStatus
 } from '../shared/types'
-import { AGENTS, modelOptions, senderChat, type ModelSource } from '../shared/types'
+import {
+  AGENTS,
+  autoModeOn,
+  modelOptions,
+  senderChat,
+  type ChatPermissions,
+  type ModelSource
+} from '../shared/types'
 import * as store from './store'
 import {
   browserId,
@@ -520,6 +527,19 @@ const BUILD_MODE: Record<AcpAgent, Record<string, string>> = {
   claude: { mode: 'acceptEdits' }
 }
 
+/**
+ * The value the chat's permissions pin an option of the category to, if any:
+ * build mode, or Claude Code's auto mode for a chat set to it. In auto mode
+ * Claude Code's classifier approves or blocks each action itself, and asks
+ * (a permission request, which goes to the user) when it keeps blocking or a
+ * rule says to ask. On a model without auto mode, Claude Code uses
+ * acceptEdits instead and says so in a notice.
+ */
+function pinnedValue(chat: Chat, agent: AcpAgent, category: string): string | undefined {
+  if (category === 'mode' && agent === 'claude' && autoModeOn(chat)) return 'auto'
+  return BUILD_MODE[agent][category]
+}
+
 /** The user's instructions from Settings, tagged as the app's own agent has them in its system prompt. */
 const userInstructions = (text: string): string =>
   `<user_instructions>\n${text}\n</user_instructions>`
@@ -553,6 +573,8 @@ interface AgentBackend {
   getCommands(chatId: string): AgentCommand[]
   listModels(cwd: string): Promise<ModelSource[]>
   applyOption(chatId: string, optionId: string, value: string): Promise<void>
+  /** Put the chat's live session in the mode its permissions pin (see pinnedValue). */
+  pinMode?(chatId: string): Promise<void>
   release(chatId: string): Promise<void>
   /**
    * How much of the model's context window the chat's session fills, in
@@ -992,11 +1014,11 @@ class AgentProcess implements AgentBackend {
 
     // Re-apply the saved selection. Options can depend on each other (cline's model
     // list depends on its provider), so apply them in the agent's order and
-    // re-read the list after every change. The mode is always build, whatever was
-    // saved or restored with the session.
+    // re-read the list after every change. The mode is the one the chat's
+    // permissions pin (see pinnedValue), whatever was saved or restored with the session.
     const wanted = { ...chat.settings }
     for (const option of normalizeOptions(configOptions ?? [])) {
-      const pinned = BUILD_MODE[this.agent][option.category]
+      const pinned = pinnedValue(chat, this.agent, option.category)
       if (pinned) wanted[option.id] = pinned
     }
     let options = normalizeOptions(configOptions ?? [])
@@ -1181,7 +1203,20 @@ class AgentProcess implements AgentBackend {
       ...configValue(option, value)
     })
     this.setOptions(chatId, response.configOptions)
+    // Claude Code leaves auto mode for a model without it, and stays out after
+    // a model that has it is picked again.
+    if (option?.category !== 'mode') await this.pinMode(chatId)
     this.scheduleIdleStop()
+  }
+
+  async pinMode(chatId: string): Promise<void> {
+    const chat = store.getChat(chatId)
+    if (!this.isLive(chat.sessionId)) return
+    const mode = this.options.get(chatId)?.find((o) => o.category === 'mode')
+    const pinned = mode && pinnedValue(chat, this.agent, mode.category)
+    if (!mode || !pinned || mode.currentValue === pinned) return
+    if (!mode.values.some((v) => v.value === pinned)) return
+    await this.applyOption(chatId, mode.id, pinned)
   }
 
   /**
@@ -2831,7 +2866,9 @@ export class AgentManager implements ChatsApi {
     if (senderChat(first?.from) === target.id) return true
     return !(
       (target.bypassPermissions && !sender.bypassPermissions) ||
-      (sender.projectOnly && !target.projectOnly)
+      (sender.projectOnly && !target.projectOnly) ||
+      // Auto mode runs what its classifier allows: more than asking, less than bypass.
+      (autoModeOn(target) && !autoModeOn(sender) && !sender.bypassPermissions)
     )
   }
 
@@ -2867,6 +2904,7 @@ export class AgentManager implements ChatsApi {
           : { ...parent.settings, ...picked?.settings },
       bypassPermissions: parent.bypassPermissions,
       projectOnly: parent.projectOnly,
+      autoMode: parent.autoMode,
       startedBy: parent.id
     })
     // The levels depend on the model, so they are known once the chat's session has it.
@@ -3608,16 +3646,20 @@ export class AgentManager implements ChatsApi {
   }
 
   /**
-   * Set the chat's permission mode, both settings at once. Turning bypass on
-   * also approves requests already waiting, except, in project-only mode, ones
-   * that reach outside the project: those stay with the user, marked as such.
+   * Set the chat's permission mode, its settings at once. Auto mode takes the
+   * live session there (or out) now. Turning bypass on also approves requests
+   * already waiting, except, in project-only mode, ones that reach outside the
+   * project: those stay with the user, marked as such.
    */
-  setPermissions(
+  async setPermissions(
     chatId: string,
-    { bypassPermissions, projectOnly }: Pick<Chat, 'bypassPermissions' | 'projectOnly'>
-  ): void {
-    store.updateChat(chatId, { bypassPermissions, projectOnly })
+    { bypassPermissions, projectOnly, autoMode }: ChatPermissions
+  ): Promise<void> {
+    // Auto mode leaves the approving to Claude Code's classifier: what it asks, the user answers.
+    if (autoMode) bypassPermissions = projectOnly = undefined
+    store.updateChat(chatId, { bypassPermissions, projectOnly, autoMode })
     this.events.stateChanged()
+    await this.processFor(chatId).pinMode?.(chatId)
     if (!bypassPermissions) return
     for (const [permissionId, pending] of this.permissions) {
       if (pending.chatId !== chatId || 'form' in pending || pending.question) continue

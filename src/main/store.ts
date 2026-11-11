@@ -17,6 +17,7 @@ import {
   type AppState,
   type Chat,
   type ChatItem,
+  type ChatPermissions,
   type Project,
   type Theme,
   type VoiceModelId
@@ -286,8 +287,10 @@ export function createChat({
   settings,
   bypassPermissions,
   projectOnly,
+  autoMode,
   startedBy = null
-}: Pick<Chat, 'projectId' | 'agent' | 'settings' | 'bypassPermissions' | 'projectOnly'> &
+}: Pick<Chat, 'projectId' | 'agent' | 'settings'> &
+  ChatPermissions &
   Pick<Partial<Chat>, 'startedBy'>): Chat {
   const chat: Chat = {
     id: crypto.randomUUID(),
@@ -297,6 +300,7 @@ export function createChat({
     settings,
     bypassPermissions,
     projectOnly,
+    autoMode,
     startedBy,
     running: false,
     createdAt: Date.now(),

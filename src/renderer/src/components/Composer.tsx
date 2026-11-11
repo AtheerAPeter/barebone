@@ -1,12 +1,14 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   AGENTS,
+  autoModeOn,
   modelOptions,
   type AgentCommand,
   type AgentId,
   type AgentOption,
   type AgentStatus,
   type Chat,
+  type ChatPermissions,
   type Skill,
   type Attachment
 } from '../../../shared/types'
@@ -62,7 +64,22 @@ const PERMISSION_MODES = [
   { value: 'full', name: 'Full access', description: 'Runs every request without asking' }
 ]
 
+/** Claude Code's own auto mode, offered in Claude Code chats only. */
+const AUTO_MODE = {
+  value: 'auto',
+  name: 'Auto mode',
+  description:
+    'Claude Code checks each action and blocks risky ones; asks you when it keeps blocking'
+}
+
+function permissionModes(chat: Chat): typeof PERMISSION_MODES {
+  return chat.agent === 'claude'
+    ? [PERMISSION_MODES[0], AUTO_MODE, ...PERMISSION_MODES.slice(1)]
+    : PERMISSION_MODES
+}
+
 function permissionMode(chat: Chat): string {
+  if (autoModeOn(chat)) return 'auto'
   if (!chat.bypassPermissions) return 'ask'
   return chat.projectOnly ? 'project' : 'full'
 }
@@ -671,15 +688,17 @@ export function Composer({
             title="Permissions"
             icon={<ShieldIcon width={15} height={15} />}
             value={permissionMode(chat)}
-            values={PERMISSION_MODES}
+            values={permissionModes(chat)}
             onChange={(mode) => {
-              // Two per-chat settings underneath: bypass approves requests,
-              // project-only still asks for anything outside the project.
-              const permissions = {
-                bypassPermissions: mode !== 'ask',
-                projectOnly: mode === 'project'
+              // Per-chat settings underneath: bypass approves requests,
+              // project-only still asks for anything outside the project,
+              // auto mode leaves approving to Claude Code's classifier.
+              const permissions: ChatPermissions = {
+                bypassPermissions: mode === 'project' || mode === 'full',
+                projectOnly: mode === 'project',
+                autoMode: mode === 'auto'
               }
-              window.api.setPermissions(chat.id, permissions)
+              void window.api.setPermissions(chat.id, permissions)
               // Remembered for new chats.
               writePref('permissions', permissions)
             }}

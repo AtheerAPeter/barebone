@@ -12,8 +12,8 @@ import type {
   Attachment,
   AgentId,
   AgentOption,
-  Chat,
   ChatItem,
+  ChatPermissions,
   CodeDoc,
   CustomProviderInput,
   FormAnswers,
@@ -227,7 +227,8 @@ const telegram = new TelegramBridge({
       agent: like.agent,
       settings: { ...like.settings },
       bypassPermissions: like.bypassPermissions,
-      projectOnly: like.projectOnly
+      projectOnly: like.projectOnly,
+      autoMode: like.autoMode
     })
     stateChanged()
     return chat
@@ -787,7 +788,7 @@ function registerIpc(browser: BuiltinBrowser): void {
       projectId: string,
       agent: AgentId,
       settings: Record<string, string>,
-      permissions: Pick<Chat, 'bypassPermissions' | 'projectOnly'> = {}
+      permissions: ChatPermissions = {}
     ) => {
       const chat = store.createChat({ projectId, agent, settings, ...permissions })
       stateChanged()
@@ -840,10 +841,8 @@ function registerIpc(browser: BuiltinBrowser): void {
     MAC_ONLY
   )
   handle('files:thumbnail', (path: string) => thumbnail(path))
-  handle(
-    'chat:setPermissions',
-    (chatId: string, permissions: Pick<Chat, 'bypassPermissions' | 'projectOnly'>) =>
-      agents.setPermissions(chatId, permissions)
+  handle('chat:setPermissions', (chatId: string, permissions: ChatPermissions) =>
+    agents.setPermissions(chatId, permissions)
   )
   handle('chat:cancel', (chatId: string) => cancelChat(chatId))
   handle('chat:takeWaiting', (chatId: string, id: string) => agents.takeWaiting(chatId, id))

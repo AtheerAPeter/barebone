@@ -254,6 +254,12 @@ export interface Chat {
   bypassPermissions?: boolean
   /** Refuse any tool request that touches a path outside the project folder. */
   projectOnly?: boolean
+  /**
+   * Claude Code chats: run in Claude Code's auto mode, where its classifier
+   * approves or blocks each action and anything it asks goes to the user.
+   * Never with bypassPermissions. See autoModeOn.
+   */
+  autoMode?: boolean
   /** The chat's browser tabs, reopened when its browser comes back. */
   browserTabs?: SavedTabs
   /** Whether the browser panel is open in this chat; every chat starts closed at launch. */
@@ -277,6 +283,14 @@ export interface Chat {
   context?: { used: number; size: number }
   createdAt: number
   updatedAt: number
+}
+
+/** A chat's permission mode: set together, so it never applies half-changed. */
+export type ChatPermissions = Pick<Chat, 'bypassPermissions' | 'projectOnly' | 'autoMode'>
+
+/** Whether the chat runs in Claude Code's auto mode: only Claude Code has it. */
+export function autoModeOn(chat: Pick<Chat, 'agent' | 'autoMode'>): boolean {
+  return chat.agent === 'claude' && chat.autoMode === true
 }
 
 /** A chat's commands running with run_in_background, and its timer (see set_timer). */
