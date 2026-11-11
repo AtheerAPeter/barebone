@@ -748,6 +748,7 @@ function InstructionsForm({ saved }: { saved: string }): React.JSX.Element {
 export interface Voices {
   off: VoiceModelId[]
   voiceFor: { arabic?: VoiceModelId; other?: VoiceModelId }
+  supertonicInChats: boolean
   description?: string
 }
 
@@ -976,6 +977,24 @@ function VoicesBody({
           </div>
         </div>
       ))}
+      {usable('supertonic') && usable('voxcpm2') && (
+        <div className="voice-model">
+          <div className="voice-model-head">
+            <div>
+              <div className="settings-label">Supertonic in chats</div>
+              <p>
+                Chats speak with Supertonic, which starts at once. Videos keep the voices picked
+                above.
+              </p>
+            </div>
+            <Switch
+              label="Supertonic in chats"
+              on={voices.supertonicInChats}
+              onChange={(value) => void run(() => window.api.speech.setSupertonicInChats(value))}
+            />
+          </div>
+        </div>
+      )}
       {error && <div className="msg-error">{error}</div>}
     </>
   )

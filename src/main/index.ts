@@ -659,9 +659,13 @@ function registerIpc(browser: BuiltinBrowser): void {
     store.setVoiceFor(which, model)
     stateChanged()
   })
+  handle('speech:setSupertonicInChats', (on: boolean) => {
+    store.setSupertonicInChats(on)
+    stateChanged()
+  })
   handle('speech:makeVoice', (description: string) => speech.makeVoice(description))
   handle('speech:sample', (text: string, language: Language, model?: VoiceModelId) => {
-    speech.speak(undefined, text, language, {}, model)
+    speech.speak(undefined, text, language, {}, { model })
   })
   handle('music:set', (on: boolean) => {
     store.setMusic(on)
@@ -928,6 +932,7 @@ app.whenReady().then(async () => {
         on: store.speechOn(),
         off: state.voicesOff ?? [],
         voiceFor: state.voiceFor ?? {},
+        supertonicInChats: state.supertonicInChats === true,
         description: state.voiceDescription
       }
     },
@@ -985,7 +990,10 @@ app.whenReady().then(async () => {
       makeVoice: (description) => speech.makeVoice(description),
       makeMusic: (path, description, seconds) => speech.makeMusic(path, description, seconds),
       speak: (chatId, text, language, delivery) => {
-        const spoken = speech.speak(chatId, text, language, delivery)
+        // What a chat says while it records goes into its video, in the voice Settings picks.
+        const spoken = speech.speak(chatId, text, language, delivery, {
+          recorded: recorder?.recording(chatId) === true
+        })
         // What the chat says is in its video: it records from just before the voice to its end.
         void spoken.started.then((begun) => {
           if (begun) void spoken.ended.then(recorder?.hold(chatId))

@@ -154,6 +154,9 @@ export function makeApi(t: Transport) {
       /** Pick the voice that speaks Arabic, or the one for every other language. */
       setVoiceFor: (which: 'arabic' | 'other', model: VoiceModelId): Promise<void> =>
         invoke('speech:setVoiceFor', which, model),
+      /** Let chats speak with Supertonic, or with the voice picked per language; videos keep that one. */
+      setSupertonicInChats: (on: boolean): Promise<void> =>
+        invoke('speech:setSupertonicInChats', on),
       /** Make VoxCPM2's voice from a description; resolves once it is made. */
       makeVoice: (description: string): Promise<void> => invoke('speech:makeVoice', description),
       /** Say a sample, to hear a voice: the one Settings picks for the language, or `model`. */

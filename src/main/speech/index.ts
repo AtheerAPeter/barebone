@@ -28,7 +28,8 @@ import type { FromWorker, ToWorker } from './worker'
  *
  * VoxCPM2 and Stable Audio run on audio.cpp (audiocpp.ts). The user downloads
  * each in Settings, turns the voices on or off, and picks which voice speaks
- * Arabic and which every other language. Every file comes from one pinned
+ * Arabic and which every other language, and whether chats speak with
+ * Supertonic instead, which starts at once; videos keep the picked voice. Every file comes from one pinned
  * revision and is checked against its SHA-256 (downloads.ts).
  */
 
@@ -103,7 +104,17 @@ export interface VoiceSettings {
   on: boolean
   off: VoiceModelId[]
   voiceFor: { arabic?: VoiceModelId; other?: VoiceModelId }
+  /** Chats speak with Supertonic, which starts at once; videos and saved files keep voiceFor's voice. */
+  supertonicInChats: boolean
   description?: string
+}
+
+/** Which voice says a message, beyond its language. */
+export interface VoiceChoice {
+  /** The voice to say it with instead of Settings', for samples. */
+  model?: VoiceModelId
+  /** It is said into a video being recorded, so it keeps the voice Settings picks per language. */
+  recorded?: boolean
 }
 
 /** How a message is said, beyond its words. */
@@ -266,11 +277,25 @@ export class Speech {
     return this.packages.music.ready()
   }
 
-  /** The voice that says something in a language: the one Settings picks for it, else one that can. */
-  private voiceFor(lang: Language, model?: VoiceModelId): VoiceModelId {
+  /**
+   * The voice that says something in a language: `model`, else Supertonic for
+   * what a chat says live while Settings asks for it, else the one Settings
+   * picks for the language; one that can when that one cannot.
+   */
+  private voiceFor(
+    lang: Language,
+    { model, live }: { model?: VoiceModelId; live: boolean }
+  ): VoiceModelId {
     const usable = this.usable()
-    const { voiceFor } = this.settings()
-    const picked = model ?? (lang === 'ar' ? voiceFor.arabic : voiceFor.other) ?? 'supertonic'
+    const { voiceFor, supertonicInChats } = this.settings()
+    const picked =
+      model ??
+      (live && supertonicInChats
+        ? 'supertonic'
+        : lang === 'ar'
+          ? voiceFor.arabic
+          : voiceFor.other) ??
+      'supertonic'
     const speaks = (id: VoiceModelId): boolean => id === 'supertonic' || VOXCPM2_LANGUAGES.has(lang)
     const choice = [picked, ...usable].find((id) => usable.includes(id) && speaks(id))
     if (!choice) {
@@ -285,14 +310,14 @@ export class Speech {
 
   /**
    * Say a message out loud, after what is playing already. Throws why it
-   * cannot be said. `model` picks the voice instead of Settings, for samples.
+   * cannot be said.
    */
   speak(
     chatId: string | undefined,
     text: string,
     lang: Language,
     delivery: Delivery = {},
-    model?: VoiceModelId
+    { model, recorded = false }: VoiceChoice = {}
   ): Spoken {
     if (!text.trim()) throw new Error('There is nothing to say: the text is empty.')
     const job: Job = {
@@ -301,7 +326,7 @@ export class Speech {
       text,
       lang,
       delivery,
-      model: this.voiceFor(lang, model)
+      model: this.voiceFor(lang, { model, live: !recorded })
     }
     let begin: (begun: boolean) => void = () => undefined
     let end: () => void = () => undefined
@@ -318,7 +343,8 @@ export class Speech {
    */
   async save(path: string, text: string, lang: Language, delivery: Delivery = {}): Promise<number> {
     if (!text.trim()) throw new Error('There is nothing to say: the text is empty.')
-    const model = this.voiceFor(lang)
+    // A file is for a video or audio of the agent's own, so it keeps the voice Settings picks.
+    const model = this.voiceFor(lang, { live: false })
     const { samples, sampleRate } = await new Promise<{
       samples: Float32Array
       sampleRate: number

@@ -446,6 +446,7 @@ export default function App(): React.JSX.Element {
             voices={{
               off: state.voicesOff ?? [],
               voiceFor: state.voiceFor ?? {},
+              supertonicInChats: state.supertonicInChats === true,
               description: state.voiceDescription
             }}
             music={state.music === true}

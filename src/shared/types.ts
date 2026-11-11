@@ -417,6 +417,8 @@ export interface AppState {
   voicesOff?: VoiceModelId[]
   /** The voice model that speaks Arabic, and the one for every other language; Supertonic when missing. */
   voiceFor?: { arabic?: VoiceModelId; other?: VoiceModelId }
+  /** Whether chats speak with Supertonic, which starts at once; videos keep voiceFor's voice. Off when missing. */
+  supertonicInChats?: boolean
   /** How VoxCPM2's voice sounds, as it was made from; a default voice when missing. */
   voiceDescription?: string
   /** Whether agents get make_music, which makes music for videos (main/speech). Off when missing. */

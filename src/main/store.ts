@@ -236,6 +236,12 @@ export function setVoiceFor(which: 'arabic' | 'other', model: VoiceModelId): voi
   scheduleFlush()
 }
 
+/** Let chats speak with Supertonic whatever voiceFor picks; videos keep voiceFor's voice. */
+export function setSupertonicInChats(on: boolean): void {
+  state.supertonicInChats = on || undefined
+  scheduleFlush()
+}
+
 /** How VoxCPM2's voice sounds, once made from this description. */
 export function setVoiceDescription(description: string): void {
   state.voiceDescription = description
