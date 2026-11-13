@@ -31,6 +31,13 @@ import {
   stylesheet
 } from '../bots'
 import { endSession, pair, sessionFor } from './auth'
+import {
+  DESKTOP_PATH,
+  desktopAvailable,
+  isDesktopPath,
+  proxyDesktop,
+  proxyDesktopUpgrade
+} from './desktop'
 import { loadConfig } from './config'
 import { callFromRemote, callerGone, sendFromRemote, type Caller } from './registry'
 
@@ -148,14 +155,13 @@ export class RemoteServer {
     })
     this.http.on('upgrade', (req, socket, head) => {
       const session = this.session(req)
-      if (
-        new URL(req.url ?? '/', 'http://x').pathname !== '/ws' ||
-        !session ||
-        !this.originOk(req)
-      ) {
+      const path = new URL(req.url ?? '/', 'http://x').pathname
+      const desktop = isDesktopPath(path) && desktopAvailable()
+      if ((path !== '/ws' && !desktop) || !session || !this.originOk(req)) {
         socket.end('HTTP/1.1 401 Unauthorized\r\n\r\n')
         return
       }
+      if (desktop) return proxyDesktopUpgrade(req, socket, head)
       this.sockets!.handleUpgrade(req, socket, head, (ws) => this.connect(ws, session.id))
     })
     this.ping = setInterval(() => {
@@ -407,7 +413,12 @@ export class RemoteServer {
       return this.text(res, 401, 'Pair this device first.')
     }
 
-    if (path === '/api/session') return this.json(res, 200, {})
+    if (path === '/api/session') return this.json(res, 200, { desktop: desktopAvailable() })
+    // The server's desktop (desktop.ts), for paired devices only.
+    if (isDesktopPath(path) && desktopAvailable()) {
+      if (path === DESKTOP_PATH.slice(0, -1)) return this.redirect(res, DESKTOP_PATH)
+      return proxyDesktop(req, res)
+    }
     if (path === '/' && method === 'GET') return this.file(req, res, 'web.html', 'no-store')
     if (path.startsWith('/assets/') && method === 'GET') {
       return this.file(req, res, path.slice(1), 'immutable')

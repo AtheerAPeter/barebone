@@ -41,19 +41,25 @@ Command Code.
 
 ## Open the desktop
 
-The desktop listens on the server itself only, so it is never on the internet.
-From your computer, open a tunnel:
+The desktop listens on the server itself only, so it is never on the internet
+on its own. The first time, before the remote link is set up, open a tunnel
+from your computer:
 
 ```sh
 ssh -L 3000:localhost:3000 you@your-server
 ```
 
-Then open <http://localhost:3000> and sign in as `barebone` with the password
-you chose. If something else on the server has port 3000, start it with
-`BAREBONE_PORT=3300` (any free port) and tunnel that port instead.
+Then open <http://localhost:3000/desktop/> and sign in as `barebone` with the
+password you chose. If something else on the server has port 3000, start it
+with `BAREBONE_PORT=3300` (any free port) and tunnel that port instead.
 
 Barebone opens in the desktop. Browsers treat `localhost` as a secure page,
 so the desktop's sound, microphone and clipboard work through the tunnel.
+
+Once the remote link is on (below), a paired device opens the desktop from
+the link instead: Desktop in the sidebar, or the link's address with
+`/desktop/` added. It needs no tunnel and no password: Barebone signs in for
+paired devices, and the desktop is reachable only by them.
 
 ## Set Barebone up
 
@@ -66,8 +72,9 @@ In the desktop:
    the QR code with your phone.
 3. Optionally, Settings → Telegram.
 
-Your phone then reaches Barebone through the remote link. You need the desktop
-again only for what Settings does.
+Your phone then reaches Barebone through the remote link, and the desktop
+through Desktop in its sidebar. To pair another browser, Pair a device there
+shows a one-time QR code and link.
 
 ## Day to day
 
