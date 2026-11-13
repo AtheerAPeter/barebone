@@ -57,9 +57,11 @@ Barebone opens in the desktop. Browsers treat `localhost` as a secure page,
 so the desktop's sound, microphone and clipboard work through the tunnel.
 
 Once the remote link is on (below), a paired device opens the desktop from
-the link instead: Desktop in the sidebar, or the link's address with
-`/desktop/` added. It needs no tunnel and no password: Barebone signs in for
-paired devices, and the desktop is reachable only by them.
+the link instead: Desktop in the sidebar opens it over the page, with a
+button to close it and, for a phone, a keyboard button that brings up the
+phone's keyboard. The link's address with `/desktop/` added opens it on its
+own. It needs no tunnel and no password: Barebone signs in for paired
+devices, and the desktop is reachable only by them.
 
 ## Set Barebone up
 
