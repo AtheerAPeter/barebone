@@ -121,6 +121,7 @@ export function BrowserSheet({
   }, [chatId, opening])
 
   useEffect(() => {
+    let current = true
     const offState = api().onState((next) => {
       if (next.chatId === chatId) setView(next)
     })
@@ -129,7 +130,17 @@ export function BrowserSheet({
       const url = URL.createObjectURL(
         new Blob([jpeg as Uint8Array<ArrayBuffer>], { type: 'image/jpeg' })
       )
-      setFrame({ url, width: header.width, height: header.height })
+      // Shown once decoded: Safari draws a picture swapped in before then as nothing
+      // for a moment, so the page flickered with each picture while scrolling.
+      const picture = new Image()
+      picture.src = url
+      void picture
+        .decode()
+        .catch(() => undefined)
+        .then(() => {
+          if (current) setFrame({ url, width: header.width, height: header.height })
+          else URL.revokeObjectURL(url)
+        })
     })
     const offClosed = api().onClosed((closed, reason) => {
       if (closed !== chatId) return
@@ -140,6 +151,7 @@ export function BrowserSheet({
     })
     const offReconnected = api().onReconnected(() => setOpening((n) => n + 1))
     return () => {
+      current = false
       offState()
       offFrame()
       offClosed()
