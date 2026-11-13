@@ -61,15 +61,16 @@ const APP = /^\/desktop\/(?:index\.html)?$|^\/desktop\/(?:assets\/)?[\w.-]+\.m?j
 /** The desktop's headers, made safe to serve from the link's origin. */
 function answerHeaders(req: IncomingMessage, answer: IncomingMessage): OutgoingHttpHeaders {
   const sent: OutgoingHttpHeaders = { ...answer.headers }
-  // Never in a frame: zrok's shares are one site, so another share's page could otherwise
-  // frame the desktop with this link's cookie (clickjacking).
+  // In a frame of the link's own page only (DesktopSheet.tsx): zrok's shares are one site,
+  // so another share's page could otherwise frame the desktop with this link's cookie
+  // (clickjacking). 'self' is this origin, which no other share has.
   const policies = [answer.headers['content-security-policy'] ?? []].flat()
-  policies.push("frame-ancestors 'none'")
+  policies.push("frame-ancestors 'self'")
   const path = (req.url ?? '/').split('?')[0]
   if (!APP.test(path)) policies.push('sandbox')
   // Several policies in one header, each enforced on its own.
   sent['content-security-policy'] = policies.join(', ')
-  sent['x-frame-options'] = 'DENY'
+  sent['x-frame-options'] = 'SAMEORIGIN'
   sent['x-content-type-options'] = 'nosniff'
   sent['cross-origin-opener-policy'] = 'same-origin'
   return sent

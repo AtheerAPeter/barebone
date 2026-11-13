@@ -656,9 +656,6 @@ kbd {
   letter-spacing: -0.006em;
   text-align: left;
   border-radius: var(--radius);
-  /* Also a link (Desktop, remote/desktop.ts): looks like the buttons. */
-  color: inherit;
-  text-decoration: none;
 }
 
 .nav-row > svg {

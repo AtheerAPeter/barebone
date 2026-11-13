@@ -17,6 +17,7 @@ import {
 import { readPref, writePref } from '../lib/prefs'
 import { shortcut } from '../lib/platform'
 import { useUpdateInstall } from '../lib/update'
+import { DesktopSheet } from '../remote/DesktopSheet'
 import {
   BookIcon,
   ChevronIcon,
@@ -115,6 +116,7 @@ export function Sidebar({
   const [update, setUpdate] = useState<string | null>(null)
   /** Through the remote link, whether the server has a desktop to open (remote/desktop.ts). */
   const [desktop, setDesktop] = useState(false)
+  const [desktopOpen, setDesktopOpen] = useState(false)
   useEffect(() => {
     if (!window.api.remote) return
     fetch('/api/session', { credentials: 'same-origin' })
@@ -621,11 +623,12 @@ export function Sidebar({
           </button>
         )}
         {desktop && (
-          <a className="nav-row" href="/desktop/" target="_blank" rel="noopener">
+          <button className="nav-row" onClick={() => setDesktopOpen(true)}>
             <DesktopIcon />
             Desktop
-          </a>
+          </button>
         )}
+        {desktopOpen && <DesktopSheet onClose={() => setDesktopOpen(false)} />}
       </div>
       {query !== undefined && (
         <label className="sidebar-search">
