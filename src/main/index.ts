@@ -1,6 +1,6 @@
 // First: moves the data folder of the app's former name before anything uses it.
 import './former-name'
-import { app, shell, BrowserWindow, ipcMain, dialog, nativeTheme, protocol, screen } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, nativeTheme, protocol } from 'electron'
 import { handle, handleAs, listen, MAC_ONLY, onCallerGone, type Caller } from './remote/registry'
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -250,36 +250,23 @@ const telegram = new TelegramBridge({
   statusChanged: (status) => send('telegram:status', status)
 })
 
-const MIN_SIZE = { width: 1024, height: 560 }
-
-/**
- * The window's smallest size, but never bigger than its screen, or a maximized
- * window would run off it. A screen can be that small: a server's desktop in a
- * browser tab (deploy/vps) is as big as the tab, and changes with it.
- */
-function fitMinimumSize(): void {
-  if (mainWindow.isDestroyed()) return
-  const { workArea } = screen.getDisplayMatching(mainWindow.getBounds())
-  mainWindow.setMinimumSize(
-    Math.min(MIN_SIZE.width, workArea.width),
-    Math.min(MIN_SIZE.height, workArea.height)
-  )
-}
-
 function createWindow(): BuiltinBrowser {
   mainWindow = new BrowserWindow({
     width: 1320,
     height: 840,
-    minWidth: MIN_SIZE.width,
-    minHeight: MIN_SIZE.height,
     show: false,
     // On the Mac, the traffic lights sit in the page, centred on the sidebar's
     // 48px top row, and the window is see-through so the Liquid Glass behind the
     // page shows where the page is (addGlass); macOS then blends the window with
     // what is behind it on every frame. Elsewhere a framed window, opaque in the
     // chat's background color, its menu bar shown while Alt is held.
+    // A smallest size only on the Mac: a server's desktop (deploy/vps) is as big
+    // as the browser tab showing it, as small as a phone above its keyboard, and
+    // its maximized window has to fit it.
     ...(process.platform === 'darwin'
       ? {
+          minWidth: 1024,
+          minHeight: 560,
           titleBarStyle: 'hiddenInset' as const,
           trafficLightPosition: { x: 16, y: 17 },
           transparent: true
@@ -292,11 +279,6 @@ function createWindow(): BuiltinBrowser {
       autoplayPolicy: 'no-user-gesture-required'
     }
   })
-
-  fitMinimumSize()
-  screen.on('display-metrics-changed', fitMinimumSize)
-  screen.on('display-added', fitMinimumSize)
-  screen.on('display-removed', fitMinimumSize)
 
   // A sheet attached in the same tick as show() is never drawn; the show event comes after.
   mainWindow.once('show', () => store.reportDamagedState(mainWindow))
