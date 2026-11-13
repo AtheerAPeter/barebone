@@ -1,0 +1,36 @@
+/* Dark and plain, like Barebone's own dark theme. */
+* {
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  border: none;
+  border-radius: 0;
+  min-height: 0;
+}
+
+window#waybar {
+  background: #0d0d0d;
+  color: #ededed;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+#custom-barebone,
+#custom-files,
+#custom-terminal,
+#taskbar button {
+  padding: 0 12px;
+  margin: 4px 2px;
+  border-radius: 6px;
+  color: #ededed;
+  background: transparent;
+}
+
+#custom-barebone:hover,
+#custom-files:hover,
+#custom-terminal:hover,
+#taskbar button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+#taskbar button.active {
+  background: rgba(255, 255, 255, 0.14);
+}

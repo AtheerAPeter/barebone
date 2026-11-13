@@ -1,0 +1,12 @@
+# The image builds the app from source (Dockerfile): everything else stays out.
+**
+!package.json
+!package-lock.json
+!electron.vite.config.ts
+!electron-builder.yml
+!tsconfig*.json
+!install.sh
+!build/**
+!resources/**
+!src/**
+!deploy/vps/root/**

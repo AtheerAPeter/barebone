@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The desktop's right-click menu. Copied into /config once, on first start. -->
+<openbox_menu xmlns="http://openbox.org/3.4/menu">
+<menu id="root-menu" label="MENU">
+<item label="Terminal"><action name="Execute"><command>/usr/bin/foot</command></action></item>
+<item label="Files"><action name="Execute"><command>/usr/bin/pcmanfm</command></action></item>
+</menu>
+</openbox_menu>

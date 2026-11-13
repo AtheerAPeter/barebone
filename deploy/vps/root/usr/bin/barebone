@@ -1,0 +1,10 @@
+#!/bin/bash
+# Starts Barebone in the desktop (the autostart file runs this). The launch
+# lives here, not in autostart: the desktop copies autostart into /config
+# once, so a newer image could not change it.
+#
+# --ozone-platform=wayland: the desktop is Wayland (PIXELFLUX_WAYLAND), and
+#   Electron only finds that out by itself when XDG_SESSION_TYPE says so.
+# --password-store=basic: there is no keyring, so the browser's cookies are
+#   kept with Chromium's own key, the same on every start: logins stay.
+exec /opt/barebone/barebone --ozone-platform=wayland --password-store=basic "$@"
