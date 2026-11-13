@@ -48,11 +48,44 @@ function upstream(req: IncomingMessage): ReturnType<typeof request> {
   })
 }
 
+/**
+ * The desktop's routes that serve the server's own files (Selkies' file
+ * browser and print queue) rather than its app: any file could be a page, so
+ * it is shown sandboxed, without scripts and in an origin of its own, never
+ * as the link's.
+ */
+const FILE_ROUTES = [`${DESKTOP_PATH}api/files/`, `${DESKTOP_PATH}api/print/`]
+
+/** The desktop's headers, made safe to serve from the link's origin. */
+function answerHeaders(req: IncomingMessage, answer: IncomingMessage): OutgoingHttpHeaders {
+  const sent: OutgoingHttpHeaders = { ...answer.headers }
+  // Never in a frame: zrok's shares are one site, so another share's page could otherwise
+  // frame the desktop with this link's cookie (clickjacking).
+  const policies = [answer.headers['content-security-policy'] ?? []].flat()
+  policies.push("frame-ancestors 'none'")
+  const path = new URL(req.url ?? '/', 'http://x').pathname
+  if (FILE_ROUTES.some((route) => path.startsWith(route))) policies.push('sandbox')
+  // Several policies in one header, each enforced on its own.
+  sent['content-security-policy'] = policies.join(', ')
+  sent['x-frame-options'] = 'DENY'
+  sent['x-content-type-options'] = 'nosniff'
+  sent['cross-origin-opener-policy'] = 'same-origin'
+  return sent
+}
+
 /** A page or file of the desktop. */
 export function proxyDesktop(req: IncomingMessage, res: ServerResponse): void {
+  // Only from the link's own pages, or opened directly: not from another site,
+  // such as another zrok share, which the browser counts as the same site.
+  const site = req.headers['sec-fetch-site']
+  if (site === 'same-site' || site === 'cross-site') {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' })
+    res.end('Not from this link.')
+    return
+  }
   const forward = upstream(req)
   forward.on('response', (answer) => {
-    res.writeHead(answer.statusCode ?? 502, answer.headers)
+    res.writeHead(answer.statusCode ?? 502, answerHeaders(req, answer))
     answer.pipe(res)
   })
   forward.on('error', () => {
