@@ -52,7 +52,11 @@ async function download(): Promise<string> {
   if (createHash('sha256').update(data).digest('hex') !== archive.sha256) {
     throw new Error('The zrok download is not the expected file, so it was not used.')
   }
-  const temp = await mkdtemp(join(app.getPath('temp'), 'barebone-zrok-'))
+  // Unpacked beside where it goes, so it can be moved there: a move from the
+  // system's temp folder fails when that is another filesystem (as /tmp is in a
+  // container whose data is on a volume).
+  await mkdir(dir, { recursive: true })
+  const temp = await mkdtemp(join(dir, '.unpacking-'))
   try {
     await writeFile(join(temp, archive.name), data)
     await new Promise<void>((resolve, reject) =>
@@ -61,7 +65,6 @@ async function download(): Promise<string> {
       )
     )
     await chmod(join(temp, 'zrok2'), 0o755)
-    await mkdir(dir, { recursive: true })
     await rename(join(temp, 'zrok2'), binary)
   } finally {
     await rm(temp, { recursive: true, force: true })
