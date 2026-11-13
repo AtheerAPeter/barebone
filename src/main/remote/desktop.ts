@@ -49,12 +49,14 @@ function upstream(req: IncomingMessage): ReturnType<typeof request> {
 }
 
 /**
- * The desktop's routes that serve the server's own files (Selkies' file
- * browser and print queue) rather than its app: any file could be a page, so
- * it is shown sandboxed, without scripts and in an origin of its own, never
- * as the link's.
+ * What of the desktop may run as the link: its app's page and the app's own
+ * scripts (the page starts web workers from them), matched exactly on the
+ * address as sent. Everything else, such as the server's files that Selkies
+ * serves (api/files, api/print), is sandboxed: shown without scripts, in an
+ * origin of its own. An address written another way (a doubled slash, an
+ * encoded character) is not on this list, so it is sandboxed too.
  */
-const FILE_ROUTES = [`${DESKTOP_PATH}api/files/`, `${DESKTOP_PATH}api/print/`]
+const APP = /^\/desktop\/(?:index\.html)?$|^\/desktop\/(?:assets\/)?[\w.-]+\.m?js$/
 
 /** The desktop's headers, made safe to serve from the link's origin. */
 function answerHeaders(req: IncomingMessage, answer: IncomingMessage): OutgoingHttpHeaders {
@@ -63,8 +65,8 @@ function answerHeaders(req: IncomingMessage, answer: IncomingMessage): OutgoingH
   // frame the desktop with this link's cookie (clickjacking).
   const policies = [answer.headers['content-security-policy'] ?? []].flat()
   policies.push("frame-ancestors 'none'")
-  const path = new URL(req.url ?? '/', 'http://x').pathname
-  if (FILE_ROUTES.some((route) => path.startsWith(route))) policies.push('sandbox')
+  const path = (req.url ?? '/').split('?')[0]
+  if (!APP.test(path)) policies.push('sandbox')
   // Several policies in one header, each enforced on its own.
   sent['content-security-policy'] = policies.join(', ')
   sent['x-frame-options'] = 'DENY'
