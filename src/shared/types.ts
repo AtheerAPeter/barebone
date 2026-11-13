@@ -198,6 +198,14 @@ export interface Project {
   bot?: BotLook
 }
 
+/** What a folder path typed in the project picker could mean (main/folders.ts). */
+export interface FolderSuggestions {
+  /** The folder the typed path names, when there is one. */
+  folder?: string
+  /** Folders in it, or, while a name is being typed, those next to it whose names start so. */
+  folders: string[]
+}
+
 export interface Chat {
   id: string
   projectId: string

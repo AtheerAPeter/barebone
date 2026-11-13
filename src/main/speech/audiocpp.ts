@@ -152,7 +152,8 @@ export class AudioCpp {
         {
           host: '127.0.0.1',
           port,
-          backend: 'metal',
+          // The build downloaded for this computer (speech/index.ts): Metal on the Mac, the CPU on Linux.
+          backend: process.platform === 'darwin' ? 'metal' : 'cpu',
           lazy_load: true,
           max_loaded_models: 0,
           idle_unload_ms: IDLE_MS,

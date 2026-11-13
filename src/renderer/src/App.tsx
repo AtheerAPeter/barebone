@@ -27,6 +27,7 @@ import {
   SidebarIcon
 } from './components/icons'
 import { readPref, writePref } from './lib/prefs'
+import { shortcut } from './lib/platform'
 import { usePageRecorder } from './lib/recording'
 import { useSpeechPlayer } from './lib/speech'
 import { LevelMeter } from './components/LevelMeter'
@@ -325,12 +326,16 @@ export default function App(): React.JSX.Element {
             <>
               <button
                 className="icon-btn"
-                title="Show sidebar (⌘B)"
+                title={`Show sidebar (${shortcut('B')})`}
                 onClick={() => setSidebarOpen(true)}
               >
                 <SidebarIcon />
               </button>
-              <button className="icon-btn" title="New chat (⌘N)" onClick={() => setPicking(true)}>
+              <button
+                className="icon-btn"
+                title={`New chat (${shortcut('N')})`}
+                onClick={() => setPicking(true)}
+              >
                 <ComposeIcon />
               </button>
             </>
@@ -413,7 +418,7 @@ export default function App(): React.JSX.Element {
           {!REMOTE && (
             <button
               className={`icon-btn${browserOpen ? ' on' : ''}`}
-              title="Toggle browser (⇧⌘B)"
+              title={`Toggle browser (${shortcut('B', true)})`}
               disabled={!chat}
               onClick={() => toggleBrowser(chat?.id)}
             >
@@ -495,7 +500,10 @@ export default function App(): React.JSX.Element {
                 <h2>Open a project to start</h2>
                 <p>Chats run OpenCode, Cline or Command Code inside a project folder.</p>
                 {REMOTE ? (
-                  <p>Open one in Barebone on your Mac.</p>
+                  // No folder dialog here: the picker opens a folder by its path.
+                  <button className="btn primary" onClick={() => setPicking(true)}>
+                    Open folder
+                  </button>
                 ) : (
                   <button className="btn primary" onClick={() => window.api.addProject()}>
                     Open folder
@@ -559,7 +567,7 @@ export default function App(): React.JSX.Element {
             !sidebarOpen && (
               <button
                 className="icon-btn"
-                title="Show sidebar (⌘B)"
+                title={`Show sidebar (${shortcut('B')})`}
                 onClick={() => setSidebarOpen(true)}
               >
                 <SidebarIcon />

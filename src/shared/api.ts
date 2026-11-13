@@ -16,6 +16,7 @@ import type {
   CustomProvider,
   CustomProviderCheck,
   CustomProviderInput,
+  FolderSuggestions,
   FormAnswers,
   MobileToolCheck,
   GitBranch,
@@ -284,6 +285,10 @@ export function makeApi(t: Transport) {
     },
 
     addProject: (): Promise<Project | null> => invoke('project:add'),
+    /** The project of a folder by its path ("~/projects/app"); rejects when there is no folder there. */
+    addProjectAt: (path: string): Promise<Project> => invoke('project:addPath', path),
+    /** The folders a typed path could mean, for the project picker. */
+    folders: (typed: string): Promise<FolderSuggestions> => invoke('project:folders', typed),
     removeProject: (projectId: string): Promise<void> => invoke('project:remove', projectId),
     setProjectStyle: (
       projectId: string,

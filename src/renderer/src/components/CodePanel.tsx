@@ -10,6 +10,7 @@ import type {
   Walkthrough
 } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
+import { shortcut, shortcutHeld } from '../lib/platform'
 import { menusAsSheets, touchScreen } from '../lib/touch'
 import { useOverlay } from '../lib/overlays'
 import { CHAT_MIN_WIDTH, dragDivider } from '../lib/side-panel'
@@ -445,12 +446,12 @@ function SourceControl({
           placeholder={
             touchScreen
               ? `Message${repo.branch ? ` (commits on "${repo.branch}")` : ''}`
-              : `Message (⌘Enter to commit${repo.branch ? ` on "${repo.branch}"` : ''})`
+              : `Message (${shortcut('Enter')} to commit${repo.branch ? ` on "${repo.branch}"` : ''})`
           }
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && e.metaKey) {
+            if (e.key === 'Enter' && shortcutHeld(e)) {
               e.preventDefault()
               commit()
             }

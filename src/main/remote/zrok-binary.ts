@@ -23,6 +23,10 @@ const ARCHIVES: Partial<Record<string, { name: string; sha256: string }>> = {
   'darwin-x64': {
     name: `zrok_${VERSION}_darwin_amd64.tar.gz`,
     sha256: '74bd2eee1524b884015fd7e7114da226d5c6a59930b33abbd074bafdc2f92a18'
+  },
+  'linux-x64': {
+    name: `zrok_${VERSION}_linux_amd64.tar.gz`,
+    sha256: 'cce814e1f0036ea9bd6fc58363bd2b52468db903781d44defcf755349fca333f'
   }
 }
 
@@ -40,7 +44,7 @@ export function zrokBinary(): Promise<string> {
 
 async function download(): Promise<string> {
   const archive = ARCHIVES[`${process.platform}-${process.arch}`]
-  if (!archive) throw new Error('The remote link runs on macOS only.')
+  if (!archive) throw new Error('The remote link runs on macOS and on Linux on x64 only.')
   const url = `https://github.com/openziti/zrok/releases/download/v${VERSION}/${archive.name}`
   const response = await fetch(url, { signal: AbortSignal.timeout(5 * 60 * 1000) })
   if (!response.ok) throw new Error(`zrok could not be downloaded (${response.status}).`)

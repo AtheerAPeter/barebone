@@ -23,10 +23,16 @@ export function availableUpdate(): string | null {
   return latest
 }
 
-/** Check now and every few hours; `onFound` gets each newer version found. Packaged builds only. */
+/**
+ * Releases are .dmg files, so only the Mac's app installs them; elsewhere (a
+ * Linux server's container) a new build is installed in the app's place.
+ */
+const INSTALLS_RELEASES = process.platform === 'darwin'
+
+/** Check now and every few hours; `onFound` gets each newer version found. Packaged Mac builds only. */
 export function watchForUpdates(onFound: (version: string) => void): void {
   notify = onFound
-  if (!app.isPackaged) return
+  if (!app.isPackaged || !INSTALLS_RELEASES) return
   const check = (): void => {
     checkForUpdates().catch((error) => console.error('Could not check for updates:', error.message))
   }
@@ -36,6 +42,7 @@ export function watchForUpdates(onFound: (version: string) => void): void {
 
 /** Check now: the newer release's version, or null when this app is the latest. */
 export async function checkForUpdates(): Promise<string | null> {
+  if (!INSTALLS_RELEASES) throw new Error('Barebone installs releases on the Mac only.')
   const version = await newerRelease()
   if (version && version !== latest) {
     latest = version
@@ -77,6 +84,8 @@ let installing: Promise<void> | undefined
  * ends while the app still runs: rejected with the script's reason when it failed.
  */
 export function installUpdate(): Promise<void> {
+  if (!INSTALLS_RELEASES)
+    return Promise.reject(new Error('Barebone installs releases on the Mac only.'))
   installing ??= runInstaller().finally(() => (installing = undefined))
   return installing
 }

@@ -48,14 +48,27 @@ const SUPERTONIC_FILES = [
   { path: 'onnx/vector_estimator.onnx', size: 256534781, sha256: '883ac868ea0275ef0e991524dc64f16b3c0376efd7c320af6b53f5b780d7c61c' }
 ].map((file) => ({ ...file, url: `${SUPERTONIC}/${file.path}` })) // prettier-ignore
 
-/** audio.cpp 0.9.4, its macOS build for Apple Silicon with Metal. */
-const AUDIOCPP = {
-  url: 'https://github.com/0xShug0/audio.cpp/releases/download/v0.9.4/audio-v0.9.4-bin-macos-arm64-metal.tar.gz',
-  path: 'audiocpp.tar.gz',
-  size: 36947118,
-  sha256: '5722c4f33e56114345965c0dee472a9239218f7499ace6393bba6a951a41b86a',
-  archive: { kind: 'tar' as const, unpacked: 'audiocpp_server' }
-}
+/**
+ * audio.cpp 0.9.4: on the Mac its build for Apple Silicon with Metal; on Linux
+ * its portable x64 build for the CPU, which picks the kernels the processor
+ * has when it starts (a server's GPU is rare).
+ */
+const AUDIOCPP =
+  process.platform === 'linux'
+    ? {
+        url: 'https://github.com/0xShug0/audio.cpp/releases/download/v0.9.4/audio-v0.9.4-bin-ubuntu-x64-cpu-portable.tar.gz',
+        path: 'audiocpp.tar.gz',
+        size: 70154506,
+        sha256: '02756c556d78ccca8040cab6fbc6c7bf57d4f6ed70fe534e8a9e846bab464687',
+        archive: { kind: 'tar' as const, unpacked: 'audiocpp_server' }
+      }
+    : {
+        url: 'https://github.com/0xShug0/audio.cpp/releases/download/v0.9.4/audio-v0.9.4-bin-macos-arm64-metal.tar.gz',
+        path: 'audiocpp.tar.gz',
+        size: 36947118,
+        sha256: '5722c4f33e56114345965c0dee472a9239218f7499ace6393bba6a951a41b86a',
+        archive: { kind: 'tar' as const, unpacked: 'audiocpp_server' }
+      }
 
 /** audio.cpp's own GGUF conversions of the models, at one revision. */
 const GGUF =

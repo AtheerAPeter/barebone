@@ -21,24 +21,35 @@ export function installMenu(
     checked: theme === value,
     click: () => setTheme(value)
   })
+  const mac = process.platform === 'darwin'
+  const settings: MenuItemConstructorOptions = {
+    label: 'Settings…',
+    accelerator: 'CmdOrCtrl+,',
+    click: () => run('open-settings')
+  }
   const template: MenuItemConstructorOptions[] = [
-    {
-      // The standard app menu, with Settings where Mac apps put it.
-      role: 'appMenu',
-      submenu: [
-        { role: 'about' },
-        { type: 'separator' },
-        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => run('open-settings') },
-        { type: 'separator' },
-        { role: 'services' },
-        { type: 'separator' },
-        { role: 'hide' },
-        { role: 'hideOthers' },
-        { role: 'unhide' },
-        { type: 'separator' },
-        { role: 'quit' }
-      ]
-    },
+    // The standard app menu, with Settings where Mac apps put it. Elsewhere
+    // there is no app menu; Settings and Quit go in File, as Linux apps have them.
+    ...(mac
+      ? [
+          {
+            role: 'appMenu' as const,
+            submenu: [
+              { role: 'about' as const },
+              { type: 'separator' as const },
+              settings,
+              { type: 'separator' as const },
+              { role: 'services' as const },
+              { type: 'separator' as const },
+              { role: 'hide' as const },
+              { role: 'hideOthers' as const },
+              { role: 'unhide' as const },
+              { type: 'separator' as const },
+              { role: 'quit' as const }
+            ]
+          }
+        ]
+      : []),
     {
       label: 'File',
       submenu: [
@@ -50,7 +61,9 @@ export function installMenu(
         },
         { label: 'Import Bot…', click: () => run('import-bot') },
         { type: 'separator' },
-        { role: 'close' }
+        ...(mac
+          ? [{ role: 'close' as const }]
+          : [settings, { type: 'separator' as const }, { role: 'quit' as const }])
       ]
     },
     { role: 'editMenu' },

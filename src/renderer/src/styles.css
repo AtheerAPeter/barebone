@@ -245,6 +245,31 @@
 }
 
 /*
+ * No window glass behind the page: the remote link's browser page (web.html)
+ * and the app's window off the Mac (main.tsx). Panels are solid, and there are
+ * no traffic lights to leave room for.
+ */
+html.no-glass {
+  --canvas: #f9f9f9;
+  --panel-main: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  html.no-glass {
+    --canvas: #0d0d0d;
+    --panel-main: #000000;
+  }
+}
+
+html.no-glass .sidebar-hidden .topbar {
+  padding-left: 12px;
+}
+
+html.no-glass .sidebar-hidden.chat-folded .panel-tabs {
+  padding-left: 8px;
+}
+
+/*
  * macOS's Increase contrast setting (Settings → Accessibility → Display). The
  * same layout, with quieter type pulled up and hairlines made to read as lines.
  */

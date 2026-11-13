@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AGENTS, type Project, type Skill, type SkillScope } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
+import { shortcutHeld } from '../lib/platform'
 import { BackIcon, PlusIcon } from './icons'
 
 interface SkillsViewProps {
@@ -175,7 +176,7 @@ export function SkillsView({ project }: SkillsViewProps): React.JSX.Element {
               value={content}
               onChange={(e) => setContent(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 's' && e.metaKey && dirty) {
+                if (e.key === 's' && shortcutHeld(e) && dirty) {
                   e.preventDefault()
                   save(current.path)
                 }

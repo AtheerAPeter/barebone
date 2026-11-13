@@ -12,14 +12,26 @@ import { Package } from './downloads'
  * shows a video by its first frame shows that one.
  */
 
-/** ffmpeg 9.0.2 for Apple Silicon, built and signed by Martin Riedl (ffmpeg.martin-riedl.de). */
-const FFMPEG = {
-  url: 'https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip',
-  path: 'ffmpeg.zip',
-  size: 28395699,
-  sha256: 'c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924',
-  archive: { kind: 'zip' as const, unpacked: 'ffmpeg' }
-}
+/**
+ * ffmpeg 9.0.2, built by Martin Riedl (ffmpeg.martin-riedl.de): for Apple
+ * Silicon (signed) on the Mac, for x64 on Linux.
+ */
+const FFMPEG =
+  process.platform === 'linux'
+    ? {
+        url: 'https://ffmpeg.martin-riedl.de/download/linux/amd64/1789931100_9.0.2/ffmpeg.zip',
+        path: 'ffmpeg.zip',
+        size: 33326445,
+        sha256: 'fa8ecf4abbd290d98f7d188b8649cc6b391ae209a98452be955a15aab1909d7f',
+        archive: { kind: 'zip' as const, unpacked: 'ffmpeg' }
+      }
+    : {
+        url: 'https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip',
+        path: 'ffmpeg.zip',
+        size: 28395699,
+        sha256: 'c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924',
+        archive: { kind: 'zip' as const, unpacked: 'ffmpeg' }
+      }
 
 const run = promisify(execFile)
 

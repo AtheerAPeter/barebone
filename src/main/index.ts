@@ -70,6 +70,7 @@ import { VideoTools } from './video'
 import { loadShellPath } from './shell-env'
 import * as skills from './skills'
 import { listProjectFiles } from './files'
+import { folderAt, folderSuggestions } from './folders'
 import * as git from './git'
 import { WalkPlayer } from './walkthrough'
 import { chooseProjectIcon, projectIcon } from './project-icon'
@@ -256,15 +257,18 @@ function createWindow(): BuiltinBrowser {
     minWidth: 1024,
     minHeight: 560,
     show: false,
-    titleBarStyle: 'hiddenInset',
-    // Centred on the sidebar's 48px top row.
-    trafficLightPosition: { x: 16, y: 17 },
-    // On the Mac, see-through so the Liquid Glass behind the page shows where the
-    // page is (addGlass); macOS then blends the window with what is behind it on
-    // every frame. Elsewhere opaque, in the chat's background color.
+    // On the Mac, the traffic lights sit in the page, centred on the sidebar's
+    // 48px top row, and the window is see-through so the Liquid Glass behind the
+    // page shows where the page is (addGlass); macOS then blends the window with
+    // what is behind it on every frame. Elsewhere a framed window, opaque in the
+    // chat's background color, its menu bar shown while Alt is held.
     ...(process.platform === 'darwin'
-      ? { transparent: true }
-      : { backgroundColor: windowBackground() }),
+      ? {
+          titleBarStyle: 'hiddenInset' as const,
+          trafficLightPosition: { x: 16, y: 17 },
+          transparent: true
+        }
+      : { backgroundColor: windowBackground(), autoHideMenuBar: true, icon: appIcon }),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       sandbox: false,
@@ -275,12 +279,18 @@ function createWindow(): BuiltinBrowser {
 
   // A sheet attached in the same tick as show() is never drawn; the show event comes after.
   mainWindow.once('show', () => store.reportDamagedState(mainWindow))
-  mainWindow.on('ready-to-show', () => mainWindow.show())
+  // Shown once its first frame is drawn, so it never flashes empty. On Linux a
+  // hidden window may never be drawn (on Wayland its surface has no role until
+  // shown), so ready-to-show would never come: there it shows once its page loads.
+  if (process.platform === 'linux')
+    mainWindow.webContents.once('did-finish-load', () => mainWindow.show())
+  else mainWindow.on('ready-to-show', () => mainWindow.show())
   // As in other Mac apps, closing the window hides it and the app stays in the
   // Dock: chats keep running, and the window comes back as it was. Quitting
-  // (⌘Q) closes it for real and stops the agents.
+  // (⌘Q) closes it for real and stops the agents. Elsewhere nothing brings a
+  // hidden window back, so closing it quits, as Linux and Windows apps do.
   mainWindow.on('close', (event) => {
-    if (quitting) return
+    if (quitting || process.platform !== 'darwin') return
     event.preventDefault()
     // A full-screen window would leave an empty space behind; it leaves full screen first.
     if (mainWindow.isFullScreen()) {
@@ -732,6 +742,16 @@ function registerBotsIpc(): void {
   })
 }
 
+/** The project of a folder: the one there already, or a new one named after it. */
+function projectAt(path: string): Project {
+  const existing = store.getState().projects.find((p) => p.path === path)
+  if (existing) return existing
+  const project = { id: crypto.randomUUID(), name: basename(path), path, createdAt: Date.now() }
+  store.addProject(project)
+  stateChanged()
+  return project
+}
+
 function registerIpc(browser: BuiltinBrowser): void {
   handle(
     'browser:setOpen',
@@ -833,15 +853,13 @@ function registerIpc(browser: BuiltinBrowser): void {
       })
       const path = result.filePaths[0]
       if (result.canceled || !path) return null
-      const existing = store.getState().projects.find((p) => p.path === path)
-      if (existing) return existing
-      const project = { id: crypto.randomUUID(), name: basename(path), path, createdAt: Date.now() }
-      store.addProject(project)
-      stateChanged()
-      return project
+      return projectAt(path)
     },
     MAC_ONLY
   )
+  // A folder by its typed path (folders.ts): also from the remote link, which has no folder dialog.
+  handle('project:addPath', async (typed: string) => projectAt(await folderAt(typed)))
+  handle('project:folders', (typed: string) => folderSuggestions(typed))
 
   handle('project:remove', (projectId: string) => {
     store.removeProject(projectId)
@@ -1003,14 +1021,18 @@ app.on('activate', () => {
 })
 
 // Right ⌘ held alone is push to talk (renderer/src/lib/voice.ts), wherever the
-// keyboard is: the chat, a browser page or the agent orb. The window learns
-// when right ⌘ goes down and up, and that another key went down with it (a
-// shortcut, not talking); never which keys are typed.
+// keyboard is: the chat, a browser page or the agent orb. Off the Mac it is
+// right Ctrl, the key shortcuts use there (right Super is the system's, and a
+// remote desktop rarely passes it on). The window learns when the key goes
+// down and up, and that another key went down with it (a shortcut, not
+// talking); never which keys are typed.
+const TALK_KEY = process.platform === 'darwin' ? 'MetaRight' : 'ControlRight'
 app.on('web-contents-created', (_event, contents) => {
   contents.on('before-input-event', (_e, input) => {
     if (!mainWindow || (input.type !== 'keyDown' && input.type !== 'keyUp')) return
-    if (input.code === 'MetaRight') send('voice:key', input.type, input.isAutoRepeat)
-    else if (input.type === 'keyDown' && input.meta) send('voice:key', 'combo', false)
+    const held = process.platform === 'darwin' ? input.meta : input.control
+    if (input.code === TALK_KEY) send('voice:key', input.type, input.isAutoRepeat)
+    else if (input.type === 'keyDown' && held) send('voice:key', 'combo', false)
   })
 })
 

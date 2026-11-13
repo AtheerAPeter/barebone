@@ -15,6 +15,7 @@ import {
   type Project
 } from '../../../shared/types'
 import { readPref, writePref } from '../lib/prefs'
+import { shortcut } from '../lib/platform'
 import { useUpdateInstall } from '../lib/update'
 import {
   BookIcon,
@@ -578,12 +579,12 @@ export function Sidebar({
         >
           <FolderIcon />
         </button>
-        <button className="icon-btn" title="Hide sidebar (⌘B)" onClick={onHide}>
+        <button className="icon-btn" title={`Hide sidebar (${shortcut('B')})`} onClick={onHide}>
           <SidebarIcon />
         </button>
       </div>
       <div className="side-nav">
-        <button className="nav-row" title="New chat (⌘N)" onClick={onNewChat}>
+        <button className="nav-row" title={`New chat (${shortcut('N')})`} onClick={onNewChat}>
           <ComposeIcon />
           New chat
         </button>
@@ -602,7 +603,7 @@ export function Sidebar({
         {!window.api.remote && (
           <button
             className="nav-row"
-            title="Open project folder (⌘O)"
+            title={`Open project folder (${shortcut('O')})`}
             onClick={() => window.api.addProject()}
           >
             <FolderPlusIcon />
@@ -650,7 +651,7 @@ export function Sidebar({
         <div className="profile-row">
           <button
             className={`profile${view === 'settings' ? ' on' : ''}`}
-            title="Settings (⌘,)"
+            title={`Settings (${shortcut(',')})`}
             onClick={onShowSettings}
           >
             <span className="avatar">B</span>

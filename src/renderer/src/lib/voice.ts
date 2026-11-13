@@ -1,5 +1,6 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { errorMessage } from './errors'
+import { shortcut } from './platform'
 
 export type VoiceState = 'idle' | 'recording' | 'transcribing'
 
@@ -69,7 +70,7 @@ export function useVoiceInput(onText: (text: string) => void): {
     cancelled.current = false
     try {
       if (!(await window.api.voice.keyHint())) {
-        throw new Error('Add a Groq API key under Voice input in Settings (⌘,).')
+        throw new Error(`Add a Groq API key under Voice input in Settings (${shortcut(',')}).`)
       }
       // A browser through the remote link asks for the microphone itself, below.
       if (!window.api.remote && !(await window.api.voice.microphone())) {

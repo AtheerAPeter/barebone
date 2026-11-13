@@ -10,7 +10,7 @@ import {
   type WebContents
 } from 'electron'
 import { EventEmitter } from 'node:events'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { extname, basename, join } from 'node:path'
 import type { BrowserState, PageViewport, Rect, SavedTabs } from '../shared/types'
 import { PageDriver } from './page-driver'
@@ -343,9 +343,12 @@ export class BuiltinBrowser {
     // Save straight to ~/Downloads instead of showing a Save dialog, which an
     // agent cannot answer, and record where each file went.
     browserSession.on('will-download', (_event, item, contents) => {
+      // A new Linux account (a server's container) may have no Downloads folder yet.
+      const folder = app.getPath('downloads')
+      mkdirSync(folder, { recursive: true })
       const download: Download = {
         url: item.getURL(),
-        path: uniquePath(app.getPath('downloads'), item.getFilename()),
+        path: uniquePath(folder, item.getFilename()),
         state: 'progressing'
       }
       item.setSavePath(download.path)

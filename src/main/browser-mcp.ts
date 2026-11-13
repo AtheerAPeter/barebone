@@ -712,7 +712,7 @@ async function buildServer(
     'press_key',
     {
       description:
-        'Press a key or shortcut in the focused element, e.g. Enter, Escape, Tab, ArrowDown, or "a" with modifiers ["cmd"] for select all. ⌘A/C/V/X/Z run the real edit commands.',
+        'Press a key or shortcut in the focused element, e.g. Enter, Escape, Tab, ArrowDown, or "a" with modifiers ["cmd"] for select all. "cmd" is the shortcut key, ⌘ on the Mac and Ctrl elsewhere. cmd+A/C/V/X/Z run the real edit commands.',
       inputSchema: {
         key: z.string(),
         modifiers: z.array(z.enum(['cmd', 'shift', 'alt', 'ctrl'])).optional(),

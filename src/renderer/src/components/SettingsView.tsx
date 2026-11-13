@@ -9,6 +9,7 @@ import type {
   VoiceModelId
 } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
+import { isMac, TALK_KEY } from '../lib/platform'
 import { useRemoteStatus } from '../lib/remote'
 import { useTelegramStatus } from '../lib/telegram'
 import { useUpdateInstall } from '../lib/update'
@@ -369,7 +370,7 @@ export function SettingsView({
       id: 'voice',
       group: 'Voice',
       name: 'Voice input',
-      summary: 'Hold ⌘ or the mic to dictate; Whisper on Groq writes it out.',
+      summary: `Hold ${TALK_KEY} or the mic to dictate; Whisper on Groq writes it out.`,
       keywords: 'speech to text dictate microphone whisper groq language arabic',
       state: keyState(hints.voice),
       needs: hints.voice === null,
@@ -381,7 +382,7 @@ export function SettingsView({
       detail: (
         <>
           <p>
-            Hold the microphone button in the composer, or the right ⌘ key, while you speak. When
+            Hold the microphone button in the composer, or the {TALK_KEY} key, while you speak. When
             you let go, Whisper on Groq writes out what you said in the language you spoke, such as
             Arabic, English or German. A click on the button records until the next click. The
             recording is sent to Groq. It takes a Groq API key, free from{' '}
@@ -516,7 +517,9 @@ export function SettingsView({
       id: 'updates',
       group: 'App',
       name: 'Updates',
-      summary: 'Barebone checks for a newer release every few hours.',
+      summary: CHECKS_UPDATES
+        ? 'Barebone checks for a newer release every few hours.'
+        : 'Barebone is updated by installing its new build.',
       keywords: 'version update release install newer',
       icon: <DownloadIcon />,
       tone: 'gray',
@@ -1125,6 +1128,12 @@ function TelegramStatusBlock({
   )
 }
 
+/**
+ * Releases install on the Mac only (main/updates.ts): elsewhere, as in the
+ * app's window on a Linux server, a new build is installed in its place.
+ */
+const CHECKS_UPDATES = isMac || window.api.remote
+
 /** The app's version and a check for a newer release, which it can install from here. */
 function UpdatesBody({ version }: { version: string | undefined }): React.JSX.Element {
   /** The newer release found; null once a check finds none; undefined before any. */
@@ -1150,6 +1159,8 @@ function UpdatesBody({ version }: { version: string | undefined }): React.JSX.El
       setChecking(false)
     }
   }
+
+  if (!CHECKS_UPDATES) return <p>{`This is version ${version ?? '…'}.`}</p>
 
   return (
     <>
