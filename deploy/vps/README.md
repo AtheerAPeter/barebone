@@ -26,8 +26,14 @@ On the server:
 
 ```sh
 git clone <this repository> barebone && cd barebone
+# Once: the container's AppArmor profile (see Sandboxes), kept across reboots.
+cp deploy/vps/apparmor-barebone /etc/apparmor.d/barebone
+apparmor_parser -r -W /etc/apparmor.d/barebone
 BAREBONE_PASSWORD='choose-one' docker compose -f deploy/vps/compose.yml up -d --build
 ```
+
+On a server without AppArmor, skip the two AppArmor lines; Docker then
+ignores the profile.
 
 The first build takes a while. It builds the app from source, then the
 desktop image with the agents' CLIs: Claude Code, Codex, opencode, Cline and
@@ -93,14 +99,13 @@ still refuses mounts outside a namespace a process made itself, so even root
 in the container cannot mount anything. Pages stay sandboxed, and the
 container keeps Docker's other limits.
 
-The server's kernel must allow user namespaces for accounts that are not
-root. Debian does by default. Ubuntu 23.10 and newer restrict them with
-AppArmor. If Barebone does not start and its log says the sandbox could not
-start, check:
-
-```sh
-sysctl kernel.apparmor_restrict_unprivileged_userns   # 1 means restricted
-```
+On servers with AppArmor (Ubuntu, Debian), Docker's own AppArmor profile also
+denies every mount, which stops bubblewrap. `apparmor-barebone` is that
+profile ([moby/profiles](https://github.com/moby/profiles/blob/apparmor/v0.2.2/apparmor/testdata/default.golden),
+`apparmor/v0.2.2`, which Docker 29 uses) with `mount` and `pivot_root`
+allowed and nothing else changed. Ubuntu's restriction on user namespaces
+(`kernel.apparmor_restrict_unprivileged_userns`) does not stop the container:
+it was checked on Ubuntu 26.04 with Docker 29.9.
 
 ## Not on Linux
 

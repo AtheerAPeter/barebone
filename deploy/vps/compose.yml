@@ -17,8 +17,9 @@ services:
     # Chromium crashes pages with Docker's 64 MB /dev/shm.
     shm_size: 1gb
     security_opt:
-      # Docker's own profile, plus the sandboxes a Linux desktop allows (README.md).
+      # Docker's own profiles, plus the sandboxes a Linux desktop allows (README.md).
       - seccomp=./seccomp.json
+      - apparmor=barebone
     environment:
       - PUID=1000
       - PGID=1000
