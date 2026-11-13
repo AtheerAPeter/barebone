@@ -21,6 +21,7 @@ import {
   BookIcon,
   ChevronIcon,
   ComposeIcon,
+  DesktopIcon,
   FolderIcon,
   FolderPlusIcon,
   SearchIcon,
@@ -112,6 +113,15 @@ export function Sidebar({
   const [version, setVersion] = useState<string>()
   /** A newer release's version, once the app has found one. */
   const [update, setUpdate] = useState<string | null>(null)
+  /** Through the remote link, whether the server has a desktop to open (remote/desktop.ts). */
+  const [desktop, setDesktop] = useState(false)
+  useEffect(() => {
+    if (!window.api.remote) return
+    fetch('/api/session', { credentials: 'same-origin' })
+      .then((answer) => (answer.ok ? answer.json() : {}))
+      .then((session: { desktop?: boolean }) => setDesktop(session.desktop === true))
+      .catch(() => undefined)
+  }, [])
   useEffect(() => {
     window.api.appVersion().then(setVersion)
     // Updating quits and reopens the app: something to do on the Mac.
@@ -609,6 +619,12 @@ export function Sidebar({
             <FolderPlusIcon />
             Open project
           </button>
+        )}
+        {desktop && (
+          <a className="nav-row" href="/desktop/" target="_blank" rel="noopener">
+            <DesktopIcon />
+            Desktop
+          </a>
         )}
       </div>
       {query !== undefined && (

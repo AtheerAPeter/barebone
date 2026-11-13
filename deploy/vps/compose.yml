@@ -29,6 +29,11 @@ services:
       - PASSWORD=${BAREBONE_PASSWORD:?Set BAREBONE_PASSWORD}
       # Closing Barebone quits it; the desktop starts it again.
       - RESTART_APP=true
+      # The desktop is served under /desktop/, and paired devices of the remote
+      # link open it there (src/main/remote/desktop.ts), signed in by Barebone.
+      - SUBFOLDER=/desktop/
+      - BAREBONE_DESKTOP=http://127.0.0.1:3000
+      - BAREBONE_DESKTOP_AUTH=barebone:${BAREBONE_PASSWORD}
       - SELKIES_MICROPHONE_ENABLED=true
       - SELKIES_MICROPHONE_ON_START=demand
       - SELKIES_ENABLE_SHARING=false

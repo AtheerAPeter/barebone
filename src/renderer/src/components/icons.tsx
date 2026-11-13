@@ -12,6 +12,7 @@ import {
   IconChevronRight,
   IconClock,
   IconCopy,
+  IconDeviceDesktop,
   IconDeviceMobile,
   IconDotsVertical,
   IconDownload,
@@ -161,6 +162,7 @@ export const SpeakerIcon = fromTabler(IconVolume)
 export const MusicIcon = fromTabler(IconMusic)
 export const DownloadIcon = fromTabler(IconDownload)
 export const PhoneIcon = fromTabler(IconDeviceMobile)
+export const DesktopIcon = fromTabler(IconDeviceDesktop)
 /** Telegram's paper plane, on the Control from Telegram settings. */
 export const TelegramIcon = fromTabler(IconBrandTelegram)
 /** The persona the agent's main conversation runs as (Claude Code's custom agents). */
