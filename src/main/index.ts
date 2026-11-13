@@ -2,7 +2,7 @@
 import './former-name'
 import { app, shell, BrowserWindow, ipcMain, dialog, nativeTheme, protocol } from 'electron'
 import { handle, handleAs, listen, MAC_ONLY, onCallerGone, type Caller } from './remote/registry'
-import { appendFileSync, mkdirSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -84,6 +84,7 @@ import {
   remoteKey,
   watchBot
 } from './bots'
+import { BOT_FILE_EXTENSION, exportBot, importBot } from './bot-archive'
 import { availableUpdate, checkForUpdates, installUpdate, watchForUpdates } from './updates'
 
 /**
@@ -625,6 +626,92 @@ function registerBotsIpc(): void {
   })
   handle('bots:memory', (projectId: string) => memory(projectId))
 
+  // A bot as a file, for a Barebone on another computer (bot-archive.ts).
+  const botFiles = [{ name: 'Barebone bot', extensions: [BOT_FILE_EXTENSION] }]
+  handle(
+    'bots:export',
+    async (projectId: string) => {
+      const project = store.getState().projects.find((p) => p.id === projectId && p.bot)
+      if (!project) return
+      const result = await dialog.showSaveDialog(mainWindow, {
+        title: `Export ${project.name}`,
+        message: `The file holds everything in ${project.name}'s folder, your documents and details too.`,
+        defaultPath: `${project.name.replace(/[/\\:]/g, '-')}.${BOT_FILE_EXTENSION}`,
+        buttonLabel: 'Export',
+        filters: botFiles
+      })
+      if (result.canceled || !result.filePath) return
+      try {
+        await exportBot(projectId, result.filePath)
+        shell.showItemInFolder(result.filePath)
+      } catch (error) {
+        await dialog.showMessageBox(mainWindow, {
+          type: 'error',
+          message: `${project.name} could not be exported`,
+          detail: (error as Error).message
+        })
+      }
+    },
+    MAC_ONLY
+  )
+  // Delete a bot: its chats stop and go, its routines with it, and its folder goes to the Trash.
+  handle(
+    'bots:delete',
+    async (projectId: string) => {
+      const project = store.getState().projects.find((p) => p.id === projectId && p.bot)
+      if (!project) return
+      const { response } = await dialog.showMessageBox(mainWindow, {
+        type: 'warning',
+        message: `Delete ${project.name}?`,
+        detail: `Its conversation and routines are removed from Barebone, and its folder, with its memory, records and documents, goes to the Trash, where you can still get it back.`,
+        buttons: ['Delete', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1
+      })
+      if (response !== 0) return
+      for (const chat of store.getState().chats.filter((c) => c.projectId === projectId)) {
+        await deleteChat(chat.id)
+      }
+      store.removeProject(projectId)
+      stateChanged()
+      if (!existsSync(project.path)) return
+      await shell.trashItem(project.path).catch((error: Error) =>
+        dialog.showMessageBox(mainWindow, {
+          type: 'error',
+          message: `${project.name}'s folder could not be moved to the Trash`,
+          detail: `${error.message}\n\nIt is still at ${project.path}.`
+        })
+      )
+    },
+    MAC_ONLY
+  )
+  handle(
+    'bots:import',
+    async () => {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: 'Import a bot',
+        buttonLabel: 'Import',
+        properties: ['openFile'],
+        filters: botFiles
+      })
+      const file = result.filePaths[0]
+      if (result.canceled || !file) return null
+      try {
+        const project = await importBot(file)
+        stateChanged()
+        return project
+      } catch (error) {
+        await dialog.showMessageBox(mainWindow, {
+          type: 'error',
+          message: 'The bot could not be imported',
+          detail: (error as Error).message
+        })
+        return null
+      }
+    },
+    MAC_ONLY
+  )
+
   // A bot's folder is watched while its dashboard or memory is open anywhere, so they show changes.
   const watching = new Map<string, { stop: () => void; by: Set<Caller> }>()
   const unwatch = (projectId: string, caller: Caller): void => {
@@ -636,7 +723,7 @@ function registerBotsIpc(): void {
   handleAs('bots:watch', (caller, projectId: string) => {
     const existing = watching.get(projectId)
     if (existing) return void existing.by.add(caller)
-    const stop = watchBot(projectId, () => send('bots:changed', projectId))
+    const stop = watchBot(projectId, (change) => send('bots:changed', projectId, change))
     watching.set(projectId, { stop, by: new Set([caller]) })
   })
   handleAs('bots:unwatch', (caller, projectId: string) => unwatch(projectId, caller))

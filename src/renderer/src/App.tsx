@@ -252,8 +252,11 @@ export default function App(): React.JSX.Element {
         else if (command === 'open-project') window.api.addProject()
         else if (command === 'open-settings') setView('settings')
         else if (command === 'new-chat') setPicking(true)
+        else if (command === 'import-bot') {
+          void window.api.bots.importFromFile().then((made) => made && openBot(made.id))
+        }
       }),
-    [newChat, toggleBrowser]
+    [newChat, toggleBrowser, openBot]
   )
 
   async function changeAgent(agent: AgentId, chosen: Record<string, string>): Promise<void> {

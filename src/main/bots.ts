@@ -1,13 +1,14 @@
 import { net, protocol, type CustomScheme } from 'electron'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, watch, writeFileSync } from 'node:fs'
-import { readFile, realpath, stat } from 'node:fs/promises'
+import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { extname, join, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { botColor } from '../shared/colors'
 import {
   BOT_SCHEME,
+  type BotChange,
   type BotShape,
   type Chat,
   type Project,
@@ -20,9 +21,10 @@ import * as store from './store'
  * or looking for a flat. Each has a folder of its own, made here, with
  * AGENTS.md saying who it is and how it keeps its folder: what it learns in
  * memory.md, its records in data/, and dashboard.html, a page it writes that
- * shows them. The window shows that page in the bot's chat, loaded from the
- * folder with the bot: scheme (or through the remote link, see
- * remote/server.ts); nothing on it can reach outside the folder.
+ * shows them and can save what the user fills in on it (saveRecord). The
+ * window shows that page in the bot's chat, loaded from the folder with the
+ * bot: scheme (or through the remote link, see remote/server.ts); nothing on
+ * it can reach outside the folder.
  */
 
 /** Where bots' folders are made: a place the user can find them, outside the app's own data. */
@@ -32,9 +34,13 @@ export const DASHBOARD = 'dashboard.html'
 export const MEMORY = 'memory.md'
 /** Barebone's look for a dashboard, made for each bot (see stylesheet); no file of the folder. */
 export const STYLESHEET = '_barebone.css'
+/** What a dashboard saves and follows its records with (see HELPER_SCRIPT); no file of the folder. */
+export const HELPER = '_barebone.js'
+/** Where a bot's records are, in its folder. */
+const RECORDS = 'data'
 
 /** A bot's name, as the user would say it; also its folder's name. */
-const MAX_NAME = 40
+export const MAX_NAME = 40
 
 export interface NewBot {
   name: string
@@ -90,9 +96,11 @@ It shows in Barebone, in your chat's place, on your color, so it should look lik
 - One HTML file with its own styles and scripts. It cannot load anything from the internet, only files in this folder.
 - It reads your records with \`fetch('data/<name>.json')\` and shows them. Keep the data in \`data/\`, not in the page.
 - It fits a pane 700 to 1000 pixels wide.
-- It only shows; it does not change your records.
+- It can also take what the user fills in: answers to your questions, their details, choices, ticks. Load Barebone's helper, \`<script src="${HELPER}"></script>\`, and save with \`await barebone.save('data/<name>.json', value)\`, which writes that record whole. It saves only JSON files right in \`data/\`.
+- Keep what the user fills in in records of its own, which only the page writes and you only read. A record you both wrote would lose what one of you saved. To ask the user for something, add the question to a record of yours; the page shows it as a field and saves the answer to theirs.
+- Save a field as soon as the user leaves it, and show that it is saved. Read their records before work that needs them: a save does not wake you.
 - Links to web pages are plain links (no \`target\`): Barebone opens them in your browser panel.
-- Barebone reloads it whenever the page or your records change.
+- Barebone loads the page again whenever anything in your folder changes, which empties a form the user is filling in. So a page with fields calls \`barebone.onChange(update)\` once: from then on a change of your records calls \`update\` instead, which reads them again and changes what the page shows, leaving alone the field the user is in. A change of the page itself still loads it again.
 
 ## Before anything goes out
 
@@ -107,7 +115,7 @@ If they have not answered yet, end your turn: their answer comes to you as a mes
 }
 
 /** A folder name for the bot: its name, without what a folder name cannot have, made unique. */
-function freeFolder(name: string): string {
+export function freeFolder(name: string): string {
   const base =
     name
       .replace(/[/\\:]/g, '-')
@@ -125,7 +133,7 @@ export function createBot(bot: NewBot): Project {
   if (name.length > MAX_NAME) throw new Error(`"name" is longer than ${MAX_NAME} characters.`)
   if (!bot.job.trim()) throw new Error('"job" is empty.')
   const path = freeFolder(name)
-  mkdirSync(join(path, 'data'), { recursive: true })
+  mkdirSync(join(path, RECORDS), { recursive: true })
   mkdirSync(join(path, 'files'), { recursive: true })
   const look = { ...bot, name, job: bot.job.trim() }
   writeFileSync(join(path, 'AGENTS.md'), agentsFile(look, path))
@@ -203,7 +211,7 @@ export function renewalNote(chatId: string, current: string): string {
     chars += line.length
   }
   return [
-    `(This is your ongoing conversation with the user, continued in a fresh session because the old one grew long, so you do not have the earlier messages. Before you answer, read ${join(project.path, MEMORY)} and your records in ${join(project.path, 'data')}. The whole conversation so far is saved in ${store.chatFile(chatId)}: search it when you need something from earlier.${recent.length > 0 ? ' The last messages before this one:)' : ')'}`,
+    `(This is your ongoing conversation with the user, continued in a fresh session because the old one grew long, so you do not have the earlier messages. Before you answer, read ${join(project.path, MEMORY)} and your records in ${join(project.path, RECORDS)}. The whole conversation so far is saved in ${store.chatFile(chatId)}: search it when you need something from earlier.${recent.length > 0 ? ' The last messages before this one:)' : ')'}`,
     ...recent,
     '(The new message:)'
   ].join('\n\n')
@@ -252,18 +260,108 @@ export async function memory(projectId: string): Promise<string | null> {
   return path ? readFile(path, 'utf8') : null
 }
 
+/** The most a dashboard may save in one record. */
+export const MAX_RECORD_BYTES = 1024 * 1024
+
+/** A record a dashboard may save: a JSON file right in data/, not a hidden one. */
+const RECORD = /^data\/([^./\\\0][^/\\\0]*\.json)$/
+
 /**
- * Call `changed` when anything in a bot's folder changes, at most every 300 ms,
- * until the returned function stops it.
+ * What dashboards wrote and their watchers have not passed over yet, by path:
+ * the hash of a record as saved, or null for the file it was written through,
+ * which is gone by then (see ownSave).
  */
-export function watchBot(projectId: string, changed: () => void): () => void {
+const ownSaves = new Map<string, string | null>()
+
+const hash = (content: Buffer): string => createHash('sha256').update(content).digest('hex')
+
+/**
+ * Save a record from a bot's dashboard: `file` as the page names it
+ * (data/<name>.json), whole. The answer is an HTTP status with what to tell
+ * the page, as both the bot: scheme and the remote link's server pass it on.
+ * The record is replaced in one step, so the bot never reads half of one.
+ */
+export async function saveRecord(
+  projectId: string,
+  file: string,
+  body: Buffer
+): Promise<{ status: number; message: string }> {
+  const project = botProject(projectId)
+  const name = RECORD.exec(file)?.[1]
+  if (!project || !name) {
+    return { status: 404, message: 'A dashboard saves only JSON files right in data/.' }
+  }
+  if (body.length > MAX_RECORD_BYTES) return { status: 413, message: 'Too large to save.' }
+  try {
+    JSON.parse(body.toString('utf8'))
+  } catch {
+    return { status: 400, message: 'Not saved: this is not JSON.' }
+  }
+  const records = join(project.path, RECORDS)
+  await mkdir(records, { recursive: true })
+  const [root, real] = await Promise.all([realpath(project.path), realpath(records)])
+  // data/ may be a link the bot made; it must not lead a save out of the folder.
+  if (!real.startsWith(root + sep)) return { status: 404, message: 'Not found.' }
+  const partial = `.${name}.${randomBytes(4).toString('hex')}.tmp`
+  ownSaves.set(join(records, partial), null)
+  ownSaves.set(join(records, name), hash(body))
+  try {
+    await writeFile(join(real, partial), body)
+    await rename(join(real, partial), join(real, name))
+  } catch (error) {
+    await rm(join(real, partial), { force: true })
+    throw error
+  }
+  return { status: 204, message: '' }
+}
+
+/**
+ * Whether a change of `path` is only what a dashboard saved there itself:
+ * the page that saved it has it already, and need not be told.
+ */
+async function ownSave(path: string): Promise<boolean> {
+  const saved = ownSaves.get(path)
+  if (saved === undefined) return false
+  const content = await readFile(path).catch(() => undefined)
+  if (saved === null) {
+    if (!content) ownSaves.delete(path)
+    return true
+  }
+  if (content && saved === hash(content)) return true
+  // Someone else wrote it since; a save made meanwhile keeps its own entry.
+  if (ownSaves.get(path) === saved) ownSaves.delete(path)
+  return false
+}
+
+/**
+ * Call `changed` when something in a bot's folder changes, at most every
+ * 300 ms, until the returned function stops it, with what changed: the
+ * dashboard's page, else its records, else something else. What a dashboard
+ * saved itself is not a change (see ownSave).
+ */
+export function watchBot(projectId: string, changed: (change: BotChange) => void): () => void {
   const project = botProject(projectId)
   if (!project) return () => undefined
   let timer: NodeJS.Timeout | undefined
-  const watcher = watch(project.path, { recursive: true }, () => {
+  /** The files changed since the last call, by their path in the folder; null when the system named none. */
+  const files = new Set<string | null>()
+  const report = async (): Promise<void> => {
+    const names = [...files]
+    files.clear()
+    const own = await Promise.all(
+      names.map((name) => name !== null && ownSave(join(project.path, name)))
+    )
+    const others = names.filter((_, i) => !own[i])
+    if (others.length === 0) return
+    if (others.some((name) => name === null || name === DASHBOARD)) changed('page')
+    else if (others.some((name) => name?.split(sep)[0] === RECORDS)) changed('records')
+    else changed('other')
+  }
+  const watcher = watch(project.path, { recursive: true }, (_event, name) => {
+    files.add(name)
     timer ??= setTimeout(() => {
       timer = undefined
-      changed()
+      void report()
     }, 300)
   })
   // A folder removed while watched ends the watch; the bot's pane shows it is gone.
@@ -409,6 +507,29 @@ code {
 }
 
 /**
+ * The helper a dashboard loads (HELPER): saving a record, and following the
+ * bot's records without the page being loaded again. A page that follows them
+ * says so to the page around it, which then sends it changes instead of
+ * loading it again (renderer BotPane.tsx).
+ */
+export const HELPER_SCRIPT = `/* Barebone's helper for a bot's dashboard. Made by Barebone; changes here are not kept. */
+window.barebone = {
+  /** Save a record whole: barebone.save('data/answers.json', value). Rejects with why when it was not saved. */
+  async save(file, value) {
+    const response = await fetch(file, { method: 'PUT', body: JSON.stringify(value, null, 2) })
+    if (!response.ok) throw new Error((await response.text()) || 'Not saved.')
+  },
+  /** Call update whenever the bot's records change, in place of the page being loaded again. */
+  onChange(update) {
+    window.addEventListener('message', (event) => {
+      if (event.source === window.parent && event.data && event.data.barebone === 'changed') update()
+    })
+    window.parent.postMessage({ barebone: 'live' }, '*')
+  }
+}
+`
+
+/**
  * What a dashboard may load: its own folder's files, inline scripts and
  * styles in it, and nothing from anywhere else.
  */
@@ -428,18 +549,32 @@ export const botScheme: CustomScheme = {
 }
 
 /**
- * Serve bots' folders to the window as bot://<project id>/<file>. Each bot is
- * an origin of its own, apart from the window's, so a dashboard cannot reach
- * the app or another bot's files. Only the window's session has the scheme;
- * the browser panel's pages do not.
+ * Serve bots' folders to the window as bot://<project id>/<file>, and save the
+ * records their dashboards send. Each bot is an origin of its own, apart from
+ * the window's, so a dashboard cannot reach the app or another bot's files.
+ * Only the window's session has the scheme; the browser panel's pages do not.
  */
 export function handleBotRequests(): void {
   protocol.handle(BOT_SCHEME, async (request) => {
     const { host, pathname } = new URL(request.url)
     const file = decodeURIComponent(pathname.slice(1))
+    if (request.method === 'PUT') {
+      // Only the bot's own page gets here: the scheme is not open to requests from other origins.
+      const { status, message } = await saveRecord(
+        host,
+        file,
+        Buffer.from(await request.arrayBuffer())
+      )
+      return new Response(message || null, { status, headers: DASHBOARD_HEADERS })
+    }
     const css = file === STYLESHEET ? stylesheet(host) : undefined
     if (css)
       return new Response(css, { headers: { ...DASHBOARD_HEADERS, 'Content-Type': TYPES['.css'] } })
+    if (file === HELPER && botProject(host)) {
+      return new Response(HELPER_SCRIPT, {
+        headers: { ...DASHBOARD_HEADERS, 'Content-Type': TYPES['.js'] }
+      })
+    }
     const path = await botFile(host, file)
     if (!path) return new Response('Not found.', { status: 404 })
     const body = await net.fetch(pathToFileURL(path).href)

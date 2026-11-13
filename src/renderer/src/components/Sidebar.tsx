@@ -521,6 +521,23 @@ export function Sidebar({
               </button>
             )}
             <FolderStatus chats={own} working={working} />
+            {/* The file is saved on the Mac, so not through the remote link. */}
+            {!window.api.remote && (
+              <RowMenu
+                label="Bot options"
+                items={[
+                  {
+                    name: 'Export…',
+                    onSelect: () => void window.api.bots.exportToFile(project.id)
+                  },
+                  {
+                    name: 'Delete…',
+                    danger: true,
+                    onSelect: () => void window.api.bots.remove(project.id)
+                  }
+                ]}
+              />
+            )}
           </div>
           <span className="bot-row-latest">
             {botStatus(live) ?? conversation?.preview ?? project.bot?.job}

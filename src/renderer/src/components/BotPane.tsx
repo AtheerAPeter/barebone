@@ -1,5 +1,5 @@
-import { useContext, useEffect, useMemo, useState } from 'react'
-import type { Project } from '../../../shared/types'
+import { useContext, useEffect, useMemo, useRef, useState } from 'react'
+import type { BotChange, Project } from '../../../shared/types'
 import { renderMarkdown } from '../lib/markdown'
 import { BotAvatar } from './BotAvatar'
 import { botColor, BotsContext } from '../lib/bots'
@@ -41,13 +41,16 @@ export function BotTabs({
   )
 }
 
-/** Calls `changed` whenever anything in the bot's folder changes, while mounted. */
-function useBotChanges(projectId: string, changed: () => void): void {
+/**
+ * Calls `changed` whenever something in the bot's folder changes, while
+ * mounted, with what changed; and once at the start, as if its page had.
+ */
+function useBotChanges(projectId: string, changed: (change: BotChange) => void): void {
   useEffect(() => {
-    changed()
+    changed('page')
     void window.api.bots.watch(projectId)
-    const off = window.api.bots.onChanged((id) => {
-      if (id === projectId) changed()
+    const off = window.api.bots.onChanged((id, change) => {
+      if (id === projectId) changed(change)
     })
     return () => {
       off()
@@ -59,9 +62,11 @@ function useBotChanges(projectId: string, changed: () => void): void {
 }
 
 /**
- * The page the bot made of its records, loaded from its folder, shown again
- * whenever the page or its records change. Until the bot has made one, a
- * button asks it to.
+ * The page the bot made of its records, loaded from its folder, and loaded
+ * again whenever something in the folder changes. A page that follows its
+ * records itself (barebone.onChange, main/bots.ts) is told of their changes
+ * instead, so a form the user is filling in keeps what they typed. Until the
+ * bot has made a page, a button asks it to.
  */
 export function BotDashboard({
   project,
@@ -72,7 +77,25 @@ export function BotDashboard({
 }): React.JSX.Element {
   /** Where the page loads from, with a count that loads it again; null while there is none. */
   const [page, setPage] = useState<{ url: string; version: number } | null>()
-  useBotChanges(project.id, () => {
+  const frame = useRef<HTMLIFrameElement>(null)
+  /** Whether the page loaded now said it follows its records itself. */
+  const follows = useRef(false)
+  useEffect(() => {
+    const heard = (event: MessageEvent): void => {
+      if (event.source !== frame.current?.contentWindow) return
+      if ((event.data as { barebone?: unknown } | null)?.barebone === 'live') follows.current = true
+    }
+    window.addEventListener('message', heard)
+    return () => window.removeEventListener('message', heard)
+  }, [])
+  useBotChanges(project.id, (change) => {
+    if (follows.current && change !== 'page') {
+      // The page is an origin of its own (none, through the remote link), and the message names no data.
+      if (change === 'records')
+        frame.current?.contentWindow?.postMessage({ barebone: 'changed' }, '*')
+      return
+    }
+    follows.current = false
     window.api.bots.dashboard(project.id).then(
       (url) => setPage((last) => (url ? { url, version: (last?.version ?? 0) + 1 } : null)),
       () => setPage(null)
@@ -94,6 +117,7 @@ export function BotDashboard({
   return (
     <div className="bot-pane">
       <iframe
+        ref={frame}
         className="bot-dashboard"
         title={`${project.name}'s dashboard`}
         src={`${page.url}${separator}v=${page.version}`}

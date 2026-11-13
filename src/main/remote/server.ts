@@ -18,7 +18,18 @@ import {
   type ServerMessage
 } from '../../shared/wire'
 import { imageType, requestedImage } from '../images'
-import { botFile, botFileType, DASHBOARD_POLICY, keyedBot, STYLESHEET, stylesheet } from '../bots'
+import {
+  botFile,
+  botFileType,
+  DASHBOARD_POLICY,
+  HELPER,
+  HELPER_SCRIPT,
+  keyedBot,
+  MAX_RECORD_BYTES,
+  saveRecord,
+  STYLESHEET,
+  stylesheet
+} from '../bots'
 import { endSession, pair, sessionFor } from './auth'
 import { loadConfig } from './config'
 import { callFromRemote, callerGone, sendFromRemote, type Caller } from './registry'
@@ -55,6 +66,9 @@ const BROADCAST = new Set([
   'remoteBrowser:allowed',
   'bots:changed'
 ])
+
+/** What a bot's dashboard asks its folder with: its files, a record to save, and the browser's question before that. */
+const BOT_METHODS = ['GET', 'PUT', 'OPTIONS']
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -326,6 +340,39 @@ export class RemoteServer {
     const url = new URL(req.url ?? '/', 'http://x')
     const path = decodeURIComponent(url.pathname)
     const method = req.method ?? 'GET'
+    // A bot's dashboard runs sandboxed, in an origin of its own, so it has no cookie:
+    // its key, which only a paired page is given, lets it in (bots.ts). What it saves
+    // comes from that origin of its own, and no cookie goes with it, so the check below
+    // of where a change comes from is not for it.
+    if (path.startsWith(`${REMOTE_BOTS}/`) && BOT_METHODS.includes(method)) {
+      const [key = '', ...parts] = path.slice(REMOTE_BOTS.length + 1).split('/')
+      const keyed = keyedBot(key)
+      // A key stops working once the device it was given to is signed out.
+      const projectId = keyed && this.sessionStillOn(keyed.sessionId) ? keyed.projectId : undefined
+      const file = parts.join('/')
+      // The page saves a record across origins, so the browser asks first whether it may.
+      if (method === 'OPTIONS') return this.botAnswer(res, 204, '')
+      if (method === 'PUT') {
+        if (!projectId) return this.botAnswer(res, 404, 'Not found.')
+        const tooLarge = Number(req.headers['content-length'] ?? 0) > MAX_RECORD_BYTES
+        const body = tooLarge
+          ? undefined
+          : await this.body(req, MAX_RECORD_BYTES).catch(() => undefined)
+        if (!body) return this.botAnswer(res, 413, 'Too large to save.')
+        const { status, message } = await saveRecord(projectId, file, body)
+        return this.botAnswer(res, status, message)
+      }
+      const css = projectId && file === STYLESHEET ? stylesheet(projectId) : undefined
+      if (css) return this.botFile(res, { text: css, type: TYPES['.css'] })
+      if (projectId && file === HELPER) {
+        return this.botFile(res, { text: HELPER_SCRIPT, type: TYPES['.js'] })
+      }
+      const found = projectId && (await botFile(projectId, file))
+      // Readable across origins, so a page asking for a record not made yet gets this answer.
+      if (!found) return this.botAnswer(res, 404, 'Not found.')
+      return this.botFile(res, { path: found })
+    }
+
     // zrok shares share one domain that is no public suffix, so another user's share is the
     // same site as this one and SameSite cookies go with its requests: a change must come
     // from this link's own page.
@@ -354,21 +401,6 @@ export class RemoteServer {
     if (path.startsWith('/assets/') && this.pairAssets.has(path)) {
       return this.file(req, res, path.slice(1), 'immutable')
     }
-    // A bot's dashboard runs sandboxed, in an origin of its own, so it has no cookie:
-    // its key, which only a paired page is given, lets it in (bots.ts).
-    if (path.startsWith(`${REMOTE_BOTS}/`) && method === 'GET') {
-      const [key = '', ...parts] = path.slice(REMOTE_BOTS.length + 1).split('/')
-      const keyed = keyedBot(key)
-      // A key stops working once the device it was given to is signed out.
-      const projectId = keyed && this.sessionStillOn(keyed.sessionId) ? keyed.projectId : undefined
-      const file = parts.join('/')
-      const css = projectId && file === STYLESHEET ? stylesheet(projectId) : undefined
-      if (css) return this.botFile(res, { css })
-      const found = projectId && (await botFile(projectId, file))
-      if (!found) return this.text(res, 404, 'Not found.')
-      return this.botFile(res, { path: found })
-    }
-
     const session = this.session(req)
     if (!session) {
       if (path === '/' || path === '/index.html') return this.redirect(res, '/pair')
@@ -542,7 +574,7 @@ export class RemoteServer {
    */
   private async botFile(
     res: ServerResponse,
-    file: { path: string } | { css: string }
+    file: { path: string } | { text: string; type: string }
   ): Promise<void> {
     const headers = {
       'Content-Security-Policy': `sandbox allow-scripts; ${DASHBOARD_POLICY}; frame-ancestors 'self'`,
@@ -551,9 +583,9 @@ export class RemoteServer {
       'Referrer-Policy': 'no-referrer',
       'Cache-Control': 'no-store'
     }
-    if ('css' in file) {
-      res.writeHead(200, { ...headers, 'Content-Type': TYPES['.css'] })
-      return void res.end(file.css)
+    if ('text' in file) {
+      res.writeHead(200, { ...headers, 'Content-Type': file.type })
+      return void res.end(file.text)
     }
     const info = await stat(file.path).catch(() => undefined)
     if (!info?.isFile()) return this.text(res, 404, 'Not found.')
@@ -563,6 +595,24 @@ export class RemoteServer {
       'Content-Length': String(info.size)
     })
     createReadStream(file.path).pipe(res)
+  }
+
+  /**
+   * A short answer to a dashboard: to saving a record, to the browser asking
+   * whether it may, or that a file is not there. The page reads it across
+   * origins, as it reads its files.
+   */
+  private botAnswer(res: ServerResponse, status: number, text: string): void {
+    res.writeHead(status, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, PUT',
+      'Access-Control-Max-Age': '600',
+      'Content-Type': 'text/plain; charset=utf-8',
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+      'Cache-Control': 'no-store'
+    })
+    res.end(text)
   }
 
   private redirect(res: ServerResponse, to: string): void {

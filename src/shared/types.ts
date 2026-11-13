@@ -407,6 +407,9 @@ export function imageUrl(chatId: string, file: string, remote = false): string {
 /** The scheme the window loads a bot's dashboard and its files with (see main/bots.ts). */
 export const BOT_SCHEME = 'bot'
 
+/** What changed in a bot's folder: its dashboard's page, else its records in data/, else something else. */
+export type BotChange = 'page' | 'records' | 'other'
+
 /** Where the remote link's server serves bots' dashboards, under a key per page (main/remote/server.ts). */
 export const REMOTE_BOTS = '/bot'
 

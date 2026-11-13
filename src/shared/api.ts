@@ -7,6 +7,7 @@ import type {
   AgentStatus,
   AgentId,
   AppState,
+  BotChange,
   BrowserState,
   Chat,
   ChatPermissions,
@@ -441,10 +442,17 @@ export function makeApi(t: Transport) {
       dashboard: (projectId: string): Promise<string | null> => invoke('bots:dashboard', projectId),
       /** The bot's memory.md; null when it has none. */
       memory: (projectId: string): Promise<string | null> => invoke('bots:memory', projectId),
-      /** Tell when anything in the bot's folder changes, until unwatch. */
+      /** Save the bot as a file where the user chooses, for a Barebone on another computer. */
+      exportToFile: (projectId: string): Promise<void> => invoke('bots:export', projectId),
+      /** Delete the bot once the user confirms: its chats and routines, and its folder to the Trash. */
+      remove: (projectId: string): Promise<void> => invoke('bots:delete', projectId),
+      /** Make a bot from such a file, which the user chooses; null when they chose none or it failed. */
+      importFromFile: (): Promise<Project | null> => invoke('bots:import'),
+      /** Tell when anything in the bot's folder changes, and what, until unwatch. */
       watch: (projectId: string): Promise<void> => invoke('bots:watch', projectId),
       unwatch: (projectId: string): Promise<void> => invoke('bots:unwatch', projectId),
-      onChanged: (listener: (projectId: string) => void) => on('bots:changed', listener)
+      onChanged: (listener: (projectId: string, change: BotChange) => void) =>
+        on('bots:changed', listener)
     },
 
     listFiles: (projectPath: string): Promise<string[]> => invoke('files:list', projectPath),

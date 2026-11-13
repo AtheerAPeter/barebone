@@ -4,7 +4,7 @@ import type { Theme } from '../shared/types'
 
 /** Commands the renderer handles; menu items send these. */
 export type MenuCommand =
-  'new-chat' | 'open-project' | 'toggle-sidebar' | 'toggle-browser' | 'open-settings'
+  'new-chat' | 'open-project' | 'import-bot' | 'toggle-sidebar' | 'toggle-browser' | 'open-settings'
 
 /**
  * The native menu bar. Its accelerators work wherever focus is, including
@@ -48,6 +48,7 @@ export function installMenu(
           accelerator: 'CmdOrCtrl+O',
           click: () => run('open-project')
         },
+        { label: 'Import Bot…', click: () => run('import-bot') },
         { type: 'separator' },
         { role: 'close' }
       ]

@@ -53,6 +53,43 @@ function clockTime(time: string): string | undefined {
   return `${match[1].padStart(2, '0')}:${match[2]}`
 }
 
+/**
+ * A routine from what was asked for, with its first run after `now`; throws,
+ * in words for the bot, when it is not well formed.
+ */
+export function newRoutine(routine: NewRoutine, now = Date.now()): BotRoutine {
+  const note = typeof routine.note === 'string' ? routine.note.trim() : ''
+  if (!note) throw new Error('"note" is empty: say what to do each time it runs.')
+  if ((routine.time === undefined) === (routine.everyHours === undefined)) {
+    throw new Error('Give either "time" (with "days" if not every day) or "everyHours".')
+  }
+  if (routine.days && routine.time === undefined) {
+    throw new Error('"days" goes with "time".')
+  }
+  const time = routine.time === undefined ? undefined : clockTime(String(routine.time))
+  if (routine.time !== undefined && !time) {
+    throw new Error(
+      `"time" must be a local time as "HH:MM", such as "08:00", not "${routine.time}".`
+    )
+  }
+  const { everyHours } = routine
+  if (everyHours !== undefined && !(Number.isInteger(everyHours) && everyHours >= 1)) {
+    throw new Error('"everyHours" must be a whole number of hours, at least 1.')
+  }
+  if (routine.days && !routine.days.every((day) => WEEKDAYS.includes(day))) {
+    throw new Error(`"days" takes only ${WEEKDAYS.join(', ')}.`)
+  }
+  const days = routine.days?.length ? [...new Set(routine.days)] : undefined
+  return {
+    id: crypto.randomUUID().slice(0, 8),
+    note,
+    ...(time ? { time } : {}),
+    ...(days ? { days } : {}),
+    ...(everyHours ? { everyHours } : {}),
+    nextAt: nextRun({ note, time, days, everyHours }, now)
+  }
+}
+
 export class Routines {
   constructor(
     /** Wake a bot's conversation with a routine's note. */
@@ -70,30 +107,7 @@ export class Routines {
   /** Set a routine for the bot whose conversation the caller is. */
   set(caller: string, routine: NewRoutine): BotRoutine {
     const bot = this.botOf(caller)
-    const note = routine.note.trim()
-    if (!note) throw new Error('"note" is empty: say what to do each time it runs.')
-    if ((routine.time === undefined) === (routine.everyHours === undefined)) {
-      throw new Error('Give either "time" (with "days" if not every day) or "everyHours".')
-    }
-    if (routine.days && routine.time === undefined) {
-      throw new Error('"days" goes with "time".')
-    }
-    const time = routine.time === undefined ? undefined : clockTime(routine.time)
-    if (routine.time !== undefined && !time) {
-      throw new Error(
-        `"time" must be a local time as "HH:MM", such as "08:00", not "${routine.time}".`
-      )
-    }
-    const days = routine.days?.length ? [...new Set(routine.days)] : undefined
-    const wanted = { note, time, days, everyHours: routine.everyHours }
-    const made: BotRoutine = {
-      id: crypto.randomUUID().slice(0, 8),
-      note,
-      ...(time ? { time } : {}),
-      ...(days ? { days } : {}),
-      ...(routine.everyHours ? { everyHours: routine.everyHours } : {}),
-      nextAt: nextRun(wanted, Date.now())
-    }
+    const made = newRoutine(routine)
     this.save(bot, [...(bot.bot?.routines ?? []), made])
     return made
   }
