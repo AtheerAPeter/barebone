@@ -1,22 +1,9 @@
 /*
  * The app in a browser, through the remote link (web.tsx): styles.css, plus
  * what a page needs that the Mac window does not. A page has no window glass
- * behind it, so its panels are solid; there are no traffic lights to make
- * room for; and on a phone the sidebar is a drawer over the chat and the code
- * panel a sheet over everything.
+ * behind it (html.no-glass in styles.css), and on a phone the sidebar is a
+ * drawer over the chat and the code panel a sheet over everything.
  */
-
-html.remote {
-  --canvas: #f9f9f9;
-  --panel-main: #ffffff;
-}
-
-@media (prefers-color-scheme: dark) {
-  html.remote {
-    --canvas: #0d0d0d;
-    --panel-main: #000000;
-  }
-}
 
 /* The visible height, which on a phone shrinks with its toolbars and keyboard. */
 html.remote,
@@ -29,10 +16,6 @@ html.remote body {
   /* Replies can be selected and copied, as on any page. */
   user-select: text;
   -webkit-tap-highlight-color: transparent;
-}
-
-html.remote .sidebar-hidden .topbar {
-  padding-left: 12px;
 }
 
 /* Lost the Mac: a line over the top, the page stays as it was. */

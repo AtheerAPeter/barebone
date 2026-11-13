@@ -116,7 +116,13 @@ export async function opencodeMcpServers(cwd: string): Promise<McpEntry[]> {
   }
   if (env.OPENCODE_CONFIG_CONTENT)
     await merge(env.OPENCODE_CONFIG_CONTENT, 'OPENCODE_CONFIG_CONTENT', cwd)
-  const managed = '/Library/Application Support/opencode'
+  // opencode's system config directory (its config/discovery.ts, systemDirectory).
+  const managed =
+    process.platform === 'darwin'
+      ? '/Library/Application Support/opencode'
+      : process.platform === 'win32'
+        ? join(env.ProgramData || 'C:\\ProgramData', 'opencode')
+        : '/etc/opencode'
   for (const file of ['opencode.json', 'opencode.jsonc'].map((f) => join(managed, f))) {
     const text = await readText(file).catch(() => undefined)
     if (text !== undefined) await merge(text, file, managed)

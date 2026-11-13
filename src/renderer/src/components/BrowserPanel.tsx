@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { BrowserState, BrowserTab } from '../../../shared/types'
 import { onOverlays, overlaysCover } from '../lib/overlays'
+import { shortcut } from '../lib/platform'
 import { dragDivider } from '../lib/side-panel'
 import {
   BackIcon,
@@ -207,7 +208,11 @@ export function BrowserPanel({
         >
           <MoreIcon />
         </button>
-        <button className="icon-btn" title="Close browser (⇧⌘B)" onClick={onClose}>
+        <button
+          className="icon-btn"
+          title={`Close browser (${shortcut('B', true)})`}
+          onClick={onClose}
+        >
           <CloseIcon />
         </button>
       </div>

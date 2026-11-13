@@ -21,6 +21,7 @@ import { touchScreen } from '../lib/touch'
 import { addPrompt } from '../../../shared/prompt-history'
 import { LevelMeter } from './LevelMeter'
 import { writePref } from '../lib/prefs'
+import { TALK_KEY } from '../lib/platform'
 import { useVoiceInput, type VoiceState } from '../lib/voice'
 import {
   CloseIcon,
@@ -617,7 +618,7 @@ export function Composer({
                 ? 'Recording: let go, or click, to finish'
                 : voice.state === 'transcribing'
                   ? 'Writing out…'
-                  : 'Hold to talk (or hold right ⌘), or click to start and stop'
+                  : `Hold to talk (or hold ${TALK_KEY}), or click to start and stop`
             }
             disabled={voice.state === 'transcribing'}
             onPointerDown={(e) => {

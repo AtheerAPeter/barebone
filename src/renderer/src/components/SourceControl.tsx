@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { GitChange, GitStatus } from '../../../shared/types'
+import { shortcut, shortcutHeld } from '../lib/platform'
 import { touchScreen } from '../lib/touch'
 import { FileIcon } from './FileIcon'
 import { tidy, type MenuAt, type MenuEntries } from '../lib/menus'
@@ -257,7 +258,7 @@ export function SourceControl({
     setFocused(row.key)
     if (event.shiftKey) return selectRange(row.key)
     anchor.current = row.key
-    if (event.metaKey) {
+    if (shortcutHeld(event)) {
       setSelected((s) => {
         const next = new Set(s)
         if (!next.delete(row.key)) next.add(row.key)
@@ -329,7 +330,7 @@ export function SourceControl({
         if (row) activate(row)
         break
       case 'a':
-        if (!event.metaKey) return
+        if (!shortcutHeld(event)) return
         setSelected(new Set(rows.filter((r) => r.type === 'file').map((r) => r.key)))
         break
       case 'Escape':
@@ -565,12 +566,12 @@ function CommitBox({
         placeholder={
           touchScreen
             ? `Message${repo.branch ? ` (commits on "${repo.branch}")` : ''}`
-            : `Message (⌘Enter to commit${repo.branch ? ` on "${repo.branch}"` : ''})`
+            : `Message (${shortcut('Enter')} to commit${repo.branch ? ` on "${repo.branch}"` : ''})`
         }
         value={message}
         onChange={(e) => onMessage(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && e.metaKey) {
+          if (e.key === 'Enter' && shortcutHeld(e)) {
             e.preventDefault()
             commit()
           }

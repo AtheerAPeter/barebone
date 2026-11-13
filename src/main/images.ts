@@ -120,12 +120,26 @@ export function handleImageRequests(): void {
   })
 }
 
-/** A small preview of an image file on disk, as a data URL; null when it cannot be read. */
+/**
+ * A small preview of an image file on disk, as a data URL; null when it cannot
+ * be read. The system makes it on the Mac and Windows; Linux has no such
+ * service, so there the image is read and scaled down (PNG and JPEG).
+ */
 export async function thumbnail(path: string): Promise<string | null> {
   try {
-    const image = await nativeImage.createThumbnailFromPath(path, { width: 96, height: 96 })
+    const image =
+      process.platform === 'linux'
+        ? fitIn(nativeImage.createFromPath(path), 96)
+        : await nativeImage.createThumbnailFromPath(path, { width: 96, height: 96 })
     return image.isEmpty() ? null : image.toDataURL()
   } catch {
     return null
   }
+}
+
+/** An image scaled down to fit a square of `side` pixels, as the system's thumbnails are. */
+function fitIn(image: Electron.NativeImage, side: number): Electron.NativeImage {
+  const { width, height } = image.getSize()
+  if (image.isEmpty() || Math.max(width, height) <= side) return image
+  return image.resize(width >= height ? { width: side } : { height: side })
 }

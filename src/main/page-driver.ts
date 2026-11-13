@@ -1664,7 +1664,9 @@ export class PageDriver {
         `Unknown key "${name}". Use a key name such as Enter, Escape, Tab, Backspace, Delete, ArrowDown, PageDown, Home, F5 or Space, or one character.`
       )
     }
-    const held = new Set(modifiers)
+    // "cmd" is the shortcut key: ⌘ on the Mac, Ctrl elsewhere, where pages expect Ctrl.
+    const shortcutKey: Modifier = process.platform === 'darwin' ? 'cmd' : 'ctrl'
+    const held = new Set(modifiers.map((m) => (m === 'cmd' ? shortcutKey : m)))
     if (key.shift) held.add('shift')
     else if (held.has('shift') && key.shifted) key = key.shifted
     await this.attach()
@@ -1686,7 +1688,7 @@ export class PageDriver {
       frame,
       { contextId },
       KEY_IN_PAGE,
-      [name, modifiers],
+      [name, [...held]],
       true
     )
     if (allowed && name.length === 1 && modifiers.every((m) => m === 'shift')) {

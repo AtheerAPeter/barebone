@@ -70,8 +70,10 @@
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.100.0",
     "@agentclientprotocol/codex-acp": "2.5.0",
-    "electron-liquid-glass": "^1.1.1",
     "onnxruntime-node": "^1.31.1",
     "serve-sim": "0.1.48"
+  },
+  "optionalDependencies": {
+    "electron-liquid-glass": "^1.1.1"
   }
 }

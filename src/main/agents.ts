@@ -2303,11 +2303,19 @@ export class AgentManager implements ChatsApi {
     let cached = this.statuses.get(agent)
     if (!cached) {
       const cli = cliOf(agent)
-      cached = commandVersion(cli).then((version) =>
-        version
-          ? { agent, available: true, version }
-          : { agent, available: false, error: `\`${cli}\` was not found on your PATH.` }
-      )
+      cached = commandVersion(cli).then(async (version): Promise<AgentStatus> => {
+        if (version) return { agent, available: true, version }
+        // Not kept: once the CLI is installed or fixed, the next look finds it.
+        this.statuses.delete(agent)
+        const path = await commandPath(cli)
+        return {
+          agent,
+          available: false,
+          error: path
+            ? `\`${cli}\` was found at ${path} but did not start.`
+            : `\`${cli}\` was not found on your PATH.`
+        }
+      })
       this.statuses.set(agent, cached)
     }
     return cached

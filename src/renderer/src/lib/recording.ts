@@ -3,8 +3,13 @@ import type { RecordingRequest } from '../../../shared/types'
 import { errorMessage } from './errors'
 import type { VoiceTap } from './speech'
 
-/** H.264 video with AAC sound, in an MP4 file every player opens. */
-const MIME_TYPE = 'video/mp4;codecs=avc1,mp4a.40.2'
+/**
+ * H.264 video in an MP4 file, with AAC sound, which every player opens. Chromium
+ * encodes AAC with the system's encoder, which Linux does not have; there the
+ * sound is Opus, which browsers, Telegram and iOS 17 and later play in MP4.
+ */
+const MIME_TYPES = ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4;codecs=avc1,opus']
+
 const FRAME_RATE = 30
 /** Video bits per pixel and frame: text stays sharp, as pages change little between frames. */
 const BITS_PER_PIXEL = 0.08
@@ -165,9 +170,8 @@ export function usePageRecorder(tap: (chatId: string) => VoiceTap): void {
       let mix: Mix | undefined
       starting.add(request.id)
       try {
-        if (!MediaRecorder.isTypeSupported(MIME_TYPE)) {
-          throw new Error('This version of Barebone cannot record MP4 video.')
-        }
+        const mimeType = MIME_TYPES.find((type) => MediaRecorder.isTypeSupported(type))
+        if (!mimeType) throw new Error('This version of Barebone cannot record MP4 video.')
         page = await captureTab(request)
         voice = tap(request.chatId)
         if (request.music) mix = await mixMusic(voice.stream, request.music)
@@ -175,7 +179,7 @@ export function usePageRecorder(tap: (chatId: string) => VoiceTap): void {
         const [track] = page.getVideoTracks()
         const { width = 0, height = 0 } = track.getSettings()
         const recorder = new MediaRecorder(new MediaStream([track, ...sound.getAudioTracks()]), {
-          mimeType: MIME_TYPE,
+          mimeType,
           videoBitsPerSecond: Math.round(width * height * FRAME_RATE * BITS_PER_PIXEL)
         })
         const tracks = page.getTracks()

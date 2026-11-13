@@ -214,7 +214,10 @@ export class Package {
     const unpacking = await mkdtemp(join(this.dir, '.unpacking-'))
     try {
       if (file.archive.kind === 'tar') await run('/usr/bin/tar', ['-xzf', partial, '-C', unpacking])
-      else await run('/usr/bin/ditto', ['-x', '-k', partial, unpacking])
+      // ditto on the Mac keeps a signed program's signature; Linux has unzip.
+      else if (process.platform === 'darwin')
+        await run('/usr/bin/ditto', ['-x', '-k', partial, unpacking])
+      else await run('unzip', ['-q', partial, '-d', unpacking])
       const entries = await readdir(unpacking)
       if (!entries.includes(file.archive.unpacked)) {
         throw new Error(`${file.path} did not hold ${file.archive.unpacked}`)
