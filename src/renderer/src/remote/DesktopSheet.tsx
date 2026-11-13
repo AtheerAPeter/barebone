@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { CloseIcon, KeyboardIcon } from '../components/icons'
+import { useKeyboardArea } from '../lib/touch'
 
 /**
  * The server's desktop (main/remote/desktop.ts), over the whole page. It
@@ -14,6 +15,9 @@ const KEYBOARD_FIELD = 'keyboard-input-assist'
 
 export function DesktopSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
   const frameRef = useRef<HTMLIFrameElement>(null)
+  // Above the phone's keyboard, which opens over the page; the desktop's screen
+  // shrinks with it, so the field typed into stays in sight.
+  const keyboard = useKeyboardArea(true)
 
   /**
    * Selkies' own keyboard button raises the keyboard from a message, after
@@ -29,7 +33,10 @@ export function DesktopSheet({ onClose }: { onClose: () => void }): React.JSX.El
   }
 
   return createPortal(
-    <div className="desktop-sheet">
+    <div
+      className="desktop-sheet"
+      style={keyboard && { top: keyboard.top, height: keyboard.height, bottom: 'auto' }}
+    >
       <div className="rb-top">
         <button className="icon-btn" title="Close the desktop" onClick={onClose}>
           <CloseIcon />
