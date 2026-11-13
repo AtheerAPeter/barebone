@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useState, useSyncExternalStore, type RefObject } from 'react'
 
 /**
  * A touch screen: focusing a field there opens the on-screen keyboard over
@@ -45,4 +45,32 @@ export function useNarrower(ref: RefObject<HTMLElement | null>, width: number): 
  */
 export function menusAsSheets(): boolean {
   return window.api.remote && window.matchMedia(PHONE).matches
+}
+
+/** The visual viewport's height and top, as one string: a snapshot that compares by value. */
+function viewportArea(): string {
+  const viewport = window.visualViewport
+  return viewport ? `${viewport.height},${viewport.offsetTop}` : ''
+}
+
+function onViewportChange(listener: () => void): () => void {
+  const viewport = window.visualViewport
+  viewport?.addEventListener('resize', listener)
+  viewport?.addEventListener('scroll', listener)
+  return () => {
+    viewport?.removeEventListener('resize', listener)
+    viewport?.removeEventListener('scroll', listener)
+  }
+}
+
+/**
+ * The part of the screen above the phone's keyboard, while `on`. A phone
+ * leaves the page its full height and draws the keyboard over it; a sheet
+ * is fitted above it so what is typed into stays in sight.
+ */
+export function useKeyboardArea(on: boolean): { height: number; top: number } | undefined {
+  const area = useSyncExternalStore(onViewportChange, viewportArea)
+  if (!on || !area) return undefined
+  const [height, top] = area.split(',').map(Number)
+  return { height, top }
 }

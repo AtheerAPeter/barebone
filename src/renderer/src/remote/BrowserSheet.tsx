@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { BrowserTab, RemoteBrowserView } from '../../../shared/types'
 import {
@@ -13,7 +13,7 @@ import {
 } from '../components/icons'
 import { TabIcon } from '../components/BrowserPanel'
 import { dragDivider } from '../lib/side-panel'
-import { PHONE, useMedia } from '../lib/touch'
+import { PHONE, useKeyboardArea, useMedia } from '../lib/touch'
 
 /**
  * A chat's browser tab from the Mac, live, through the remote link
@@ -771,32 +771,4 @@ function hostOf(url: string): string {
   } catch {
     return url
   }
-}
-
-/** The visual viewport's height and top, as one string: a snapshot that compares by value. */
-function viewportArea(): string {
-  const viewport = window.visualViewport
-  return viewport ? `${viewport.height},${viewport.offsetTop}` : ''
-}
-
-function onViewportChange(listener: () => void): () => void {
-  const viewport = window.visualViewport
-  viewport?.addEventListener('resize', listener)
-  viewport?.addEventListener('scroll', listener)
-  return () => {
-    viewport?.removeEventListener('resize', listener)
-    viewport?.removeEventListener('scroll', listener)
-  }
-}
-
-/**
- * The part of the screen above the phone's keyboard, while `on`. A phone
- * leaves the page its full height and draws the keyboard over it; the sheet
- * is fitted above it so what is typed into stays in sight.
- */
-function useKeyboardArea(on: boolean): { height: number; top: number } | undefined {
-  const area = useSyncExternalStore(onViewportChange, viewportArea)
-  if (!on || !area) return undefined
-  const [height, top] = area.split(',').map(Number)
-  return { height, top }
 }
