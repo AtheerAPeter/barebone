@@ -102,8 +102,9 @@ container keeps Docker's other limits.
 On servers with AppArmor (Ubuntu, Debian), Docker's own AppArmor profile also
 denies every mount, which stops bubblewrap. `apparmor-barebone` is that
 profile ([moby/profiles](https://github.com/moby/profiles/blob/apparmor/v0.2.2/apparmor/testdata/default.golden),
-`apparmor/v0.2.2`, which Docker 29 uses) with `mount` and `pivot_root`
-allowed and nothing else changed. Ubuntu's restriction on user namespaces
+`apparmor/v0.2.2`, which Docker 29 uses), unchanged for everything in the
+container, plus a child profile that only `/usr/bin/bwrap` runs in: there,
+and only there, `mount` and `pivot_root` are allowed. Ubuntu's restriction on user namespaces
 (`kernel.apparmor_restrict_unprivileged_userns`) does not stop the container:
 it was checked on Ubuntu 26.04 with Docker 29.9.
 

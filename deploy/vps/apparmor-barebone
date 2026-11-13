@@ -1,8 +1,8 @@
 # Barebone's container profile: Docker's own default (moby/profiles apparmor
-# v0.2.2, testdata/default.golden, used by Docker 29.9) with two changes, so the
-# sandboxes a Linux desktop allows work in the container. Mounts and pivot_root
-# are allowed: bubblewrap, which GTK's image loaders (glycin) run in, mounts in
-# its own user namespace and pivots into it. The kernel still refuses mounts
+# v0.2.2, testdata/default.golden, used by Docker 29.9), unchanged for every
+# process in the container, plus one child profile for bubblewrap. GTK's image
+# loaders (glycin) run in bubblewrap, which mounts in its own user namespace and
+# pivots into it; only bubblewrap may do that. The kernel still refuses mounts
 # outside a namespace a process made itself, as the container has no
 # CAP_SYS_ADMIN. Load it on the server (README.md) before starting the container.
 
@@ -37,8 +37,7 @@ profile "barebone" flags=(attach_disconnected,mediate_deleted) {
   deny @{PROC}/sysrq-trigger rwklx,
   deny @{PROC}/kcore rwklx,
 
-  mount,
-  pivot_root,
+  deny mount,
 
   deny /sys/[^f]*/** wklx,
   deny /sys/f[^s]*/** wklx,
@@ -52,4 +51,53 @@ profile "barebone" flags=(attach_disconnected,mediate_deleted) {
   # allow processes within the container to trace each other,
   # provided all other LSM and yama setting allow it.
   ptrace (trace,tracedby,read,readby) peer="barebone",
+
+  # bubblewrap alone may mount, in the namespaces it makes; what it runs stays in its profile.
+  /usr/bin/bwrap Cx -> bwrap,
+
+  profile bwrap flags=(attach_disconnected,mediate_deleted) {
+    network,
+    # Disallow AF_ALG (Linux kernel crypto API); see https://copy.fail/
+    deny network alg,
+    # Disallow AF_VSOCK to prevent host/guest communication.
+    deny network vsock,
+    capability,
+    file,
+    umount,
+    # Host (privileged) processes may send signals to container processes.
+    signal (receive) peer=unconfined,
+    # runc may send signals to container processes (for "docker stop").
+    signal (receive) peer=runc,
+    # crun may send signals to container processes (for "docker stop" when used with crun OCI runtime).
+    signal (receive) peer=crun,
+    # dockerd may send signals to container processes (for "docker kill").
+    signal (receive) peer="unconfined",
+    # Container processes may send signals amongst themselves.
+    signal (send,receive) peer="barebone//bwrap",
+
+    deny @{PROC}/* w,   # deny write for all files directly in /proc (not in a subdir)
+    # deny write to files not in /proc/<number>/** or /proc/sys/**
+    deny @{PROC}/{[^1-9/],[^1-9/][^0-9/],[^1-9s/][^0-9y/][^0-9s/],[^1-9/][^0-9/][^0-9/][^0-9/]*}/** w,
+    deny @{PROC}/sys/[^k]** w,  # deny /proc/sys except /proc/sys/k* (effectively /proc/sys/kernel)
+    deny @{PROC}/sys/kernel/{?,??,[^s][^h][^m]**} w,  # deny everything except shm* in /proc/sys/kernel/
+    deny @{PROC}/sysrq-trigger rwklx,
+    deny @{PROC}/kcore rwklx,
+
+    mount,
+    pivot_root,
+
+    deny /sys/[^f]*/** wklx,
+    deny /sys/f[^s]*/** wklx,
+    deny /sys/fs/[^c]*/** wklx,
+    deny /sys/fs/c[^g]*/** wklx,
+    deny /sys/fs/cg[^r]*/** wklx,
+    deny /sys/firmware/** rwklx,
+    deny /sys/devices/virtual/powercap/** rwklx,
+    deny /sys/kernel/security/** rwklx,
+
+    # allow processes within the container to trace each other,
+    # provided all other LSM and yama setting allow it.
+    ptrace (trace,tracedby,read,readby) peer="barebone//bwrap",
+    signal (receive) peer="barebone",
+  }
 }
