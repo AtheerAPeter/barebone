@@ -35,7 +35,16 @@ export function DesktopSheet({ onClose }: { onClose: () => void }): React.JSX.El
   return createPortal(
     <div
       className="desktop-sheet"
-      style={keyboard && { top: keyboard.top, height: keyboard.height, bottom: 'auto' }}
+      style={
+        keyboard && {
+          // Over the whole screen, which iOS may scroll as the keyboard opens; what
+          // is in it ends above the keyboard, whose glass shows the sheet through.
+          top: keyboard.top,
+          bottom: 'auto',
+          height: innerHeight,
+          paddingBottom: `max(${innerHeight - keyboard.height}px, env(safe-area-inset-bottom))`
+        }
+      }
     >
       <div className="rb-top">
         <button className="icon-btn" title="Close the desktop" onClick={onClose}>
