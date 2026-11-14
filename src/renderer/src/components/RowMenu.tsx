@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { createPortal, flushSync } from 'react-dom'
 import { useOverlay } from '../lib/overlays'
 import { menusAsSheets } from '../lib/touch'
 import { MoreIcon } from './icons'
@@ -95,7 +95,8 @@ export function RowMenu({
                 className={item.danger ? 'danger' : undefined}
                 autoFocus={item === items[0] && !menusAsSheets()}
                 onClick={() => {
-                  setAt(undefined)
+                  // Gone before the item runs: one that asks first (confirm) stops the page.
+                  flushSync(() => setAt(undefined))
                   item.onSelect()
                 }}
               >

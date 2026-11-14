@@ -5906,15 +5906,11 @@ button,
 }
 
 .terminal-keys .btn {
-  flex-shrink: 0;
-  min-width: 44px;
-  padding: 0 12px;
+  flex: 1 0 auto;
+  min-width: 40px;
+  padding: 0 10px;
   font-family: var(--mono);
   font-size: 13px;
-}
-
-.terminal-keys .icon-btn {
-  margin-left: auto;
 }
 
 /* On a phone the opened file takes the screen, over the list. */
