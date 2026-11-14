@@ -17,17 +17,16 @@ import {
 import { readPref, writePref } from '../lib/prefs'
 import { shortcut } from '../lib/platform'
 import { useUpdateInstall } from '../lib/update'
-import { DesktopSheet } from '../remote/DesktopSheet'
 import {
   BookIcon,
   ChevronIcon,
   ComposeIcon,
-  DesktopIcon,
   FolderIcon,
   FolderPlusIcon,
   SearchIcon,
   PhoneIcon,
-  SidebarIcon
+  SidebarIcon,
+  TerminalIcon
 } from './icons'
 
 /** Settled chats listed before "Show more", and how many each click adds. */
@@ -39,12 +38,15 @@ const SIDEBAR_WIDTH = 260
 const SIDEBAR_MIN = 200
 const SIDEBAR_MAX = 440
 
+/** What the main area shows: a chat, or one of the views the sidebar opens. */
+export type View = 'chat' | 'skills' | 'files' | 'terminal' | 'settings'
+
 interface SidebarProps {
   /** Hidden, it slides out but stays mounted, keeping its scroll and search. */
   open: boolean
   state: AppState
   selectedChatId?: string
-  view: 'chat' | 'skills' | 'settings'
+  view: View
   onSelectChat: (chatId: string) => void
   /** Start a chat: the user picks its project first. */
   onNewChat: () => void
@@ -52,8 +54,8 @@ interface SidebarProps {
   onNewChatIn: (projectId: string) => void
   /** Open a bot's one conversation, starting it the first time. */
   onOpenBot: (projectId: string) => void
-  onShowSkills: () => void
-  onShowSettings: () => void
+  /** Open one of the views, or go back to the chat from it. */
+  onShow: (view: Exclude<View, 'chat'>) => void
   onHide: () => void
 }
 
@@ -74,8 +76,7 @@ export function Sidebar({
   onNewChat,
   onNewChatIn,
   onOpenBot,
-  onShowSkills,
-  onShowSettings,
+  onShow,
   onHide
 }: SidebarProps): React.JSX.Element {
   const [grouping, setGrouping] = useState(() =>
@@ -114,16 +115,6 @@ export function Sidebar({
   const [version, setVersion] = useState<string>()
   /** A newer release's version, once the app has found one. */
   const [update, setUpdate] = useState<string | null>(null)
-  /** Through the remote link, whether the server has a desktop to open (remote/desktop.ts). */
-  const [desktop, setDesktop] = useState(false)
-  const [desktopOpen, setDesktopOpen] = useState(false)
-  useEffect(() => {
-    if (!window.api.remote) return
-    fetch('/api/session', { credentials: 'same-origin' })
-      .then((answer) => (answer.ok ? answer.json() : {}))
-      .then((session: { desktop?: boolean }) => setDesktop(session.desktop === true))
-      .catch(() => undefined)
-  }, [])
   useEffect(() => {
     window.api.appVersion().then(setVersion)
     // Updating quits and reopens the app: something to do on the Mac.
@@ -607,9 +598,26 @@ export function Sidebar({
           <SearchIcon />
           Search chats
         </button>
-        <button className={`nav-row${view === 'skills' ? ' on' : ''}`} onClick={onShowSkills}>
+        <button
+          className={`nav-row${view === 'skills' ? ' on' : ''}`}
+          onClick={() => onShow('skills')}
+        >
           <BookIcon />
           Skills
+        </button>
+        <button
+          className={`nav-row${view === 'files' ? ' on' : ''}`}
+          onClick={() => onShow('files')}
+        >
+          <FolderIcon />
+          Files
+        </button>
+        <button
+          className={`nav-row${view === 'terminal' ? ' on' : ''}`}
+          onClick={() => onShow('terminal')}
+        >
+          <TerminalIcon />
+          Terminal
         </button>
         {/* A project is a folder chosen with the Mac's folder picker. */}
         {!window.api.remote && (
@@ -622,13 +630,6 @@ export function Sidebar({
             Open project
           </button>
         )}
-        {desktop && (
-          <button className="nav-row" onClick={() => setDesktopOpen(true)}>
-            <DesktopIcon />
-            Desktop
-          </button>
-        )}
-        {desktopOpen && <DesktopSheet onClose={() => setDesktopOpen(false)} />}
       </div>
       {query !== undefined && (
         <label className="sidebar-search">
@@ -671,7 +672,7 @@ export function Sidebar({
           <button
             className={`profile${view === 'settings' ? ' on' : ''}`}
             title={`Settings (${shortcut(',')})`}
-            onClick={onShowSettings}
+            onClick={() => onShow('settings')}
           >
             <span className="avatar">B</span>
             <span className="profile-text">

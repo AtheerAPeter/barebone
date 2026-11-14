@@ -27,6 +27,9 @@ export interface RemoteConfig {
   sessions: StoredSession[]
 }
 
+/** Barebone on a server (deploy/vps): no screen, so the link is how it is used and set up. */
+export const HEADLESS = process.env.BAREBONE_HEADLESS === '1'
+
 const path = join(app.getPath('userData'), 'data', 'remote.json')
 
 let config: RemoteConfig | undefined

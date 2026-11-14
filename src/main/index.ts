@@ -2,6 +2,8 @@
 import './former-name'
 import { app, shell, BrowserWindow, ipcMain, dialog, nativeTheme, protocol } from 'electron'
 import { handle, handleAs, listen, MAC_ONLY, onCallerGone, type Caller } from './remote/registry'
+import { Terminals } from './terminals'
+import { registerFileManager } from './file-manager'
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
@@ -139,6 +141,14 @@ function send(channel: string, ...args: unknown[]): boolean {
 const remote = new RemoteLink({
   state: () => store.getState(),
   statusChanged: (status) => send('remote:status', status)
+})
+
+/** The user's shells (terminals.ts), shown in the window and on the remote link's pages. */
+const terminals = new Terminals({
+  toWindow: (channel, ...args) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, ...args)
+  },
+  toPage: (caller, channel, args) => remote.sendTo(caller, channel, args)
 })
 
 /** What is downloaded, and what is downloading: the voices, the music model and ffmpeg. */
@@ -863,6 +873,8 @@ function registerIpc(browser: BuiltinBrowser): void {
   // A folder by its typed path (folders.ts): also from the remote link, which has no folder dialog.
   handle('project:addPath', async (typed: string) => projectAt(await folderAt(typed)))
   handle('project:folders', (typed: string) => folderSuggestions(typed))
+  registerFileManager()
+  terminals.register()
 
   handle('project:remove', (projectId: string) => {
     store.removeProject(projectId)
@@ -1181,6 +1193,7 @@ app.on('before-quit', (event) => {
   quitting = true
   event.preventDefault()
   telegram.stop()
+  terminals.stop()
   const unlinked = remote.stop()
   const stopped = agents.stopAll()
   // A failed save (a full disk) must not keep the app from quitting.

@@ -14,6 +14,8 @@ import type {
   ChatItem,
   CodeDoc,
   CustomProvider,
+  FilePreview,
+  FolderListing,
   CustomProviderCheck,
   CustomProviderInput,
   FolderSuggestions,
@@ -36,6 +38,7 @@ import type {
   Skill,
   SkillScope,
   TelegramStatus,
+  TerminalInfo,
   Theme,
   VoiceModelId,
   WalkAt,
@@ -475,6 +478,44 @@ export function makeApi(t: Transport) {
       remove: (path: string, projectPath?: string): Promise<void> =>
         invoke('skills:delete', path, projectPath),
       reveal: (path: string): Promise<void> => invoke('skills:reveal', path)
+    },
+
+    /** The file manager (main/file-manager.ts): this computer's folders and files, by full path. */
+    fileManager: {
+      home: (): Promise<string> => invoke('fm:home'),
+      list: (path: string): Promise<FolderListing> => invoke('fm:list', path),
+      preview: (path: string): Promise<FilePreview> => invoke('fm:preview', path),
+      /** The new folder's path. */
+      makeFolder: (folder: string, name: string): Promise<string> =>
+        invoke('fm:mkdir', folder, name),
+      /** The renamed one's path. */
+      rename: (path: string, name: string): Promise<string> => invoke('fm:rename', path, name),
+      move: (paths: string[], folder: string): Promise<string[]> =>
+        invoke('fm:move', paths, folder),
+      /** Copy files on this computer into a folder (dropped on the window); a name taken gets a number. */
+      copyInto: (paths: string[], folder: string): Promise<string[]> =>
+        invoke('fm:copyInto', paths, folder),
+      /** To the Trash on the Mac; for good where there is none. */
+      remove: (paths: string[]): Promise<void> => invoke('fm:delete', paths),
+      /** Show it in Finder (the Mac only). */
+      reveal: (path: string): Promise<void> => invoke('fm:reveal', path)
+    },
+
+    /** Terminals (main/terminals.ts): shells the app runs, shared by every view of them. */
+    terminal: {
+      list: (): Promise<TerminalInfo[]> => invoke('terminal:list'),
+      open: (cols: number, rows: number): Promise<TerminalInfo> =>
+        invoke('terminal:open', cols, rows),
+      close: (id: string): Promise<void> => invoke('terminal:close', id),
+      /** Show the terminals here (or stop): each with what it printed lately. */
+      watch: (on: boolean): Promise<(TerminalInfo & { backlog: string })[]> =>
+        invoke('terminal:watch', on),
+      write: (id: string, data: string): void => send('terminal:write', id, data),
+      resize: (id: string, cols: number, rows: number): void =>
+        send('terminal:resize', id, cols, rows),
+      onData: (listener: (id: string, data: string) => void) => on('terminal:data', listener),
+      onExit: (listener: (id: string) => void) => on('terminal:exit', listener),
+      onList: (listener: (terminals: TerminalInfo[]) => void) => on('terminal:list', listener)
     }
   }
 }

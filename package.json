@@ -70,6 +70,9 @@
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.100.0",
     "@agentclientprotocol/codex-acp": "2.5.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "node-pty": "^1.2.0-beta.18",
     "onnxruntime-node": "^1.31.1",
     "serve-sim": "0.1.48"
   },

@@ -505,8 +505,11 @@ export function SettingsView({
           : undefined,
       detail: (
         <>
+          {/* Through the link it signs the browser out; on a server, where the link is set
+              up from its paired devices (main/remote), the link's own body comes first. */}
+          {remoteClient && remote && <RemoteLinkBody status={remote} error={errors.remote} />}
           {remoteClient ? (
-            <SignedInBody />
+            <SignedInBody managedHere={Boolean(remote)} />
           ) : (
             <RemoteLinkBody status={remote} error={errors.remote} />
           )}

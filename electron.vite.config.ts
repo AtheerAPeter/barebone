@@ -15,8 +15,9 @@ export default defineConfig({
     },
     // Dependencies are bundled in, not loaded from node_modules at runtime: one
     // file starts faster than hundreds of small ones read out of the asar.
-    // ONNX Runtime and the window's Liquid Glass are native code, which cannot be
-    // bundled: they are dependencies the app ships (see electron-builder.yml).
+    // ONNX Runtime, the window's Liquid Glass and the terminal's pty are native
+    // code, which cannot be bundled: they are dependencies the app ships (see
+    // electron-builder.yml).
     build: {
       externalizeDeps: false,
       minify: true,
@@ -26,7 +27,7 @@ export default defineConfig({
           // The speech engine's own process (main/speech).
           'speech-worker': resolve('src/main/speech/worker.ts')
         },
-        external: ['onnxruntime-node', 'electron-liquid-glass']
+        external: ['onnxruntime-node', 'electron-liquid-glass', 'node-pty']
       }
     },
     resolve: {

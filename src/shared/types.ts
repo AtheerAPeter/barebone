@@ -206,6 +206,38 @@ export interface FolderSuggestions {
   folders: string[]
 }
 
+/** A file or folder in the file manager (main/file-manager.ts). */
+export interface FileEntry {
+  name: string
+  folder: boolean
+  /** In bytes; 0 for a folder. */
+  size: number
+  /** Last changed, in ms since 1970. */
+  modified: number
+}
+
+/** A folder's contents, folders first, then files, each by name. */
+export interface FolderListing {
+  /** The folder's full path. */
+  path: string
+  /** The folder it is in; undefined at the top of the disk. */
+  parent?: string
+  entries: FileEntry[]
+}
+
+/** A file to look at: its text, a picture of it, or neither. */
+export type FilePreview =
+  | { kind: 'text'; text: string; /** Only its start: the file is longer. */ cut: boolean }
+  | { kind: 'image'; url: string }
+  | { kind: 'other'; size: number }
+
+/** A terminal (main/terminals.ts): a shell that runs until it exits or is closed. */
+export interface TerminalInfo {
+  id: string
+  /** The program running in front, like "zsh" or "vim". */
+  title: string
+}
+
 export interface Chat {
   id: string
   projectId: string
