@@ -35,9 +35,11 @@ ENV LANG=C.UTF-8 \
 
 # What Electron needs, Xvfb for its screen, fonts for the pages the browser
 # shows, libgomp1 for the audio engine, unzip for the downloads Barebone
-# unpacks (ffmpeg), and what a terminal is used for: git, ssh, an editor, sudo.
+# unpacks (ffmpeg), and what a terminal is used for: git, ssh, an editor,
+# sudo, and Tab completion for commands' arguments (bash-completion).
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      bash-completion \
       ca-certificates \
       curl \
       fonts-liberation \

@@ -3,6 +3,11 @@
 # its remote link. When it quits, so does the container, and Docker starts
 # it again (compose.yml).
 #
+# The home folder is the volume, made empty: it gets Ubuntu's own startup
+# files (.profile, .bashrc), which the terminal's shell reads, unless it has
+# its own (cp -n keeps them).
+cp -rn /etc/skel/. "$HOME/"
+
 # The browser's passwords are kept in a file of Barebone's (--password-store),
 # as there is no keyring.
 exec xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24 -nolisten tcp' \

@@ -1237,7 +1237,7 @@ img.project-icon {
 .sidebar-top .icon-btn,
 .topbar .icon-btn,
 .panel-toolbar .icon-btn,
-.view-toolbar .icon-btn,
+.finder-toolbar .icon-btn,
 .profile-row .icon-btn {
   background: color-mix(in srgb, var(--glass) 45%, transparent);
   border-radius: 50%;
@@ -1246,7 +1246,7 @@ img.project-icon {
 .sidebar-top .icon-btn:is(:hover, :focus-visible, .on),
 .topbar .icon-btn:is(:hover, :focus-visible, .on),
 .panel-toolbar .icon-btn:is(:hover, :focus-visible, .on),
-.view-toolbar .icon-btn:is(:hover, :focus-visible, .on),
+.finder-toolbar .icon-btn:is(:hover, :focus-visible, .on),
 .profile-row .icon-btn:is(:hover, :focus-visible, .on) {
   background: var(--glass-strong);
   box-shadow: var(--glass-rim);
@@ -5626,42 +5626,351 @@ button,
 }
 
 /*
- * Files and Terminal (FilesView.tsx, TerminalView.tsx). Their toolbar is one
- * uniform glass bar under the top bar, as macOS 27's toolbars are: a
- * translucent veil with the controls as glyphs on it, the same height and
- * radii as the rest of the window.
+ * Files (FilesView.tsx), as Finder: favorites down the side, a toolbar whose
+ * controls are glass capsules grouped as macOS 27's are, the contents as
+ * icons or a list, and the path along the bottom. The folders and pages are
+ * drawn in finder-icons.tsx, in these colors.
  */
-.view-toolbar {
-  height: 44px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 10px;
-  background: color-mix(in srgb, var(--glass) 40%, transparent);
-  backdrop-filter: var(--glass-blur);
-  border-bottom: 1px solid var(--border);
+:root {
+  --folder: #5aaef0;
+  --folder-light: #8dcdf8;
+  --folder-back: #479ce4;
+  --folder-glyph: rgba(16, 86, 156, 0.55);
+  --page: #fbfbfd;
+  --page-edge: rgba(0, 0, 0, 0.22);
+  --page-fold: #e2e2e8;
 }
 
-/* The folder's path: each folder up to it, as a capsule that opens it. */
-.crumbs {
+@media (prefers-color-scheme: dark) {
+  :root {
+    --folder: #66b9f2;
+    --folder-light: #93d2fa;
+    --folder-back: #4fa2e6;
+    --folder-glyph: rgba(10, 70, 130, 0.55);
+    --page: #f1f1f4;
+    --page-edge: rgba(0, 0, 0, 0.45);
+    --page-fold: #cdcdd5;
+  }
+}
+
+.finder,
+.terminal-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.terminal-view {
+  flex-direction: column;
+}
+
+/* The sidebar runs to the window's edge, its icons in color, as in macOS 27. */
+.finder-sidebar {
+  width: 196px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 6px 8px 16px;
+  border-right: 1px solid var(--border);
+  background: color-mix(in srgb, var(--glass) 30%, transparent);
+  backdrop-filter: var(--glass-blur);
+}
+
+.finder-section {
+  padding: 14px 10px 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.finder-place {
+  width: 100%;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  font-size: 13px;
+  text-align: left;
+  border-radius: var(--radius);
+}
+
+.finder-place:hover {
+  background: var(--hover);
+}
+
+.finder-place.on {
+  background: var(--glass-strong);
+  box-shadow: var(--glass-rim);
+}
+
+.finder-place-icon {
+  display: flex;
+  color: var(--accent);
+}
+
+.finder-main {
   flex: 1;
   min-width: 0;
   display: flex;
+  flex-direction: column;
+}
+
+.finder-toolbar {
+  height: 52px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.finder-title {
+  min-width: 0;
+  margin: 0 4px;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.finder-spacer {
+  flex: 1;
+}
+
+/* Buttons that belong together share one capsule of glass, as in Finder's toolbar. */
+.glass-group {
+  flex-shrink: 0;
+  display: flex;
   align-items: center;
   gap: 2px;
+  padding: 2px;
+  background: var(--glass);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--glass-rim);
+}
+
+/* Inside the capsule the buttons are clear: the capsule is their glass. */
+.glass-group .icon-btn {
+  width: 36px;
+  height: 30px;
+  background: transparent;
+  border-radius: var(--radius-pill);
+}
+
+.glass-group .icon-btn:hover:not(:disabled) {
+  background: var(--hover);
+  box-shadow: none;
+}
+
+.glass-group.segmented .icon-btn.on {
+  background: var(--glass-strong);
+  color: var(--text);
+  box-shadow: var(--glass-rim);
+}
+
+.icon-btn.glass-round {
+  width: 34px;
+  height: 34px;
+  background: var(--glass);
+  border-radius: 50%;
+  box-shadow: var(--glass-rim);
+}
+
+.finder-search {
+  width: min(240px, 46%);
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 0 12px;
+  color: var(--text-muted);
+  background: var(--glass);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--glass-rim);
+}
+
+.finder-search input {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  background: none;
+}
+
+.finder-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* Pressing and holding an item gives its menu, not the system's text callout. */
+.finder-content {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  outline: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* A file dragged over the contents goes into the folder shown. */
+.finder-content.dropping {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.finder-content.icons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+  align-content: start;
+  gap: 8px 4px;
+  padding: 18px 14px 32px;
+}
+
+.finder-item {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 4px;
+}
+
+.finder-art {
+  width: 80px;
+  height: 66px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+}
+
+.folder-art,
+.file-art {
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.18));
+}
+
+.folder-glyph {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.finder-name {
+  max-width: 100%;
+  display: -webkit-box;
+  padding: 1px 6px;
+  overflow: hidden;
+  font-size: 12.5px;
+  line-height: 1.3;
+  text-align: center;
+  overflow-wrap: anywhere;
+  border-radius: 5px;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* Selected: a soft square behind the icon, and the name on the accent, as Finder shows it. */
+.finder-item.on .finder-art {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.finder-item.on .finder-name {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.finder-content.list {
+  padding: 0 8px 24px;
+}
+
+.finder-list-head,
+.finder-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 170px 84px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px;
+}
+
+.finder-list-head {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  height: 32px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-main);
+  backdrop-filter: var(--glass-blur);
+}
+
+.finder-row {
+  height: 30px;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  border-radius: 6px;
+}
+
+/* Every other row a faint shade, as Finder's list. */
+.finder-row:nth-child(even of .finder-row) {
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+/* The whole row takes the accent: as specific as the shaded rows' rule, and after it. */
+.finder-row.on:nth-child(n of .finder-row),
+.finder-row.on .finder-row-name {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.finder-row-name {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+
+.finder-row-name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.finder-row-name svg {
+  flex-shrink: 0;
+}
+
+/* Finder's path bar: each folder up to the one shown opens it. */
+.finder-pathbar {
+  height: 30px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
   overflow-x: auto;
   scrollbar-width: none;
+  border-top: 1px solid var(--border);
 }
 
 .crumb-btn {
   flex-shrink: 0;
-  height: 28px;
-  padding: 0 9px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
   color: var(--text-soft);
-  font-size: 13px;
-  border-radius: var(--radius-pill);
+  font-size: 12px;
   white-space: nowrap;
+  border-radius: var(--radius-pill);
 }
 
 .crumb-btn:hover {
@@ -5672,7 +5981,7 @@ button,
 
 .crumb-btn + .crumb-btn::before {
   content: '›';
-  margin-right: 9px;
+  margin-right: 4px;
   color: var(--text-muted);
 }
 
@@ -5681,107 +5990,9 @@ button,
   font-weight: 600;
 }
 
-.files-view,
-.terminal-view {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.files-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-}
-
-.files-list {
-  flex: 1;
-  min-width: 0;
-  overflow-y: auto;
-  padding: 6px 8px 24px;
-}
-
-/* A file dragged over the list goes into the folder shown. */
-.files-list.dropping {
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
-}
-
-.file-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 40px;
-  padding: 0 4px 0 10px;
-  border-radius: var(--radius);
-  cursor: default;
-}
-
-.file-row:hover {
-  background: var(--hover);
-}
-
-.file-row.active {
-  background: var(--glass-strong);
-  box-shadow: var(--glass-rim);
-}
-
-.file-icon {
-  display: flex;
-  color: var(--text-muted);
-}
-
-/* Folders take the accent, as Finder's do. */
-.file-icon.folder {
-  color: var(--accent);
-}
-
-.file-icon svg {
-  width: 18px;
-  height: 18px;
-}
-
-.file-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-meta {
-  display: flex;
-  gap: 14px;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.file-date {
-  width: 76px;
-  text-align: right;
-}
-
-/* The ⋮ menu shows on the row under the pointer, or always on a touch screen. */
-.file-menu {
-  display: flex;
-  opacity: 0;
-}
-
-.file-row:is(:hover, :focus-within, .active) .file-menu {
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .file-menu {
-    opacity: 1;
-  }
-}
-
 .files-empty {
-  padding: 32px 16px;
+  grid-column: 1 / -1;
+  padding: 40px 16px;
   color: var(--text-muted);
   text-align: center;
 }
@@ -5794,7 +6005,7 @@ button,
   border-radius: var(--radius);
 }
 
-/* Asking for a name or a folder: one line of glass above the list. */
+/* Asking for a name or a folder: one line of glass above the contents. */
 .files-prompt {
   display: flex;
   align-items: center;
@@ -5821,19 +6032,23 @@ button,
   box-shadow: inset 0 0 0 1px var(--border);
 }
 
-/* A file opened from the list: beside it, as a pane of its own. */
+/* A file opened from the contents: beside them, as a pane of its own. */
 .files-preview {
-  width: min(52%, 720px);
+  width: min(48%, 680px);
   min-width: 0;
   display: flex;
   flex-direction: column;
   border-left: 1px solid var(--border);
 }
 
+.preview-bar {
+  gap: 4px;
+}
+
 .files-preview-name {
   flex: 1;
   min-width: 0;
-  padding-left: 6px;
+  padding-left: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5853,6 +6068,17 @@ button,
   margin: auto;
   padding: 16px;
   object-fit: contain;
+}
+
+.files-other {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px;
+  color: var(--text-muted);
+  text-align: center;
 }
 
 /* The terminal: its text straight on the window's glass, no box of its own. */
@@ -5913,9 +6139,9 @@ button,
   font-size: 13px;
 }
 
-/* On a phone the opened file takes the screen, over the list. */
+/* On a phone the opened file takes the screen, over the contents; the icons are smaller. */
 @media (max-width: 700px) {
-  .files-view.has-preview .files-list {
+  .finder.has-preview .finder-content {
     display: none;
   }
 
@@ -5924,7 +6150,23 @@ button,
     border-left: 0;
   }
 
-  .file-date {
+  .finder-toolbar {
+    gap: 6px;
+    padding: 0 8px;
+  }
+
+  .finder-content.icons {
+    grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+    padding: 14px 8px 28px;
+  }
+
+  .finder-list-head,
+  .finder-row {
+    grid-template-columns: minmax(0, 1fr) 84px;
+  }
+
+  .finder-list-head > :nth-child(2),
+  .finder-row > :nth-child(2) {
     display: none;
   }
 }
@@ -5956,7 +6198,7 @@ button,
 
 .nav-row:active,
 .chat-row:active,
-.file-row:active,
+.finder-place:active,
 .crumb-btn:active,
 .profile:active,
 .skill-row:active,

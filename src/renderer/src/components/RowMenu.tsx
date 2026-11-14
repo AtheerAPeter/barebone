@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import { useOverlay } from '../lib/overlays'
 import { menusAsSheets } from '../lib/touch'
@@ -26,30 +26,6 @@ export function RowMenu({
 }): React.JSX.Element {
   const [at, setAt] = useState<React.CSSProperties>()
   const rootRef = useRef<HTMLDivElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
-  useOverlay(menuRef, Boolean(at))
-
-  useEffect(() => {
-    if (!at) return
-    const onPointer = (event: PointerEvent): void => {
-      const target = event.target as Node
-      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
-        setAt(undefined)
-      }
-    }
-    // Capture phase, and handled: closing the menu must not also stop the agent.
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      setAt(undefined)
-    }
-    document.addEventListener('pointerdown', onPointer)
-    window.addEventListener('keydown', onKey, true)
-    return () => {
-      document.removeEventListener('pointerdown', onPointer)
-      window.removeEventListener('keydown', onKey, true)
-    }
-  }, [at])
 
   function toggle(button: HTMLElement): void {
     if (at) return setAt(undefined)
@@ -80,33 +56,74 @@ export function RowMenu({
       >
         <MoreIcon width={14} height={14} />
       </button>
-      {at &&
-        createPortal(
-          <div
-            className={`menu${menusAsSheets() ? ' sheet' : ''}`}
-            role="menu"
-            style={at}
-            ref={menuRef}
-          >
-            {items.map((item) => (
-              <button
-                key={item.name}
-                role="menuitem"
-                className={item.danger ? 'danger' : undefined}
-                autoFocus={item === items[0] && !menusAsSheets()}
-                onClick={() => {
-                  // Gone before the item runs: one that asks first (confirm) stops the page.
-                  flushSync(() => setAt(undefined))
-                  item.onSelect()
-                }}
-              >
-                {item.name}
-              </button>
-            ))}
-          </div>,
-          document.body
-        )}
+      {at && <MenuPopover items={items} at={at} onClose={() => setAt(undefined)} owner={rootRef} />}
     </div>
+  )
+}
+
+/**
+ * A menu of items, fixed to the window where `at` puts it, or a sheet along
+ * the bottom on a phone. A press outside it, or Escape, closes it; a press on
+ * `owner` (the button that opened it) is left to that button.
+ */
+export function MenuPopover({
+  items,
+  at,
+  onClose,
+  owner
+}: {
+  items: RowMenuItem[]
+  at: React.CSSProperties
+  onClose: () => void
+  owner?: RefObject<HTMLElement | null>
+}): React.JSX.Element {
+  const menuRef = useRef<HTMLDivElement>(null)
+  useOverlay(menuRef, true)
+
+  useEffect(() => {
+    const onPointer = (event: PointerEvent): void => {
+      const target = event.target as Node
+      if (!owner?.current?.contains(target) && !menuRef.current?.contains(target)) onClose()
+    }
+    // Capture phase, and handled: closing the menu must not also stop the agent.
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      onClose()
+    }
+    document.addEventListener('pointerdown', onPointer)
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      document.removeEventListener('pointerdown', onPointer)
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [onClose, owner])
+
+  const sheet = menusAsSheets()
+  return createPortal(
+    <div
+      className={`menu${sheet ? ' sheet' : ''}`}
+      role="menu"
+      style={sheet ? undefined : at}
+      ref={menuRef}
+    >
+      {items.map((item) => (
+        <button
+          key={item.name}
+          role="menuitem"
+          className={item.danger ? 'danger' : undefined}
+          autoFocus={item === items[0] && !sheet}
+          onClick={() => {
+            // Gone before the item runs: one that asks first (confirm) stops the page.
+            flushSync(onClose)
+            item.onSelect()
+          }}
+        >
+          {item.name}
+        </button>
+      ))}
+    </div>,
+    document.body
   )
 }
 
