@@ -4,7 +4,7 @@ import { Terminal, type ITheme } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import type { TerminalInfo } from '../../../shared/types'
 import { touchScreen, useKeyboardArea } from '../lib/touch'
-import { CloseIcon, KeyboardIcon, PlusIcon } from './icons'
+import { CloseIcon, PlusIcon } from './icons'
 
 /**
  * Terminals (main/terminals.ts), as tabs. The shells run in the app, so they
@@ -142,12 +142,13 @@ export function TerminalView(): React.JSX.Element {
     return () => observer.disconnect()
   }, [active, terminals])
 
-  // On a phone, the view ends where its keyboard starts.
+  // On a phone, the view ends where its keyboard starts: its size in the column is
+  // its flex basis (a height would be overruled by it).
   useLayoutEffect(() => {
     const view = viewRef.current
     if (!view) return
-    view.style.height = keyboard
-      ? `${keyboard.top + keyboard.height - view.getBoundingClientRect().top}px`
+    view.style.flex = keyboard
+      ? `0 0 ${keyboard.top + keyboard.height - view.getBoundingClientRect().top}px`
       : ''
   }, [keyboard])
 
@@ -225,7 +226,8 @@ export function TerminalView(): React.JSX.Element {
         )}
       </div>
       {touchScreen && (
-        // Pressing a key leaves the focus in the terminal, so the phone's keyboard stays up.
+        // Tapping the terminal brings up the phone's keyboard; pressing a key here leaves the
+        // focus there, so the keyboard stays up.
         <div className="terminal-keys" onPointerDown={(e) => e.preventDefault()}>
           <button className="btn" onClick={() => press('esc')}>
             Esc
@@ -251,13 +253,6 @@ export function TerminalView(): React.JSX.Element {
           </button>
           <button className="btn" title="Right" onClick={() => press('right')}>
             →
-          </button>
-          <button
-            className="icon-btn"
-            title="Keyboard"
-            onClick={() => active && shown.current.get(active)?.term.focus()}
-          >
-            <KeyboardIcon />
           </button>
         </div>
       )}
