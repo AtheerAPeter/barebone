@@ -1,10 +1,9 @@
 # Barebone on a Linux x64 server. From the repository's root:
 #
-#   BAREBONE_PASSWORD=… docker compose -f deploy/vps/compose.yml up -d --build
+#   BAREBONE_ZROK_TOKEN=… docker compose -f deploy/vps/compose.yml up -d --build
 #
-# The desktop listens on the server itself only (127.0.0.1:3000): reach it
-# through an SSH tunnel (README.md). Your phone uses the remote link (zrok),
-# which Barebone opens itself.
+# Nothing listens on the server: Barebone opens its remote link (zrok) itself,
+# and you use it, Files and Terminal included, from your phone or computer.
 services:
   barebone:
     build:
@@ -14,36 +13,23 @@ services:
     # The app is built for x64 only (electron-builder.yml).
     platform: linux/amd64
     container_name: barebone
+    hostname: barebone
+    # Signals reach Barebone, and the processes it leaves are reaped.
+    init: true
     # Chromium crashes pages with Docker's 64 MB /dev/shm.
     shm_size: 1gb
     security_opt:
-      # Docker's own profiles, plus the sandboxes a Linux desktop allows (README.md).
+      # Docker's own profile, plus Chromium's sandbox (README.md).
       - seccomp=./seccomp.json
-      - apparmor=barebone
     environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Etc/UTC
-      # The desktop's sign-in, a second lock behind the tunnel.
-      - CUSTOM_USER=barebone
-      - PASSWORD=${BAREBONE_PASSWORD:?Set BAREBONE_PASSWORD}
-      # Closing Barebone quits it; the desktop starts it again.
-      - RESTART_APP=true
-      # The desktop is served under /desktop/, and paired devices of the remote
-      # link open it there (src/main/remote/desktop.ts), signed in by Barebone.
-      - SUBFOLDER=/desktop/
-      - BAREBONE_DESKTOP=http://127.0.0.1:3000
-      - BAREBONE_DESKTOP_AUTH=barebone:${BAREBONE_PASSWORD}
-      - SELKIES_MICROPHONE_ENABLED=true
-      - SELKIES_MICROPHONE_ON_START=demand
-      - SELKIES_ENABLE_SHARING=false
+      # Your zrok account token, read the first time to join zrok; then kept
+      # on the volume.
+      - BAREBONE_ZROK_TOKEN=${BAREBONE_ZROK_TOKEN:-}
     volumes:
       # Everything that lasts: Barebone's chats and settings, the browser's
       # logins, the agents' logins, your projects.
       - config:/config
-    ports:
-      # BAREBONE_PORT when something else on the server has 3000.
-      - 127.0.0.1:${BAREBONE_PORT:-3000}:3000
+    # Quitting Barebone ends the container; Docker starts it again.
     restart: unless-stopped
 
 volumes:

@@ -73,7 +73,7 @@ mac:
   notarize: false
 dmg:
   artifactName: ${name}-${version}.${ext}
-# Linux on x64, for a server: run in a container with a virtual desktop
+# Linux on x64, for a server: run in a container on a virtual screen
 # (deploy/vps), so an unpacked folder rather than an installer.
 linux:
   target:

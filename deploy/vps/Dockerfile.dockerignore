@@ -9,4 +9,4 @@
 !build/**
 !resources/**
 !src/**
-!deploy/vps/root/**
+!deploy/vps/barebone-start
