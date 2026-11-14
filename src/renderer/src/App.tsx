@@ -7,9 +7,11 @@ import {
   type AppState,
   type Project
 } from '../../shared/types'
-import { Sidebar } from './components/Sidebar'
+import { Sidebar, type View } from './components/Sidebar'
 import { ChatView } from './components/ChatView'
 import { SkillsView } from './components/SkillsView'
+import { FilesView } from './components/FilesView'
+import { TerminalView } from './components/TerminalView'
 import { SettingsView } from './components/SettingsView'
 import { BrowserPanel } from './components/BrowserPanel'
 import { CodePanel } from './components/CodePanel'
@@ -42,6 +44,14 @@ const REMOTE = window.api.remote
 /** The narrowest top bar that fits a bot's switch beside its name; below it the switch gets a row of its own. */
 const BOT_TABS_BESIDE = 600
 
+/** The top bar's title for each view the sidebar opens. */
+const VIEW_TITLES: Record<Exclude<View, 'chat'>, string> = {
+  skills: 'Skills',
+  files: 'Files',
+  terminal: 'Terminal',
+  settings: 'Settings'
+}
+
 export default function App(): React.JSX.Element {
   const [state, setState] = useState<AppState>({ projects: [], chats: [] })
   const stateRef = useRef(state)
@@ -51,7 +61,7 @@ export default function App(): React.JSX.Element {
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>(() =>
     readPref('selectedChat', undefined)
   )
-  const [view, setView] = useState<'chat' | 'skills' | 'settings'>('chat')
+  const [view, setView] = useState<View>('chat')
   const [sidebarOpen, setSidebarOpen] = useState(() => readPref('sidebarOpen', true))
   /** The sidebar is a drawer: picking something in it closes it. */
   const drawer = useMedia(PHONE) && REMOTE
@@ -76,9 +86,10 @@ export default function App(): React.JSX.Element {
   }, [])
 
   useEffect(() => writePref('selectedChat', selectedChatId), [selectedChatId])
-  // Escape leaves Skills or Settings for the chat, unless something there used the key.
+  // Escape leaves a view for the chat, unless something there used the key. Not the
+  // terminal: there Escape is the shell's (vim, less).
   useEffect(() => {
-    if (view === 'chat') return
+    if (view === 'chat' || view === 'terminal') return
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape' && !e.defaultPrevented && !e.isComposing) setView('chat')
     }
@@ -298,12 +309,8 @@ export default function App(): React.JSX.Element {
         }}
         onNewChatIn={newChat}
         onOpenBot={openBot}
-        onShowSkills={() => {
-          setView((v) => (v === 'skills' ? 'chat' : 'skills'))
-          if (drawer) setSidebarOpen(false)
-        }}
-        onShowSettings={() => {
-          setView((v) => (v === 'settings' ? 'chat' : 'settings'))
+        onShow={(shown) => {
+          setView((v) => (v === shown ? 'chat' : shown))
           if (drawer) setSidebarOpen(false)
         }}
         onHide={() => setSidebarOpen(false)}
@@ -348,15 +355,13 @@ export default function App(): React.JSX.Element {
             <TopbarName
               id={view === 'chat' ? chat?.id : view}
               text={
-                view === 'skills'
-                  ? 'Skills'
-                  : view === 'settings'
-                    ? 'Settings'
-                    : bot
-                      ? bot.name
-                      : chat
-                        ? chat.title
-                        : 'Barebone'
+                view !== 'chat'
+                  ? VIEW_TITLES[view]
+                  : bot
+                    ? bot.name
+                    : chat
+                      ? chat.title
+                      : 'Barebone'
               }
             />
           </div>
@@ -443,6 +448,10 @@ export default function App(): React.JSX.Element {
         {botTabs && narrowBar && <div className="bot-tabs-row">{botTabs}</div>}
         {view === 'skills' ? (
           <SkillsView key={project?.id} project={project} />
+        ) : view === 'files' ? (
+          <FilesView />
+        ) : view === 'terminal' ? (
+          <TerminalView />
         ) : view === 'settings' ? (
           <SettingsView
             instructions={state.instructions}

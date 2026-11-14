@@ -1,9 +1,10 @@
 import { powerSaveBlocker } from 'electron'
+import { renderUnicodeCompact } from 'uqr'
 import type { AppState, RemotePairing, RemoteStatus } from '../../shared/types'
 import type { BuiltinBrowser } from '../browser'
 import { endSession, newPairingCode } from './auth'
 import { RemoteBrowser } from './browser'
-import { loadConfig, saveConfig } from './config'
+import { HEADLESS, loadConfig, saveConfig } from './config'
 import { handle, MAC_ONLY, type Caller } from './registry'
 import { RemoteServer } from './server'
 import { enableZrok, newShareName, zrokEnabled, ZrokTunnel } from './tunnel'
@@ -21,6 +22,7 @@ export class RemoteLink {
       this.url = url
       if (this.server) this.server.publicOrigin = new URL(url).origin
       this.setLink('online')
+      this.printPairing()
     },
     failed: (message) => this.setLink('error', message)
   })
@@ -51,13 +53,58 @@ export class RemoteLink {
       sendBinary: (caller, data) => this.server?.sendBinary(caller, data) ?? false,
       deviceOf: (caller) => this.server?.deviceOf(caller)
     })
-    handle('remote:status', () => this.status(), MAC_ONLY)
-    handle('remote:setBrowser', (on: boolean) => this.setBrowser(on), MAC_ONLY)
+    // On a server, paired devices set the link up as Settings on the Mac do;
+    // turning it off, which would leave no way back in, stays the Mac's.
+    const settings = HEADLESS ? undefined : MAC_ONLY
+    handle('remote:status', () => this.status(), settings)
+    handle('remote:setBrowser', (on: boolean) => this.setBrowser(on), settings)
+    handle('remote:pair', () => this.pair(), settings)
+    handle('remote:signOut', (id: string) => this.signOut(id), settings)
     handle('remote:enableZrok', (token: string) => this.enableZrok(token), MAC_ONLY)
     handle('remote:setOn', (on: boolean) => this.setOn(on), MAC_ONLY)
-    handle('remote:pair', () => this.pair(), MAC_ONLY)
-    handle('remote:signOut', (id: string) => this.signOut(id), MAC_ONLY)
-    if (loadConfig().on && zrokEnabled()) void this.open().catch(() => undefined)
+    if (HEADLESS) void this.startOnServer()
+    else if (loadConfig().on && zrokEnabled()) void this.open().catch(() => undefined)
+  }
+
+  /**
+   * On a server the link is the only way in: it opens at once, joining zrok
+   * with BAREBONE_ZROK_TOKEN the first time. Until a device is paired, a
+   * pairing link is printed for the server's log (docker compose logs).
+   */
+  private async startOnServer(): Promise<void> {
+    try {
+      if (!zrokEnabled()) {
+        const token = process.env.BAREBONE_ZROK_TOKEN?.trim()
+        if (!token) {
+          console.error('The remote link is off: set BAREBONE_ZROK_TOKEN to your zrok token.')
+          return
+        }
+        await enableZrok(token)
+      }
+      loadConfig().on = true
+      saveConfig()
+      await this.open()
+    } catch (error) {
+      console.error(`The remote link did not open: ${(error as Error).message}`)
+    }
+  }
+
+  /** On a server with no device paired yet: a link to pair the first one, in the log. */
+  private printPairing(): void {
+    if (!HEADLESS || loadConfig().sessions.length > 0) return
+    const { url } = this.pair()
+    console.log(
+      [
+        '',
+        'Pair your phone or computer with Barebone: open this link on it, or scan the code.',
+        'It works once, for 5 minutes; restart Barebone for a new one.',
+        '',
+        url,
+        '',
+        renderUnicodeCompact(url, { border: 2 }),
+        ''
+      ].join('\n')
+    )
   }
 
   /** The paired session a page of the link is open in; undefined once it is gone. */
@@ -68,6 +115,11 @@ export class RemoteLink {
   /** Something the window is told: pages of the link that show it are told too. */
   event(channel: string, args: unknown[]): void {
     this.server?.event(channel, args)
+  }
+
+  /** Tell one page of the link something; false when it is gone. */
+  sendTo(caller: Caller, channel: string, args: unknown[]): boolean {
+    return this.server?.sendTo(caller, channel, args) ?? false
   }
 
   async stop(): Promise<void> {

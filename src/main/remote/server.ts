@@ -1,9 +1,11 @@
 import { app } from 'electron'
-import { createReadStream } from 'node:fs'
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { createReadStream, createWriteStream } from 'node:fs'
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { basename, extname, join, normalize, sep } from 'node:path'
+import { Transform } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { gzipSync } from 'node:zlib'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { AppState, SpokenAudio } from '../../shared/types'
@@ -18,6 +20,7 @@ import {
   type ServerMessage
 } from '../../shared/wire'
 import { imageType, requestedImage } from '../images'
+import { downloadable, uploadPath } from '../file-manager'
 import {
   botFile,
   botFileType,
@@ -31,14 +34,7 @@ import {
   stylesheet
 } from '../bots'
 import { endSession, pair, sessionFor } from './auth'
-import {
-  DESKTOP_PATH,
-  desktopAvailable,
-  isDesktopPath,
-  proxyDesktop,
-  proxyDesktopUpgrade
-} from './desktop'
-import { loadConfig } from './config'
+import { HEADLESS, loadConfig } from './config'
 import { callFromRemote, callerGone, sendFromRemote, type Caller } from './registry'
 
 /**
@@ -53,6 +49,8 @@ const COOKIE = '__Host-barebone'
 const COOKIE_DAYS = 400
 /** Attachments larger than this are refused. */
 const MAX_UPLOAD = 50 * 1024 * 1024
+/** Files uploaded into a folder of the file manager, which go to disk as they come. */
+const MAX_FOLDER_UPLOAD = 2 * 1024 * 1024 * 1024
 /** A socket that has not answered a ping in this long is gone. */
 const PING_MS = 30_000
 /** State changes come in bursts (one per model step): sent at most this often. */
@@ -71,7 +69,9 @@ const BROADCAST = new Set([
   'downloads:status',
   'telegram:status',
   'remoteBrowser:allowed',
-  'bots:changed'
+  'bots:changed',
+  // On a server its paired devices set the link up (remote/index.ts); a Mac's are not told.
+  ...(HEADLESS ? ['remote:status'] : [])
 ])
 
 /** What a bot's dashboard asks its folder with: its files, a record to save, and the browser's question before that. */
@@ -155,13 +155,14 @@ export class RemoteServer {
     })
     this.http.on('upgrade', (req, socket, head) => {
       const session = this.session(req)
-      const path = new URL(req.url ?? '/', 'http://x').pathname
-      const desktop = isDesktopPath(path) && desktopAvailable()
-      if ((path !== '/ws' && !desktop) || !session || !this.originOk(req)) {
+      if (
+        new URL(req.url ?? '/', 'http://x').pathname !== '/ws' ||
+        !session ||
+        !this.originOk(req)
+      ) {
         socket.end('HTTP/1.1 401 Unauthorized\r\n\r\n')
         return
       }
-      if (desktop) return proxyDesktopUpgrade(req, socket, head)
       this.sockets!.handleUpgrade(req, socket, head, (ws) => this.connect(ws, session.id))
     })
     this.ping = setInterval(() => {
@@ -413,12 +414,7 @@ export class RemoteServer {
       return this.text(res, 401, 'Pair this device first.')
     }
 
-    if (path === '/api/session') return this.json(res, 200, { desktop: desktopAvailable() })
-    // The server's desktop (desktop.ts), for paired devices only.
-    if (isDesktopPath(path) && desktopAvailable()) {
-      if (path === DESKTOP_PATH.slice(0, -1)) return this.redirect(res, DESKTOP_PATH)
-      return proxyDesktop(req, res)
-    }
+    if (path === '/api/session') return this.json(res, 200, {})
     if (path === '/' && method === 'GET') return this.file(req, res, 'web.html', 'no-store')
     if (path.startsWith('/assets/') && method === 'GET') {
       return this.file(req, res, path.slice(1), 'immutable')
@@ -429,7 +425,12 @@ export class RemoteServer {
       if (!image) return this.text(res, 404, 'Not found.')
       return this.stream(res, image, imageType(file), 'private, max-age=31536000, immutable')
     }
-    if (path === '/api/upload' && method === 'POST') return this.upload(req, res, url)
+    if (path === '/api/upload' && method === 'POST') {
+      return url.searchParams.has('dir')
+        ? this.uploadInto(req, res, url)
+        : this.upload(req, res, url)
+    }
+    if (path === '/api/download' && method === 'GET') return this.download(req, res, url)
     return this.text(res, 404, 'Not found.')
   }
 
@@ -477,6 +478,55 @@ export class RemoteServer {
     const path = join(dir, name)
     await writeFile(path, data)
     return this.json(res, 200, { path, name })
+  }
+
+  /**
+   * A file uploaded into a folder from the file manager: written there as it
+   * comes, so a large one never sits in memory.
+   */
+  private async uploadInto(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+    const name = basename(url.searchParams.get('name') ?? '')
+    if (!name || name === '.' || name === '..')
+      return this.json(res, 400, { error: 'Bad request.' })
+    if (Number(req.headers['content-length'] ?? 0) > MAX_FOLDER_UPLOAD) {
+      return this.json(res, 413, { error: 'Files up to 2 GB can be uploaded.' })
+    }
+    const path = await uploadPath(url.searchParams.get('dir') ?? '', name)
+    if (!path) return this.json(res, 404, { error: 'That folder is gone.' })
+    let received = 0
+    const limited = new Transform({
+      transform(chunk: Buffer, _encoding, done) {
+        received += chunk.length
+        done(received > MAX_FOLDER_UPLOAD ? new Error('Too large.') : null, chunk)
+      }
+    })
+    try {
+      await pipeline(req, limited, createWriteStream(path, { flags: 'wx' }))
+    } catch {
+      await rm(path, { force: true })
+      return this.json(res, 400, { error: 'The file could not be uploaded.' })
+    }
+    return this.json(res, 200, { path, name: basename(path) })
+  }
+
+  /** A file from the file manager, saved on the device. */
+  private async download(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+    // Opened by the link's own page, not by another site's (another zrok share is the same site).
+    const site = req.headers['sec-fetch-site']
+    if (site === 'same-site' || site === 'cross-site')
+      return this.text(res, 403, 'Not from this link.')
+    const path = url.searchParams.get('path') ?? ''
+    const file = await downloadable(path)
+    if (!file) return this.text(res, 404, 'Not found.')
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': file.size,
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(basename(path))}`,
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': 'sandbox'
+    })
+    file.stream().pipe(res)
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────

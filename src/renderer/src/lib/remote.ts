@@ -5,7 +5,8 @@ import type { RemoteStatus } from '../../../shared/types'
 export function useRemoteStatus(): RemoteStatus | undefined {
   const [status, setStatus] = useState<RemoteStatus>()
   useEffect(() => {
-    window.api.remoteLink.status().then(setStatus)
+    // Through the link to a Mac it is the Mac's to show: refused, it stays undefined.
+    window.api.remoteLink.status().then(setStatus, () => undefined)
     return window.api.remoteLink.onStatus(setStatus)
   }, [])
   return status

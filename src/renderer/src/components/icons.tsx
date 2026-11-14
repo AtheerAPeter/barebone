@@ -3,6 +3,7 @@ import {
   IconAlignLeft,
   IconArrowBackUp,
   IconArrowDown,
+  IconArrowMoveRight,
   IconArrowUp,
   IconArrowsExchange,
   IconBook,
@@ -14,10 +15,10 @@ import {
   IconClock,
   IconCloudDownload,
   IconCopy,
-  IconDeviceDesktop,
   IconDeviceMobile,
   IconDotsVertical,
   IconDownload,
+  IconEye,
   IconFile,
   IconFileArrowRight,
   IconFileDiff,
@@ -49,6 +50,7 @@ import {
   IconTerminal2,
   IconTool,
   IconTrash,
+  IconUpload,
   IconUserCog,
   IconVideo,
   IconMusic,
@@ -174,8 +176,10 @@ export const SpeakerIcon = fromTabler(IconVolume)
 /** Music agents make for their videos. */
 export const MusicIcon = fromTabler(IconMusic)
 export const DownloadIcon = fromTabler(IconDownload)
+export const UploadIcon = fromTabler(IconUpload)
+export const MoveIcon = fromTabler(IconArrowMoveRight)
+export const EyeIcon = fromTabler(IconEye)
 export const PhoneIcon = fromTabler(IconDeviceMobile)
-export const DesktopIcon = fromTabler(IconDeviceDesktop)
 /** Telegram's paper plane, on the Control from Telegram settings. */
 export const TelegramIcon = fromTabler(IconBrandTelegram)
 /** The persona the agent's main conversation runs as (Claude Code's custom agents). */

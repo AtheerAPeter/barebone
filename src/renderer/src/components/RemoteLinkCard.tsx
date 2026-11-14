@@ -11,13 +11,20 @@ import type { RemotePairing, RemoteStatus } from '../../../shared/types'
  * Settings row: set up on the Mac only, while a browser through the link signs
  * that browser out.
  */
-export function SignedInBody(): React.JSX.Element {
+export function SignedInBody({
+  managedHere
+}: {
+  /** Barebone runs on a server, whose paired devices are listed above. */
+  managedHere: boolean
+}): React.JSX.Element {
   return (
     <>
-      <p>
-        You&apos;re using Barebone through its remote link. The devices paired with it are listed in
-        Settings on your Mac.
-      </p>
+      {!managedHere && (
+        <p>
+          You&apos;re using Barebone through its remote link. The devices paired with it are listed
+          in Settings on your Mac.
+        </p>
+      )}
       <div className="settings-row">
         <button
           className="btn"
@@ -48,8 +55,8 @@ export function RemoteLinkBody({
     <>
       <p>
         Use Barebone in a browser on your phone or another computer, through zrok&apos;s free
-        tunnel. A device joins by scanning a QR code shown here. Barebone has to be open on a Mac
-        that is awake.
+        tunnel. A device joins by scanning a QR code shown here. Barebone has to be running, on a
+        Mac that is awake or on a server.
       </p>
       {status?.zrok === 'disabled' && <JoinZrok />}
       {status?.on && status.link === 'online' && status.url && (
@@ -212,7 +219,7 @@ function BrowserAccess({ on }: { on: boolean }): React.JSX.Element {
         <div>
           <div>Phones can use the browser</div>
           <p>
-            Paired devices see and control this Mac&apos;s browser tabs, which are signed in to your
+            Paired devices see and control Barebone&apos;s browser tabs, which are signed in to your
             accounts.
           </p>
         </div>
