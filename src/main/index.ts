@@ -31,7 +31,7 @@ import type {
   Downloads,
   VoiceModelId
 } from '../shared/types'
-import { BOT_SCHEME, REMOTE_BOTS } from '../shared/types'
+import { BOT_SCHEME, OWN_BROWSER, REMOTE_BOTS } from '../shared/types'
 import * as store from './store'
 import { AgentManager } from './agents'
 import { BotNotices } from './bot-notices'
@@ -371,9 +371,14 @@ function createWindow(): BuiltinBrowser {
     },
     (chatId) => store.getState().chats.some((c) => c.id === chatId && c.running),
     {
-      get: (chatId) => store.getState().chats.find((c) => c.id === chatId)?.browserTabs,
+      // The user's own browser (Browser in the sidebar) keeps its tabs in the app's state.
+      get: (chatId) =>
+        chatId === OWN_BROWSER
+          ? store.getState().browserTabs
+          : store.getState().chats.find((c) => c.id === chatId)?.browserTabs,
       set: (chatId, tabs) => {
-        if (store.getState().chats.some((c) => c.id === chatId)) {
+        if (chatId === OWN_BROWSER) store.setBrowserTabs(tabs)
+        else if (store.getState().chats.some((c) => c.id === chatId)) {
           store.updateChat(chatId, { browserTabs: tabs })
         }
       }

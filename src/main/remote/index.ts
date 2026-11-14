@@ -1,6 +1,11 @@
 import { powerSaveBlocker } from 'electron'
 import { renderUnicodeCompact } from 'uqr'
-import type { AppState, RemotePairing, RemoteStatus } from '../../shared/types'
+import {
+  OWN_BROWSER,
+  type AppState,
+  type RemotePairing,
+  type RemoteStatus
+} from '../../shared/types'
 import type { BuiltinBrowser } from '../browser'
 import { endSession, newPairingCode } from './auth'
 import { RemoteBrowser } from './browser'
@@ -48,7 +53,9 @@ export class RemoteLink {
   /** Register Settings' requests, and open the link if it was open when the app quit. */
   start(browser: BuiltinBrowser): void {
     this.browser = new RemoteBrowser(browser, {
-      chatExists: (chatId) => this.host.state().chats.some((chat) => chat.id === chatId),
+      // A chat's browser, or the user's own (Browser in the sidebar).
+      chatExists: (chatId) =>
+        chatId === OWN_BROWSER || this.host.state().chats.some((chat) => chat.id === chatId),
       sendTo: (caller, channel, args) => this.server?.sendTo(caller, channel, args) ?? false,
       sendBinary: (caller, data) => this.server?.sendBinary(caller, data) ?? false,
       deviceOf: (caller) => this.server?.deviceOf(caller)

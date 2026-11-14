@@ -27,11 +27,13 @@ import { PHONE, useKeyboardArea, useMedia } from '../lib/touch'
 
 interface Props {
   chatId: string
+  /** The whole view rather than a panel beside a chat: the user's own browser (Browser in the sidebar). */
+  full?: boolean
   /** Its width beside the chat, shared with the code panel; on a phone it covers the screen. */
-  width: number
-  onResize: (width: number) => void
+  width?: number
+  onResize?: (width: number) => void
   /** The chat pane left of the panel, whose width the divider sets. */
-  chatRef: React.RefObject<HTMLElement | null>
+  chatRef?: React.RefObject<HTMLElement | null>
   onClose: () => void
 }
 
@@ -77,6 +79,7 @@ const api = (): typeof window.api.remoteBrowser => window.api.remoteBrowser
 
 export function BrowserSheet({
   chatId,
+  full = false,
   width,
   onResize,
   chatRef,
@@ -343,15 +346,18 @@ export function BrowserSheet({
 
   return (
     <aside
-      className={`side-panel remote-browser${phone ? '' : ' wide'}${typing ? ' typing' : ''}`}
-      style={
-        keyboard ? { width, height: keyboard.height, top: keyboard.top, bottom: 'auto' } : { width }
-      }
+      className={`side-panel remote-browser${phone ? '' : ' wide'}${typing ? ' typing' : ''}${full ? ' full' : ''}`}
+      style={{
+        ...(full ? {} : { width }),
+        ...(keyboard ? { height: keyboard.height, top: keyboard.top, bottom: 'auto' } : {})
+      }}
     >
-      <div
-        className="panel-resize"
-        onPointerDown={(event) => dragDivider(event, chatRef.current, onResize)}
-      />
+      {!full && chatRef && onResize && (
+        <div
+          className="panel-resize"
+          onPointerDown={(event) => dragDivider(event, chatRef.current, onResize)}
+        />
+      )}
       {!phone && <WideBar view={view} usable={Boolean(usable)} onClose={onClose} onError={fail} />}
       {phone && (
         <div className="rb-top">

@@ -3702,7 +3702,9 @@ img.project-icon {
   display: none;
 }
 
-.side-panel.chat-folded {
+/* Filling the main area: beside a chat folded into the orb, or as the user's own browser. */
+.side-panel.chat-folded,
+.side-panel.full {
   flex: 1;
   border-left: 0;
 }

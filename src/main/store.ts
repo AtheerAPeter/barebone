@@ -19,6 +19,7 @@ import {
   type ChatItem,
   type ChatPermissions,
   type Project,
+  type SavedTabs,
   type Theme,
   type VoiceModelId
 } from '../shared/types'
@@ -205,6 +206,12 @@ export function setCodeTours(on: boolean): void {
 /** Turn the browser tools that record a tab as a video on or off. */
 export function setRecording(on: boolean): void {
   state.recording = on || undefined
+  scheduleFlush()
+}
+
+/** Keep the user's own browser's tabs (OWN_BROWSER). */
+export function setBrowserTabs(tabs: SavedTabs): void {
+  state.browserTabs = tabs
   scheduleFlush()
 }
 

@@ -15,14 +15,17 @@ import {
 } from './icons'
 
 interface BrowserPanelProps {
-  width: number
-  onResize: (width: number) => void
+  /** The whole view rather than a panel beside a chat: the user's own browser (Browser in the sidebar). */
+  full?: boolean
+  /** Beside a chat: its width, which its divider sets. */
+  width?: number
+  onResize?: (width: number) => void
   onClose: () => void
   /** The chat pane left of the panel, whose width the divider sets. */
-  chatRef: React.RefObject<HTMLElement | null>
+  chatRef?: React.RefObject<HTMLElement | null>
   /** The chat is folded into the agent orb over the page, and the panel fills its place. */
-  chatFolded: boolean
-  onFoldChat: () => void
+  chatFolded?: boolean
+  onFoldChat?: () => void
   /** Shown first in the tab row, as the sidebar button when the chat's top bar is folded away. */
   leading?: React.ReactNode
 }
@@ -32,11 +35,12 @@ interface BrowserPanelProps {
  * component draws the toolbar and reports where the view should sit.
  */
 export function BrowserPanel({
+  full = false,
   width,
   onResize,
   onClose,
   chatRef,
-  chatFolded,
+  chatFolded = false,
   onFoldChat,
   leading
 }: BrowserPanelProps): React.JSX.Element {
@@ -106,6 +110,7 @@ export function BrowserPanel({
 
   /** Drag the divider; dragging well past the chat's narrowest folds it into the agent orb. */
   function startDrag(event: React.PointerEvent): void {
+    if (!chatRef || !onResize) return
     setDragging(true)
     dragDivider(event, chatRef.current, onResize, {
       onEnd: () => setDragging(false),
@@ -115,10 +120,10 @@ export function BrowserPanel({
 
   return (
     <aside
-      className={`side-panel${chatFolded ? ' chat-folded' : ''}`}
-      style={chatFolded ? undefined : { width }}
+      className={`side-panel${chatFolded ? ' chat-folded' : ''}${full ? ' full' : ''}`}
+      style={chatFolded || full ? undefined : { width }}
     >
-      {!chatFolded && <div className="panel-resize" onPointerDown={startDrag} />}
+      {!chatFolded && !full && <div className="panel-resize" onPointerDown={startDrag} />}
       {/* Tabs on top, as in Chrome, in the panels' shared top row. */}
       <div className="panel-tabs" role="tablist">
         {leading}

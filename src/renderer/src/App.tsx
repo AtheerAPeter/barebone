@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AGENTS,
+  OWN_BROWSER,
   waitingOn,
   type AgentStatus,
   type AgentId,
@@ -49,6 +50,7 @@ const VIEW_TITLES: Record<Exclude<View, 'chat'>, string> = {
   skills: 'Skills',
   files: 'Files',
   terminal: 'Terminal',
+  browser: 'Browser',
   settings: 'Settings'
 }
 
@@ -87,9 +89,9 @@ export default function App(): React.JSX.Element {
 
   useEffect(() => writePref('selectedChat', selectedChatId), [selectedChatId])
   // Escape leaves a view for the chat, unless something there used the key. Not the
-  // terminal: there Escape is the shell's (vim, less).
+  // terminal, where Escape is the shell's (vim, less), nor the browser, where it is the page's.
   useEffect(() => {
-    if (view === 'chat' || view === 'terminal') return
+    if (view === 'chat' || view === 'terminal' || view === 'browser') return
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape' && !e.defaultPrevented && !e.isComposing) setView('chat')
     }
@@ -122,7 +124,8 @@ export default function App(): React.JSX.Element {
       : undefined
   // The browser panel belongs to the chat: each chat opens and closes its own.
   // It is a view on the Mac, which a page of the remote link cannot show.
-  const browserOpen = !REMOTE && Boolean(chat?.browserOpen)
+  // The chat's browser panel steps aside for the user's own browser (Browser in the sidebar).
+  const browserOpen = !REMOTE && Boolean(chat?.browserOpen) && view !== 'browser'
   const toggleBrowser = useCallback((chatId: string | undefined, open?: boolean) => {
     if (!chatId) return
     const current = stateRef.current.chats.find((c) => c.id === chatId)
@@ -178,11 +181,13 @@ export default function App(): React.JSX.Element {
     return () => clearInterval(timer)
   }, [speakingHere, speechLevel])
 
-  // Each chat has its own browser page; the panel shows the selected chat's.
+  // Each chat has its own browser page; the panel shows the selected chat's, and the
+  // Browser view the user's own (OWN_BROWSER).
   const chatId = chat?.id
+  const browserKey = view === 'browser' ? OWN_BROWSER : chatId
   useEffect(() => {
-    if (!REMOTE) window.api.browser.setChat(chatId ?? null)
-  }, [chatId])
+    if (!REMOTE) window.api.browser.setChat(browserKey ?? null)
+  }, [browserKey])
   // The Mac knows which chat the window shows, so a bot notifies only when the user looks elsewhere.
   useEffect(() => {
     if (!REMOTE) window.api.showingChat(view === 'chat' ? (chatId ?? null) : null)
@@ -452,6 +457,18 @@ export default function App(): React.JSX.Element {
           <FilesView />
         ) : view === 'terminal' ? (
           <TerminalView />
+        ) : view === 'browser' ? (
+          // The user's own browser: the built-in one, with tabs of its own.
+          REMOTE ? (
+            <BrowserSheet
+              key={OWN_BROWSER}
+              chatId={OWN_BROWSER}
+              full
+              onClose={() => setView('chat')}
+            />
+          ) : (
+            <BrowserPanel full onClose={() => setView('chat')} />
+          )
         ) : view === 'settings' ? (
           <SettingsView
             instructions={state.instructions}

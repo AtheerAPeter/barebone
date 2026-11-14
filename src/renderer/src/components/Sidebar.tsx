@@ -23,6 +23,7 @@ import {
   ComposeIcon,
   FolderIcon,
   FolderPlusIcon,
+  GlobeIcon,
   SearchIcon,
   PhoneIcon,
   SidebarIcon,
@@ -39,7 +40,7 @@ const SIDEBAR_MIN = 200
 const SIDEBAR_MAX = 440
 
 /** What the main area shows: a chat, or one of the views the sidebar opens. */
-export type View = 'chat' | 'skills' | 'files' | 'terminal' | 'settings'
+export type View = 'chat' | 'skills' | 'files' | 'terminal' | 'browser' | 'settings'
 
 interface SidebarProps {
   /** Hidden, it slides out but stays mounted, keeping its scroll and search. */
@@ -618,6 +619,13 @@ export function Sidebar({
         >
           <TerminalIcon />
           Terminal
+        </button>
+        <button
+          className={`nav-row${view === 'browser' ? ' on' : ''}`}
+          onClick={() => onShow('browser')}
+        >
+          <GlobeIcon />
+          Browser
         </button>
         {/* A project is a folder chosen with the Mac's folder picker. */}
         {!window.api.remote && (

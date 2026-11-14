@@ -482,7 +482,17 @@ export interface AppState {
   music?: boolean
   /** Whether agents get the device tools, for mobile apps (main/devices.ts). Off when missing. */
   mobile?: boolean
+  /** The tabs of the user's own browser (Browser in the sidebar), kept across restarts. */
+  browserTabs?: SavedTabs
 }
+
+/**
+ * The user's own browser, Browser in the sidebar: tabs of its own, kept by
+ * the built-in browser (main/browser.ts) under this key, where each chat's
+ * are kept under the chat's id. It shares the chats' browser profile, so the
+ * same logins.
+ */
+export const OWN_BROWSER = 'browser'
 
 export type DevicePlatform = 'ios' | 'android'
 
