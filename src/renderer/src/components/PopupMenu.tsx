@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { createPortal, flushSync } from 'react-dom'
 import { useOverlay } from '../lib/overlays'
 import type { MenuAt, MenuEntries } from '../lib/menus'
 import { menusAsSheets } from '../lib/touch'
@@ -106,7 +106,8 @@ export function PopupMenu({
             className={entry.danger ? 'danger' : undefined}
             disabled={entry.disabled}
             onClick={() => {
-              onClose()
+              // Gone before the item runs: one that asks first (confirm) stops the page.
+              flushSync(onClose)
               entry.onSelect()
             }}
           >

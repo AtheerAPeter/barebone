@@ -16,9 +16,9 @@ import {
   IconCloudDownload,
   IconCopy,
   IconDeviceMobile,
+  IconDots,
   IconDotsVertical,
   IconDownload,
-  IconEye,
   IconFile,
   IconFileArrowRight,
   IconFileDiff,
@@ -27,6 +27,7 @@ import {
   IconGauge,
   IconGitBranch,
   IconKeyboard,
+  IconLayoutGrid,
   IconLayoutSidebar,
   IconList,
   IconListTree,
@@ -178,7 +179,8 @@ export const MusicIcon = fromTabler(IconMusic)
 export const DownloadIcon = fromTabler(IconDownload)
 export const UploadIcon = fromTabler(IconUpload)
 export const MoveIcon = fromTabler(IconArrowMoveRight)
-export const EyeIcon = fromTabler(IconEye)
+export const GridIcon = fromTabler(IconLayoutGrid)
+export const DotsIcon = fromTabler(IconDots)
 export const PhoneIcon = fromTabler(IconDeviceMobile)
 /** Telegram's paper plane, on the Control from Telegram settings. */
 export const TelegramIcon = fromTabler(IconBrandTelegram)
