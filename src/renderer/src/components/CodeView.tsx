@@ -7,13 +7,22 @@ import { lineTokens, useHighlight, type Token } from '../lib/highlight'
  * red, added ones in green, and the unchanged lines around them. Long lines
  * wrap, so the narrow panel needs no sideways scrolling.
  */
-export function CodeView({ doc }: { doc: CodeDoc }): React.JSX.Element {
-  return doc.kind === 'file' ? <FileView doc={doc} /> : <DiffView doc={doc} />
+export function CodeView({
+  doc,
+  embedded = false
+}: {
+  doc: CodeDoc
+  /** Part of a longer view that scrolls, as one file of several: it does not scroll itself. */
+  embedded?: boolean
+}): React.JSX.Element {
+  return doc.kind === 'file' ? <FileView doc={doc} /> : <DiffView doc={doc} embedded={embedded} />
 }
 
 function FileView({ doc }: { doc: Extract<CodeDoc, { kind: 'file' }> }): React.JSX.Element {
   const lines = useHighlight(doc.text, doc.path)
   const count = lineCount(doc.text)
+  if (doc.binary)
+    return <div className="code-empty">A binary file: there are no lines to show.</div>
   if (!count) return <div className="code-empty">This file is empty.</div>
   return (
     <div className="code-view">
@@ -24,7 +33,13 @@ function FileView({ doc }: { doc: Extract<CodeDoc, { kind: 'file' }> }): React.J
   )
 }
 
-function DiffView({ doc }: { doc: Extract<CodeDoc, { kind: 'diff' }> }): React.JSX.Element {
+function DiffView({
+  doc,
+  embedded
+}: {
+  doc: Extract<CodeDoc, { kind: 'diff' }>
+  embedded: boolean
+}): React.JSX.Element {
   const oldLines = useHighlight(doc.old, doc.path)
   const newLines = useHighlight(doc.new, doc.path)
   if (doc.binary) {
@@ -32,7 +47,7 @@ function DiffView({ doc }: { doc: Extract<CodeDoc, { kind: 'diff' }> }): React.J
   }
   if (!doc.hunks.length) return <div className="code-empty">No lines changed.</div>
   return (
-    <div className="code-view diff">
+    <div className={`code-view diff${embedded ? ' embedded' : ''}`}>
       {doc.hunks.map((hunk, h) => (
         <Fragment key={h}>
           {hunk.skipped > 0 && (

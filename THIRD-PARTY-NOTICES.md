@@ -1,6 +1,6 @@
 # Third-party notices
 
-Barebone includes code from the projects below. Playwright, ZCode, codex-acp, claude-agent-acp and serve-sim are under the Apache License, Version 2.0, whose text is at the end; ONNX Runtime, electron-liquid-glass, LobeHub Icons and Tabler Icons are under the MIT License, given with each. The Supertonic 3 voice model is not part of the app: it is downloaded when speech is on, under its own license.
+Barebone includes code from the projects below. Playwright, ZCode, codex-acp, claude-agent-acp and serve-sim are under the Apache License, Version 2.0, whose text is at the end; ONNX Runtime, electron-liquid-glass, LobeHub Icons, Tabler Icons, Visual Studio Code and Seti UI are under the MIT License, given with each. The Supertonic 3 voice model is not part of the app: it is downloaded when speech is on, under its own license.
 
 ## Playwright
 
@@ -102,6 +102,32 @@ The interface icons (`src/renderer/src/components/icons.tsx`) come from Tabler I
 MIT License
 
 Copyright (c) 2020-2026 Paweł Kuna
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+## Visual Studio Code and Seti UI
+
+The code panel's file icons are VS Code's default file icon theme, Seti: its font and the map of which file gets which icon (`src/renderer/src/assets/file-icons/`, built from VS Code 1.146.0 by `scripts/file-icons.ts`). The theme comes from Seti UI by Jesse Weed, https://github.com/jesseweed/seti-ui. The lanes of the code panel's commit graph (`src/renderer/src/lib/git-graph.ts`) are adapted from VS Code's Source Control Graph (`src/vs/workbench/contrib/scm/browser/scmHistory.ts`): https://github.com/microsoft/vscode
+
+```
+MIT License
+
+Copyright (c) 2015 - present Microsoft Corporation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+```
+Copyright (c) 2014 Jesse Weed
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 

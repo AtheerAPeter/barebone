@@ -1,13 +1,16 @@
 import { execFile } from 'node:child_process'
 import { watch, type FSWatcher } from 'node:fs'
-import { readFile } from 'node:fs/promises'
-import { basename, dirname, join } from 'node:path'
+import { appendFile, readFile, realpath } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import type {
   DiffHunk,
   DiffLine,
   GitBranch,
   GitChange,
   GitChangeKind,
+  GitCommit,
+  GitLog,
+  GitRef,
   GitStatus
 } from '../shared/types'
 
@@ -149,22 +152,56 @@ async function show(root: string, spec: string): Promise<string> {
 
 /** A file in the working tree; empty when it is not there. */
 async function worktree(root: string, path: string): Promise<string> {
+  const file = await repoFile(root, path)
   try {
-    return await readFile(join(root, path), 'utf8')
+    return await readFile(file, 'utf8')
   } catch {
     return ''
   }
 }
 
 /**
+ * A path in the repository, absolute; throws for one that leads out of it,
+ * by "..", from the root, or through a symlink. Paths come from the window and
+ * from pages of the remote link.
+ */
+export async function repoFile(root: string, path: string): Promise<string> {
+  const file = resolve(root, path)
+  // As written, then as it really is: a file that is not there (deleted) has no real path.
+  const real = await realpath(file).catch(() => undefined)
+  if (outside(root, file) || (real && outside(await realpath(root), real))) {
+    throw new Error(`${path} is not in the repository.`)
+  }
+  return file
+}
+
+function outside(root: string, file: string): boolean {
+  const within = relative(root, file)
+  return within.startsWith('..') || isAbsolute(within)
+}
+
+/** A commit's full or abbreviated hash; anything else, an option among them, is refused. */
+function commitId(hash: string): string {
+  if (!/^[0-9a-f]{7,64}$/i.test(hash)) throw new Error(`${hash} is not a commit.`)
+  return hash
+}
+
+/** A file in the working tree, as the code panel opens it; empty when it is not there. */
+export async function openFile(
+  root: string,
+  path: string
+): Promise<{ text: string; binary: boolean }> {
+  const text = await worktree(root, path)
+  return text.includes('\0') ? { text: '', binary: true } : { text, binary: false }
+}
+
+type FileDiff = { old: string; new: string; hunks: DiffHunk[]; binary: boolean }
+
+/**
  * A file's changes: staged (the index against the last commit) or unstaged
  * (the working tree against the index), with the file before and after.
  */
-export async function diff(
-  root: string,
-  file: GitChange,
-  staged: boolean
-): Promise<{ old: string; new: string; hunks: DiffHunk[]; binary: boolean }> {
+export async function diff(root: string, file: GitChange, staged: boolean): Promise<FileDiff> {
   if (file.kind === 'untracked') {
     const text = await worktree(root, file.path)
     if (text.includes('\0')) return { old: '', new: '', hunks: [], binary: true }
@@ -172,11 +209,71 @@ export async function diff(
     const lines: DiffLine[] = Array.from({ length: count }, (_, n) => ({ type: 'add', new: n + 1 }))
     return { old: '', new: text, hunks: count ? [{ skipped: 0, lines }] : [], binary: false }
   }
+  return fileDiff(
+    root,
+    file,
+    staged ? ['--cached'] : [],
+    staged ? show(root, `HEAD:${file.oldPath ?? file.path}`) : show(root, `:${file.path}`),
+    staged ? show(root, `:${file.path}`) : worktree(root, file.path)
+  )
+}
+
+/** A file's changes in a commit: against its first parent, as VS Code shows a commit. */
+export async function commitDiff(root: string, hash: string, file: GitChange): Promise<FileDiff> {
+  commitId(hash)
+  const base = await baseOf(root, hash)
+  return fileDiff(
+    root,
+    file,
+    [base, hash],
+    show(root, `${base}:${file.oldPath ?? file.path}`),
+    show(root, `${hash}:${file.path}`)
+  )
+}
+
+/** The files a commit changed, against its first parent. */
+export async function commitChanges(root: string, hash: string): Promise<GitChange[]> {
+  commitId(hash)
+  const base = await baseOf(root, hash)
+  const out = await git(root, ['diff', '--name-status', '-z', '--find-renames', base, hash])
+  // "M\0path\0", and a rename or copy "R100\0old\0new\0".
+  const fields = out.split('\0')
+  const changes: GitChange[] = []
+  for (let i = 0; i + 1 < fields.length;) {
+    const letter = fields[i][0]
+    if (letter === 'R' || letter === 'C') {
+      changes.push(change(fields[i + 2], KINDS[letter], fields[i + 1]))
+      i += 3
+    } else {
+      changes.push(change(fields[i + 1], KINDS[letter] ?? 'modified'))
+      i += 2
+    }
+  }
+  return changes
+}
+
+/** What a commit is compared with: its first parent, or the empty tree for a first commit. */
+async function baseOf(root: string, hash: string): Promise<string> {
+  try {
+    return (await git(root, ['rev-parse', '--verify', '--quiet', `${hash}^1`])).trim()
+  } catch {
+    // Hashed by git, as the empty tree differs between SHA-1 and SHA-256 repositories.
+    return (await git(root, ['hash-object', '-t', 'tree', '--stdin'], '')).trim()
+  }
+}
+
+async function fileDiff(
+  root: string,
+  file: GitChange,
+  range: string[],
+  before: Promise<string>,
+  after: Promise<string>
+): Promise<FileDiff> {
   const paths = file.oldPath ? [file.oldPath, file.path] : [file.path]
-  const [patch, before, after] = await Promise.all([
+  const [patch, old, now] = await Promise.all([
     git(root, [
       'diff',
-      ...(staged ? ['--cached'] : []),
+      ...range,
       '--no-color',
       '--no-ext-diff',
       '--find-renames',
@@ -184,11 +281,11 @@ export async function diff(
       '--',
       ...paths
     ]),
-    staged ? show(root, `HEAD:${file.oldPath ?? file.path}`) : show(root, `:${file.path}`),
-    staged ? show(root, `:${file.path}`) : worktree(root, file.path)
+    before,
+    after
   ])
   if (/^Binary files .* differ$/m.test(patch)) return { old: '', new: '', hunks: [], binary: true }
-  return { old: before, new: after, hunks: parseHunks(patch), binary: false }
+  return { old, new: now, hunks: parseHunks(patch), binary: false }
 }
 
 function lineCount(text: string): number {
@@ -257,11 +354,128 @@ export async function discard(root: string, changes: GitChange[]): Promise<void>
   if (tracked.length) await git(root, ['restore', '--worktree', '--', ...tracked])
 }
 
-/** Commit what is staged, or every change first when `all`. */
-export async function commit(root: string, message: string, all: boolean): Promise<void> {
+/**
+ * Commit what is staged, or every change first when `all`. Amending with no
+ * message keeps the last commit's, as VS Code does.
+ */
+export async function commit(
+  root: string,
+  message: string,
+  { all, amend }: { all: boolean; amend: boolean }
+): Promise<void> {
   if (all) await git(root, ['add', '--all'])
+  const args = ['commit', ...(amend ? ['--amend'] : [])]
+  if (amend && !message.trim()) await git(root, [...args, '--no-edit'])
   // From stdin, so the message reaches git exactly as written, any length or lines.
-  await git(root, ['commit', '--file=-'], message)
+  else await git(root, [...args, '--file=-'], message)
+}
+
+/**
+ * Undo the last commit and keep its changes staged, as VS Code's Undo Last
+ * Commit does. Returns its message, for the commit box.
+ */
+export async function undoCommit(root: string): Promise<string> {
+  const message = await git(root, ['log', '-1', '--format=%B', 'HEAD'])
+  const hasParent = await git(root, ['rev-parse', '--verify', '--quiet', 'HEAD^']).then(
+    () => true,
+    () => false
+  )
+  // The first commit has no parent to go back to: the branch goes back to having none.
+  if (hasParent) await git(root, ['reset', '--soft', 'HEAD^'])
+  else await git(root, ['update-ref', '-d', 'HEAD'])
+  return message.trim()
+}
+
+/** Add paths to the repository's .gitignore, one per line, as VS Code's Add to .gitignore does. */
+export async function ignore(root: string, paths: string[]): Promise<void> {
+  const file = join(root, '.gitignore')
+  const text = await readFile(file, 'utf8').catch(() => '')
+  const lead = text && !text.endsWith('\n') ? '\n' : ''
+  await appendFile(file, `${lead}${paths.join('\n')}\n`)
+}
+
+/** Stash the changes, untracked files too when asked. */
+export async function stash(root: string, untracked: boolean): Promise<void> {
+  await git(root, ['stash', 'push', ...(untracked ? ['--include-untracked'] : [])])
+}
+
+/** Bring back the latest stash; `pop` drops it after. */
+export async function unstash(root: string, pop: boolean): Promise<void> {
+  await git(root, ['stash', pop ? 'pop' : 'apply'])
+}
+
+/** The commits of HEAD and its upstream, newest first, for the graph. */
+export async function log(root: string, limit: number): Promise<GitLog> {
+  const current = await status(root)
+  if (!current.repo || !current.head) return { commits: [], more: false }
+  // The upstream as fetched; a branch can track one that is gone or not fetched yet.
+  const tracked = current.upstream && `refs/remotes/${current.upstream}`
+  const upstream =
+    tracked &&
+    (await git(root, ['rev-parse', '--verify', '--quiet', tracked]).then(
+      () => tracked,
+      () => undefined
+    ))
+  // One more than asked, to know whether there are more; -z ends each commit with a NUL.
+  const out = await git(root, [
+    'log',
+    '--topo-order',
+    '-z',
+    `--max-count=${limit + 1}`,
+    '--decorate=full',
+    '--format=%H%x1f%P%x1f%an%x1f%ct%x1f%D%x1f%B',
+    'HEAD',
+    ...(upstream ? [upstream] : [])
+  ])
+  const commits = out
+    .split('\0')
+    .filter(Boolean)
+    .map((record): GitCommit => {
+      const [hash, parents, author, time, decorations, message] = record.split('\x1f')
+      return {
+        hash,
+        parents: parents ? parents.split(' ') : [],
+        author,
+        date: Number(time) * 1000,
+        message: message.trim(),
+        refs: parseRefs(decorations)
+      }
+    })
+  return {
+    commits: commits.slice(0, limit),
+    head: (await git(root, ['rev-parse', 'HEAD'])).trim(),
+    branch: current.branch ? `refs/heads/${current.branch}` : undefined,
+    upstream,
+    more: commits.length > limit
+  }
+}
+
+/** The branches and tags of `git log --decorate=full`'s %D: "HEAD -> refs/heads/main, tag: refs/tags/v1". */
+function parseRefs(decorations: string): GitRef[] {
+  const refs: GitRef[] = []
+  for (let item of decorations.split(', ')) {
+    if (item.startsWith('HEAD -> ')) item = item.slice(8)
+    if (item.startsWith('tag: ')) item = item.slice(5)
+    // A remote's HEAD only points at another of its branches.
+    if (item.endsWith('/HEAD')) continue
+    if (item.startsWith('refs/heads/'))
+      refs.push({ id: item, name: item.slice(11), kind: 'branch' })
+    else if (item.startsWith('refs/remotes/')) {
+      refs.push({ id: item, name: item.slice(13), kind: 'remote' })
+    } else if (item.startsWith('refs/tags/')) {
+      refs.push({ id: item, name: item.slice(10), kind: 'tag' })
+    }
+  }
+  return refs
+}
+
+/** Check out a commit itself, leaving HEAD detached. */
+export async function checkoutCommit(root: string, hash: string): Promise<void> {
+  await git(root, ['switch', '--detach', commitId(hash)])
+}
+
+export async function cherryPick(root: string, hash: string): Promise<void> {
+  await git(root, ['cherry-pick', commitId(hash)])
 }
 
 /** Local branches, then remote ones, most recently committed to first. */
@@ -298,21 +512,48 @@ export async function createBranch(root: string, name: string): Promise<void> {
   await git(root, ['switch', '--create', name])
 }
 
-/** Pull, then push: what VS Code's Sync Changes does. A branch with no upstream is published. */
-export async function sync(root: string): Promise<void> {
+/** The checked-out branch, and whether it tracks one; throws when there is none. */
+async function currentBranch(
+  root: string,
+  to: string
+): Promise<{ branch: string; upstream: boolean }> {
   const current = await status(root)
   if (!current.repo) throw new Error('This folder is not in a git repository.')
-  if (!current.branch) throw new Error('Check out a branch to sync: HEAD is detached.')
-  if (!current.upstream) {
-    const remotes = (await git(root, ['remote'])).split('\n').filter(Boolean)
-    const remote = remotes.includes('origin') ? 'origin' : remotes[0]
-    if (!remote) throw new Error('This repository has no remote to publish the branch to.')
-    await git(root, ['push', '--set-upstream', remote, current.branch])
-    return
-  }
+  if (!current.branch) throw new Error(`Check out a branch to ${to}: HEAD is detached.`)
+  return { branch: current.branch, upstream: Boolean(current.upstream) }
+}
+
+/** Push a branch that tracks none to the remote, and track it there: VS Code's Publish Branch. */
+async function publish(root: string, branch: string): Promise<void> {
+  const remotes = (await git(root, ['remote'])).split('\n').filter(Boolean)
+  const remote = remotes.includes('origin') ? 'origin' : remotes[0]
+  if (!remote) throw new Error('This repository has no remote to publish the branch to.')
+  await git(root, ['push', '--set-upstream', remote, branch])
+}
+
+/** Pull, then push: what VS Code's Sync Changes does. A branch with no upstream is published. */
+export async function sync(root: string): Promise<void> {
+  const { branch, upstream } = await currentBranch(root, 'sync')
+  if (!upstream) return publish(root, branch)
   // Always both: the behind count is only as fresh as the last fetch.
   await git(root, ['pull', '--no-edit'])
   await git(root, ['push'])
+}
+
+export async function pull(root: string): Promise<void> {
+  const { upstream } = await currentBranch(root, 'pull')
+  if (!upstream) throw new Error('The branch has no upstream to pull from. Publish it first.')
+  await git(root, ['pull', '--no-edit'])
+}
+
+/** Push; a branch with no upstream is published. */
+export async function push(root: string): Promise<void> {
+  const { branch, upstream } = await currentBranch(root, 'push')
+  await (upstream ? git(root, ['push']) : publish(root, branch))
+}
+
+export async function fetch(root: string): Promise<void> {
+  await git(root, ['fetch'])
 }
 
 /**

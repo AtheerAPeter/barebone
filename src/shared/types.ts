@@ -907,6 +907,40 @@ export interface GitBranch {
   current: boolean
 }
 
+/** A branch or tag on a commit, as the code panel's graph labels it. */
+export interface GitRef {
+  /** As git names it in full: refs/heads/main, refs/remotes/origin/main, refs/tags/v1. */
+  id: string
+  /** As shown: main, origin/main, v1. */
+  name: string
+  kind: 'branch' | 'remote' | 'tag'
+}
+
+/** A commit in the code panel's graph. */
+export interface GitCommit {
+  hash: string
+  /** The first parent is the one the commit was made on; a merge has more. */
+  parents: string[]
+  author: string
+  /** When it was committed, in ms since the epoch. */
+  date: number
+  /** The whole message; its first line is the subject. */
+  message: string
+  refs: GitRef[]
+}
+
+/** The commits the graph shows: HEAD's and its upstream's, newest first. */
+export interface GitLog {
+  commits: GitCommit[]
+  /** The commit checked out. */
+  head?: string
+  /** The checked-out branch and the branch it tracks, in full, as GitRef ids. */
+  branch?: string
+  upstream?: string
+  /** More commits are left past the last one. */
+  more: boolean
+}
+
 /** A line of a diff: its number in the old file, the new file, or both. */
 export interface DiffLine {
   type: 'context' | 'add' | 'del'
@@ -925,12 +959,16 @@ export interface DiffHunk {
 
 /** What the code panel shows: a file, or a file's changes. Paths are absolute. */
 export type CodeDoc =
-  | { kind: 'file'; path: string; text: string }
+  | {
+      kind: 'file'
+      path: string
+      text: string
+      /** The file is not text, so there are no lines to show. */
+      binary?: boolean
+    }
   | {
       kind: 'diff'
       path: string
-      /** The staged changes (index against the last commit) rather than the unstaged ones. */
-      staged: boolean
       /** The file before and after; a diff line's text is the line of that number in one of them. */
       old: string
       new: string

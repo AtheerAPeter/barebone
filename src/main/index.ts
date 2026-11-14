@@ -3,7 +3,6 @@ import './former-name'
 import { app, shell, BrowserWindow, ipcMain, dialog, nativeTheme, protocol } from 'electron'
 import { handle, handleAs, listen, MAC_ONLY, onCallerGone, type Caller } from './remote/registry'
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import appIcon from '../../resources/icon.png?asset'
@@ -513,9 +512,34 @@ function registerGitIpc(): void {
       const path = join(root, change.path)
       // A conflicted file has no stage to compare: it shows as it is, markers and all.
       if (change.kind === 'conflicted') {
-        return { kind: 'file', path, text: await readFile(path, 'utf8') }
+        return { kind: 'file', path, ...(await git.openFile(root, change.path)) }
       }
-      return { kind: 'diff', path, staged, ...(await git.diff(root, change, staged)) }
+      return { kind: 'diff', path, ...(await git.diff(root, change, staged)) }
+    }
+  )
+  handle('git:file', async (projectId: string, path: string): Promise<CodeDoc> => {
+    const root = await repoOf(projectId)
+    return {
+      kind: 'file',
+      path: await git.repoFile(root, path),
+      ...(await git.openFile(root, path))
+    }
+  })
+  handle('git:log', async (projectId: string, limit: number) =>
+    git.log(await repoOf(projectId), limit)
+  )
+  handle('git:commitChanges', async (projectId: string, hash: string) =>
+    git.commitChanges(await repoOf(projectId), hash)
+  )
+  handle(
+    'git:commitDiff',
+    async (projectId: string, hash: string, change: GitChange): Promise<CodeDoc> => {
+      const root = await repoOf(projectId)
+      return {
+        kind: 'diff',
+        path: join(root, change.path),
+        ...(await git.commitDiff(root, hash, change))
+      }
     }
   )
   handle('git:stage', async (projectId: string, changes: GitChange[]) =>
@@ -546,13 +570,14 @@ function registerGitIpc(): void {
     },
     MAC_ONLY
   )
-  handleAs('git:commit', async (caller, projectId: string, message: string) => {
+  handleAs('git:commit', async (caller, projectId: string, message: string, amend?: boolean) => {
     const root = await repoOf(projectId)
     const repo = await git.status(root)
     if (!repo.repo) return false
     if (repo.conflicts.length) throw new Error('Resolve the merge conflicts before committing.')
     // As VS Code's smart commit: with nothing staged, offer to commit every change.
-    const all = repo.staged.length === 0
+    // Amending needs nothing staged: it can change only the message.
+    const all = repo.staged.length === 0 && !amend
     if (all) {
       if (!repo.unstaged.length) throw new Error('There are no changes to commit.')
       // The offer is a dialog on the Mac, which a page of the remote link cannot answer.
@@ -567,9 +592,10 @@ function registerGitIpc(): void {
       })
       if (response !== 0) return false
     }
-    await git.commit(root, message, all)
+    await git.commit(root, message, { all, amend: Boolean(amend) })
     return true
   })
+  handle('git:undoCommit', async (projectId: string) => git.undoCommit(await repoOf(projectId)))
   handle('git:branches', async (projectId: string) => git.branches(await repoOf(projectId)))
   handle('git:checkout', async (projectId: string, branch: GitBranch) =>
     git.checkout(await repoOf(projectId), branch)
@@ -578,6 +604,31 @@ function registerGitIpc(): void {
     git.createBranch(await repoOf(projectId), name)
   )
   handle('git:sync', async (projectId: string) => git.sync(await repoOf(projectId)))
+  handle('git:pull', async (projectId: string) => git.pull(await repoOf(projectId)))
+  handle('git:push', async (projectId: string) => git.push(await repoOf(projectId)))
+  handle('git:fetch', async (projectId: string) => git.fetch(await repoOf(projectId)))
+  handle('git:stash', async (projectId: string, untracked: boolean) =>
+    git.stash(await repoOf(projectId), untracked)
+  )
+  handle('git:unstash', async (projectId: string, pop: boolean) =>
+    git.unstash(await repoOf(projectId), pop)
+  )
+  handle('git:ignore', async (projectId: string, paths: string[]) =>
+    git.ignore(await repoOf(projectId), paths)
+  )
+  handle('git:checkoutCommit', async (projectId: string, hash: string) =>
+    git.checkoutCommit(await repoOf(projectId), hash)
+  )
+  handle('git:cherryPick', async (projectId: string, hash: string) =>
+    git.cherryPick(await repoOf(projectId), hash)
+  )
+  // Finder is on the Mac: a page of the remote link has nothing to show it in.
+  handle(
+    'git:reveal',
+    async (projectId: string, path: string) =>
+      shell.showItemInFolder(await git.repoFile(await repoOf(projectId), path)),
+    MAC_ONLY
+  )
 
   // The open panel's repository is watched, so its list follows what changes on disk.
   // The window and pages of the remote link each open panels: a repository is

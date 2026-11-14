@@ -4,27 +4,34 @@ import type {
   CodeDoc,
   GitBranch,
   GitChange,
+  GitCommit,
   GitStatus,
   Project,
   WalkAt,
   Walkthrough
 } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
-import { menusAsSheets, touchScreen } from '../lib/touch'
+import { readPref, writePref } from '../lib/prefs'
+import { menusAsSheets } from '../lib/touch'
 import { useOverlay } from '../lib/overlays'
 import { CHAT_MIN_WIDTH, dragDivider } from '../lib/side-panel'
 import { CodeView } from './CodeView'
+import { GitGraph } from './GitGraph'
+import { MultiDiff } from './MultiDiff'
+import type { MenuAt, MenuEntries } from '../lib/menus'
+import { PopupMenu } from './PopupMenu'
+import { SourceControl, type Repo, type Run } from './SourceControl'
 import { WalkthroughView } from './Walkthrough'
 import {
   BranchIcon,
   CheckIcon,
-  ChevronIcon,
   CloseIcon,
-  DiscardIcon,
-  MinusIcon,
+  ListIcon,
+  MoreIcon,
   PlusIcon,
   ReloadIcon,
-  SyncIcon
+  SyncIcon,
+  TreeIcon
 } from './icons'
 
 interface CodePanelProps {
@@ -37,14 +44,19 @@ interface CodePanelProps {
   chatRef: React.RefObject<HTMLElement | null>
 }
 
-/** A file's changes the user opened from the list. */
-interface Opened {
-  change: GitChange
-  staged: boolean
-  doc: CodeDoc
-}
+/** A file the user opened from the list: its staged or unstaged changes, or the file itself. */
+type Opened =
+  | { view: 'staged' | 'unstaged'; change: GitChange; doc: CodeDoc }
+  | { view: 'file'; path: string; doc: CodeDoc }
 
-type Tab = 'changes' | 'diff' | 'walk'
+/** Several files' changes in one tab: a commit's, or a whole group's. */
+type Multi = { kind: 'commit'; commit: GitCommit } | { kind: 'group'; staged: boolean }
+
+type Tab = 'changes' | 'diff' | 'multi' | 'walk'
+
+/** The viewer's choices for the panel, kept between chats as VS Code keeps them. */
+const TREE_PREF = 'code.tree'
+const GRAPH_PREF = 'code.graph'
 
 /** How wide the panel opens for a walkthrough, room allowing: its cards and the links beside them. */
 const WALK_WIDTH = 760
@@ -64,11 +76,17 @@ export function CodePanel({
 }: CodePanelProps): React.JSX.Element {
   const [status, setStatus] = useState<GitStatus>()
   const [opened, setOpened] = useState<Opened>()
+  const [multi, setMulti] = useState<Multi>()
   const [walking, setWalking] = useState<{ walk: Walkthrough; at: WalkAt; from?: number }>()
   const [tab, setTab] = useState<Tab>('changes')
   /** What git is doing for a button, which waits meanwhile. */
   const [busy, setBusy] = useState<string>()
   const [error, setError] = useState<string>()
+  /** The commit message, kept while other tabs show. */
+  const [message, setMessage] = useState('')
+  const [tree, setTree] = useState(() => readPref(TREE_PREF, false))
+  const [graphOpen, setGraphOpen] = useState(() => readPref(GRAPH_PREF, true))
+  const [more, setMore] = useState<MenuAt>()
   const projectId = project.id
 
   // A walkthrough needs room for its cards and the links beside them: the panel widens for one.
@@ -130,7 +148,7 @@ export function CodePanel({
     openedRef.current = opened
   }, [opened])
 
-  /** Read the status again, and the opened diff with it; one gone from the list closes. */
+  /** Read the status again, and the opened file with it; a diff gone from the list closes. */
   const refresh = useCallback(
     (): Promise<void> =>
       readStatus(projectId, openedRef.current).then(
@@ -162,8 +180,8 @@ export function CodePanel({
   }, [projectId, refresh])
 
   /** Run a git action for a button: one at a time, its failure shown, the list read again after. */
-  const run = useCallback(
-    async (what: string, action: () => Promise<unknown>): Promise<void> => {
+  const run: Run = useCallback(
+    async (what, action) => {
       setBusy(what)
       setError(undefined)
       try {
@@ -178,17 +196,94 @@ export function CodePanel({
     [refresh]
   )
 
-  async function open(change: GitChange, staged: boolean): Promise<void> {
+  async function show(read: () => Promise<Opened>): Promise<void> {
     try {
-      const doc = await window.api.git.diff(projectId, change, staged)
-      setOpened({ change, staged, doc })
+      setOpened(await read())
       setTab('diff')
     } catch (e) {
       setError(errorMessage(e))
     }
   }
+  const openChange = (change: GitChange, staged: boolean): Promise<void> =>
+    show(async () => ({
+      view: staged ? 'staged' : 'unstaged',
+      change,
+      doc: await window.api.git.diff(projectId, change, staged)
+    }))
+  const openFile = (path: string): Promise<void> =>
+    show(async () => ({ view: 'file', path, doc: await window.api.git.file(projectId, path) }))
+
+  const openMulti = (next: Multi): void => {
+    setMulti(next)
+    setTab('multi')
+  }
 
   const repo = status?.repo ? status : undefined
+
+  const moreEntries = (r: Repo): MenuEntries => {
+    const all = [...r.conflicts, ...r.unstaged]
+    return [
+      {
+        name: 'Pull',
+        disabled: !r.upstream,
+        onSelect: () => run('pull', () => window.api.git.pull(projectId))
+      },
+      {
+        name: r.upstream ? 'Push' : 'Publish Branch',
+        disabled: !r.branch,
+        onSelect: () => run('push', () => window.api.git.push(projectId))
+      },
+      { name: 'Fetch', onSelect: () => run('fetch', () => window.api.git.fetch(projectId)) },
+      null,
+      {
+        name: 'Undo Last Commit',
+        disabled: !r.head,
+        onSelect: () =>
+          run('undo', async () => {
+            const undone = await window.api.git.undoCommit(projectId)
+            // As VS Code does: the message comes back to the box, unless one is being written.
+            setMessage((m) => m || undone)
+          })
+      },
+      null,
+      {
+        name: 'Stage All Changes',
+        disabled: !all.length,
+        onSelect: () => run('stage', () => window.api.git.stage(projectId, all))
+      },
+      {
+        name: 'Unstage All Changes',
+        disabled: !r.staged.length,
+        onSelect: () => run('unstage', () => window.api.git.unstage(projectId, r.staged))
+      },
+      // Discarding asks first, in a dialog on the Mac.
+      ...(window.api.remote
+        ? []
+        : [
+            {
+              name: 'Discard All Changes',
+              danger: true,
+              disabled: !r.unstaged.length,
+              onSelect: () =>
+                void run('discard', () => window.api.git.discard(projectId, r.unstaged))
+            }
+          ]),
+      null,
+      { name: 'Stash', onSelect: () => run('stash', () => window.api.git.stash(projectId, false)) },
+      {
+        name: 'Stash (Include Untracked)',
+        onSelect: () => run('stash', () => window.api.git.stash(projectId, true))
+      },
+      {
+        name: 'Apply Latest Stash',
+        onSelect: () => run('stash', () => window.api.git.unstash(projectId, false))
+      },
+      {
+        name: 'Pop Latest Stash',
+        onSelect: () => run('stash', () => window.api.git.unstash(projectId, true))
+      }
+    ]
+  }
 
   return (
     <aside className="side-panel code-panel" style={{ width }}>
@@ -210,14 +305,42 @@ export function CodePanel({
           <PanelTab
             active={tab === 'diff'}
             onSelect={() => setTab('diff')}
-            title={`${opened.change.path} (${opened.staged ? 'staged' : 'working tree'})`}
+            title={openedTitle(opened)}
             onClose={() => {
               setOpened(undefined)
               setTab('changes')
             }}
           >
-            {baseName(opened.change.path)}
-            <span className="code-tab-note">{opened.staged ? 'staged' : 'changes'}</span>
+            {baseName(opened.view === 'file' ? opened.path : opened.change.path)}
+            <span className="code-tab-note">
+              {opened.view === 'file' ? 'file' : opened.view === 'staged' ? 'staged' : 'changes'}
+            </span>
+          </PanelTab>
+        )}
+        {multi && (
+          <PanelTab
+            active={tab === 'multi'}
+            onSelect={() => setTab('multi')}
+            title={
+              multi.kind === 'commit'
+                ? `${subjectOf(multi.commit)} (${multi.commit.hash.slice(0, 7)})`
+                : multi.staged
+                  ? 'Staged Changes'
+                  : 'Changes'
+            }
+            onClose={() => {
+              setMulti(undefined)
+              setTab('changes')
+            }}
+          >
+            {multi.kind === 'commit'
+              ? subjectOf(multi.commit)
+              : multi.staged
+                ? 'Staged Changes'
+                : 'Changes'}
+            <span className="code-tab-note">
+              {multi.kind === 'commit' ? multi.commit.hash.slice(0, 7) : 'all files'}
+            </span>
           </PanelTab>
         )}
         {walking && (
@@ -269,6 +392,18 @@ export function CodePanel({
                 <SyncIcon className={busy === 'sync' ? 'spin' : undefined} />
               </button>
             )}
+            {repo && (
+              <button
+                className="icon-btn"
+                title={tree ? 'View as List' : 'View as Tree'}
+                onClick={() => {
+                  writePref(TREE_PREF, !tree)
+                  setTree(!tree)
+                }}
+              >
+                {tree ? <ListIcon /> : <TreeIcon />}
+              </button>
+            )}
             <button
               className="icon-btn"
               title="Refresh"
@@ -277,6 +412,23 @@ export function CodePanel({
             >
               <ReloadIcon />
             </button>
+            {repo && (
+              <button
+                className={`icon-btn${more ? ' on' : ''}`}
+                title="More Actions…"
+                aria-haspopup="menu"
+                aria-expanded={Boolean(more)}
+                disabled={Boolean(busy)}
+                onClick={(e) =>
+                  setMore(more ? undefined : { below: e.currentTarget, align: 'right' })
+                }
+              >
+                <MoreIcon />
+              </button>
+            )}
+            {more && repo && (
+              <PopupMenu at={more} entries={moreEntries(repo)} onClose={() => setMore(undefined)} />
+            )}
           </div>
           {error && (
             <div className="code-error" role="alert">
@@ -293,20 +445,41 @@ export function CodePanel({
           {!status ? null : !repo ? (
             <div className="code-empty">{project.name} is not in a git repository.</div>
           ) : (
-            <SourceControl
-              projectId={projectId}
-              repo={repo}
-              busy={busy}
-              run={run}
-              opened={opened}
-              onOpen={open}
-            />
+            <div className="code-views">
+              <SourceControl
+                projectId={projectId}
+                repo={repo}
+                busy={busy}
+                run={run}
+                tree={tree}
+                message={message}
+                onMessage={setMessage}
+                onOpen={(change, staged) => void openChange(change, staged)}
+                onOpenFile={(path) => void openFile(path)}
+                onViewGroup={(staged) => openMulti({ kind: 'group', staged })}
+              />
+              <GitGraph
+                projectId={projectId}
+                repo={repo}
+                open={graphOpen}
+                onToggle={() => {
+                  writePref(GRAPH_PREF, !graphOpen)
+                  setGraphOpen(!graphOpen)
+                }}
+                busy={busy}
+                run={run}
+                opened={multi?.kind === 'commit' ? multi.commit.hash : undefined}
+                onOpenCommit={(commit) => openMulti({ kind: 'commit', commit })}
+              />
+            </div>
           )}
         </>
       )}
 
-      {tab === 'diff' && opened && (
-        <CodeView key={`${opened.change.path}:${opened.staged}`} doc={opened.doc} />
+      {tab === 'diff' && opened && <CodeView key={openedTitle(opened)} doc={opened.doc} />}
+
+      {tab === 'multi' && multi && (
+        <MultiTab key={multiKey(multi)} projectId={projectId} multi={multi} repo={repo} />
       )}
 
       {tab === 'walk' && walking && (
@@ -363,259 +536,81 @@ function PanelTab({
   )
 }
 
-/** A project's status, and the opened diff read again; no diff when its file left that list. */
+/** A commit's files, or a group's, each with its diff. A group's follow the status. */
+function MultiTab({
+  projectId,
+  multi,
+  repo
+}: {
+  projectId: string
+  multi: Multi
+  repo?: Repo
+}): React.JSX.Element {
+  const [commitChanges, setCommitChanges] = useState<GitChange[]>()
+  const [failed, setFailed] = useState<string>()
+  const hash = multi.kind === 'commit' ? multi.commit.hash : undefined
+  const staged = multi.kind === 'group' && multi.staged
+
+  useEffect(() => {
+    if (!hash) return
+    let current = true
+    window.api.git.commitChanges(projectId, hash).then(
+      (read) => current && setCommitChanges(read),
+      (e: unknown) => current && setFailed(errorMessage(e))
+    )
+    return () => {
+      current = false
+    }
+  }, [projectId, hash])
+
+  const load = useCallback(
+    (change: GitChange) =>
+      hash
+        ? window.api.git.commitDiff(projectId, hash, change)
+        : window.api.git.diff(projectId, change, staged),
+    [projectId, hash, staged]
+  )
+
+  if (failed) return <div className="code-empty">{failed}</div>
+  const changes = hash ? commitChanges : staged ? repo?.staged : repo?.unstaged
+  return <MultiDiff changes={changes} load={load} version={hash ? undefined : repo} />
+}
+
+function multiKey(multi: Multi): string {
+  return multi.kind === 'commit' ? multi.commit.hash : `group:${multi.staged}`
+}
+
+/** A project's status, and the opened file read again; a diff closes when its file left that list. */
 async function readStatus(
   projectId: string,
   open: Opened | undefined
 ): Promise<{ status: GitStatus; opened?: Opened }> {
   const status = await window.api.git.status(projectId)
   if (!open || !status.repo) return { status }
-  const list = open.staged ? status.staged : [...status.conflicts, ...status.unstaged]
+  if (open.view === 'file') {
+    const doc = await window.api.git.file(projectId, open.path)
+    return { status, opened: { ...open, doc } }
+  }
+  const staged = open.view === 'staged'
+  const list = staged ? status.staged : [...status.conflicts, ...status.unstaged]
   const change = list.find((c) => c.path === open.change.path)
   if (!change) return { status }
-  const doc = await window.api.git.diff(projectId, change, open.staged)
-  return { status, opened: { change, staged: open.staged, doc } }
+  const doc = await window.api.git.diff(projectId, change, staged)
+  return { status, opened: { view: open.view, change, doc } }
 }
-
-type Repo = Extract<GitStatus, { repo: true }>
-type Run = (what: string, action: () => Promise<unknown>) => Promise<void>
 
 function count(repo: Repo): number {
   return repo.conflicts.length + repo.staged.length + repo.unstaged.length
 }
 
-/** VS Code's Source Control: the commit box, then the changes in their groups. */
-function SourceControl({
-  projectId,
-  repo,
-  busy,
-  run,
-  opened,
-  onOpen
-}: {
-  projectId: string
-  repo: Repo
-  busy?: string
-  run: Run
-  opened?: Opened
-  onOpen: (change: GitChange, staged: boolean) => void
-}): React.JSX.Element {
-  const [message, setMessage] = useState('')
-  const changed = count(repo) > 0
-
-  const commit = (): void => {
-    if (!message.trim() || busy) return
-    void run('commit', async () => {
-      if (await window.api.git.commit(projectId, message)) setMessage('')
-    })
-  }
-
-  // With nothing to commit, the button syncs or publishes, as VS Code's does.
-  const action = changed
-    ? {
-        label: busy === 'commit' ? 'Committing…' : 'Commit',
-        icon: <CheckIcon width={14} height={14} />,
-        disabled: !message.trim() || Boolean(busy),
-        onClick: commit
-      }
-    : repo.branch && !repo.upstream
-      ? {
-          label: busy === 'sync' ? 'Publishing…' : 'Publish Branch',
-          icon: <SyncIcon width={14} height={14} />,
-          disabled: Boolean(busy),
-          onClick: () => void run('sync', () => window.api.git.sync(projectId))
-        }
-      : repo.upstream && (repo.ahead > 0 || repo.behind > 0)
-        ? {
-            label: busy === 'sync' ? 'Syncing…' : `Sync Changes ${repo.behind}↓ ${repo.ahead}↑`,
-            icon: <SyncIcon width={14} height={14} />,
-            disabled: Boolean(busy),
-            onClick: () => void run('sync', () => window.api.git.sync(projectId))
-          }
-        : undefined
-
-  const isOpen = (change: GitChange, staged: boolean): boolean =>
-    opened?.staged === staged && opened.change.path === change.path
-
-  return (
-    <div className="code-scm">
-      <div className="code-commit">
-        <textarea
-          rows={Math.min(Math.max(message.split('\n').length, 1), 8)}
-          placeholder={
-            touchScreen
-              ? `Message${repo.branch ? ` (commits on "${repo.branch}")` : ''}`
-              : `Message (⌘Enter to commit${repo.branch ? ` on "${repo.branch}"` : ''})`
-          }
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && e.metaKey) {
-              e.preventDefault()
-              commit()
-            }
-          }}
-        />
-        {action && (
-          <button
-            className="btn primary code-commit-button"
-            disabled={action.disabled}
-            onClick={action.onClick}
-          >
-            {action.icon}
-            {action.label}
-          </button>
-        )}
-      </div>
-      {repo.conflicts.length > 0 && (
-        <ChangeGroup
-          title="Merge Changes"
-          changes={repo.conflicts}
-          busy={busy}
-          isOpen={(c) => isOpen(c, false)}
-          onOpen={(c) => onOpen(c, false)}
-          actions={(changes) => [
-            {
-              title:
-                changes.length > 1
-                  ? 'Stage all (marks them resolved)'
-                  : 'Stage (marks it resolved)',
-              icon: <PlusIcon width={14} height={14} />,
-              onClick: () => run('stage', () => window.api.git.stage(projectId, changes))
-            }
-          ]}
-        />
-      )}
-      {repo.staged.length > 0 && (
-        <ChangeGroup
-          title="Staged Changes"
-          changes={repo.staged}
-          busy={busy}
-          isOpen={(c) => isOpen(c, true)}
-          onOpen={(c) => onOpen(c, true)}
-          actions={(changes) => [
-            {
-              title: changes.length > 1 ? 'Unstage all' : 'Unstage',
-              icon: <MinusIcon width={14} height={14} />,
-              onClick: () => run('unstage', () => window.api.git.unstage(projectId, changes))
-            }
-          ]}
-        />
-      )}
-      {repo.unstaged.length > 0 && (
-        <ChangeGroup
-          title="Changes"
-          changes={repo.unstaged}
-          busy={busy}
-          isOpen={(c) => isOpen(c, false)}
-          onOpen={(c) => onOpen(c, false)}
-          actions={(changes) => [
-            // Discarding asks first, in a dialog on the Mac.
-            ...(window.api.remote
-              ? []
-              : [
-                  {
-                    title: changes.length > 1 ? 'Discard all changes' : 'Discard changes',
-                    icon: <DiscardIcon width={14} height={14} />,
-                    onClick: () => run('discard', () => window.api.git.discard(projectId, changes))
-                  }
-                ]),
-            {
-              title: changes.length > 1 ? 'Stage all' : 'Stage',
-              icon: <PlusIcon width={14} height={14} />,
-              onClick: () => run('stage', () => window.api.git.stage(projectId, changes))
-            }
-          ]}
-        />
-      )}
-      {!changed && <p className="code-clean">No changes to commit.</p>}
-    </div>
-  )
+function openedTitle(opened: Opened): string {
+  if (opened.view === 'file') return opened.path
+  return `${opened.change.path} (${opened.view === 'staged' ? 'staged' : 'working tree'})`
 }
 
-interface RowAction {
-  title: string
-  icon: React.ReactNode
-  onClick: () => void
-}
-
-/** A group of changes, folding open and shut, with its actions for all of them and for each. */
-function ChangeGroup({
-  title,
-  changes,
-  busy,
-  isOpen,
-  onOpen,
-  actions
-}: {
-  title: string
-  changes: GitChange[]
-  busy?: string
-  isOpen: (change: GitChange) => boolean
-  onOpen: (change: GitChange) => void
-  actions: (changes: GitChange[]) => RowAction[]
-}): React.JSX.Element {
-  const [folded, setFolded] = useState(false)
-  return (
-    <section className="code-group">
-      <div className="code-group-head" onClick={() => setFolded((f) => !f)}>
-        <ChevronIcon width={12} height={12} className={`code-chevron${folded ? '' : ' open'}`} />
-        <span className="code-group-title">{title}</span>
-        <Actions actions={actions(changes)} busy={busy} />
-        <span className="code-count">{changes.length}</span>
-      </div>
-      {!folded &&
-        changes.map((change) => (
-          <div
-            key={`${change.oldPath ?? ''}:${change.path}`}
-            className={`code-file${isOpen(change) ? ' open' : ''}`}
-            title={change.oldPath ? `${change.oldPath} → ${change.path}` : change.path}
-            onClick={() => onOpen(change)}
-          >
-            <span className={`code-file-name${change.kind === 'deleted' ? ' deleted' : ''}`}>
-              {baseName(change.path)}
-            </span>
-            <span className="code-file-dir">{dirName(change.path)}</span>
-            <Actions actions={actions([change])} busy={busy} />
-            <span className={`code-kind ${change.kind}`} title={change.kind}>
-              {KIND_LETTERS[change.kind]}
-            </span>
-          </div>
-        ))}
-    </section>
-  )
-}
-
-function Actions({ actions, busy }: { actions: RowAction[]; busy?: string }): React.JSX.Element {
-  return (
-    <span className="code-actions">
-      {actions.map((action) => (
-        <button
-          key={action.title}
-          className="icon-btn small"
-          title={action.title}
-          disabled={Boolean(busy)}
-          onClick={(e) => {
-            e.stopPropagation()
-            action.onClick()
-          }}
-        >
-          {action.icon}
-        </button>
-      ))}
-    </span>
-  )
-}
-
-/** The letters VS Code marks changes with. */
-const KIND_LETTERS: Record<GitChange['kind'], string> = {
-  modified: 'M',
-  added: 'A',
-  deleted: 'D',
-  renamed: 'R',
-  copied: 'C',
-  untracked: 'U',
-  conflicted: '!'
+function subjectOf(commit: GitCommit): string {
+  const end = commit.message.indexOf('\n')
+  return end === -1 ? commit.message : commit.message.slice(0, end)
 }
 
 /** The branch button and its menu: switch to a branch, or create one. */
@@ -763,9 +758,4 @@ function BranchMenu({
 
 function baseName(path: string): string {
   return path.slice(path.lastIndexOf('/') + 1)
-}
-
-function dirName(path: string): string {
-  const at = path.lastIndexOf('/')
-  return at === -1 ? '' : path.slice(0, at)
 }

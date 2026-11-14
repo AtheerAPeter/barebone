@@ -20,6 +20,7 @@ import type {
   MobileToolCheck,
   GitBranch,
   GitChange,
+  GitLog,
   GitStatus,
   OrbState,
   Project,
@@ -420,9 +421,34 @@ export function makeApi(t: Transport) {
       /** After the user confirms; false when they did not. */
       discard: (projectId: string, changes: GitChange[]): Promise<boolean> =>
         invoke('git:discard', projectId, changes),
-      /** Commit what is staged, or offer to stage everything first; false when nothing was committed. */
-      commit: (projectId: string, message: string): Promise<boolean> =>
-        invoke('git:commit', projectId, message),
+      /** A file in the working tree, as the panel opens it. */
+      file: (projectId: string, path: string): Promise<CodeDoc> =>
+        invoke('git:file', projectId, path),
+      /**
+       * Commit what is staged, or offer to stage everything first; false when
+       * nothing was committed. Amending with no message keeps the last one.
+       */
+      commit: (projectId: string, message: string, amend = false): Promise<boolean> =>
+        invoke('git:commit', projectId, message, amend),
+      /** Undo the last commit, its changes kept staged; returns its message. */
+      undoCommit: (projectId: string): Promise<string> => invoke('git:undoCommit', projectId),
+      /** The graph's commits, up to `limit`. */
+      log: (projectId: string, limit: number): Promise<GitLog> =>
+        invoke('git:log', projectId, limit),
+      commitChanges: (projectId: string, hash: string): Promise<GitChange[]> =>
+        invoke('git:commitChanges', projectId, hash),
+      commitDiff: (projectId: string, hash: string, change: GitChange): Promise<CodeDoc> =>
+        invoke('git:commitDiff', projectId, hash, change),
+      checkoutCommit: (projectId: string, hash: string): Promise<void> =>
+        invoke('git:checkoutCommit', projectId, hash),
+      cherryPick: (projectId: string, hash: string): Promise<void> =>
+        invoke('git:cherryPick', projectId, hash),
+      /** Append paths to the repository's .gitignore. */
+      ignore: (projectId: string, paths: string[]): Promise<void> =>
+        invoke('git:ignore', projectId, paths),
+      /** Show a file in Finder; on the Mac only. */
+      reveal: (projectId: string, path: string): Promise<void> =>
+        invoke('git:reveal', projectId, path),
       branches: (projectId: string): Promise<GitBranch[]> => invoke('git:branches', projectId),
       checkout: (projectId: string, branch: GitBranch): Promise<void> =>
         invoke('git:checkout', projectId, branch),
@@ -430,6 +456,15 @@ export function makeApi(t: Transport) {
         invoke('git:createBranch', projectId, name),
       /** Pull and push, or publish a branch with no upstream. */
       sync: (projectId: string): Promise<void> => invoke('git:sync', projectId),
+      pull: (projectId: string): Promise<void> => invoke('git:pull', projectId),
+      /** Push, or publish a branch with no upstream. */
+      push: (projectId: string): Promise<void> => invoke('git:push', projectId),
+      fetch: (projectId: string): Promise<void> => invoke('git:fetch', projectId),
+      stash: (projectId: string, untracked: boolean): Promise<void> =>
+        invoke('git:stash', projectId, untracked),
+      /** Apply the latest stash; `pop` drops it after. */
+      unstash: (projectId: string, pop: boolean): Promise<void> =>
+        invoke('git:unstash', projectId, pop),
       /** Tell when the project's repository changes on disk, until unwatch. */
       watch: (projectId: string): Promise<void> => invoke('git:watch', projectId),
       unwatch: (projectId: string): Promise<void> => invoke('git:unwatch', projectId),

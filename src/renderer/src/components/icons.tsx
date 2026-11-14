@@ -2,6 +2,7 @@ import type { ComponentType, SVGProps } from 'react'
 import {
   IconAlignLeft,
   IconArrowBackUp,
+  IconArrowDown,
   IconArrowUp,
   IconArrowsExchange,
   IconBook,
@@ -11,11 +12,13 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconClock,
+  IconCloudDownload,
   IconCopy,
   IconDeviceMobile,
   IconDotsVertical,
   IconDownload,
   IconFile,
+  IconFileArrowRight,
   IconFileDiff,
   IconFolder,
   IconFolderPlus,
@@ -23,6 +26,8 @@ import {
   IconGitBranch,
   IconKeyboard,
   IconLayoutSidebar,
+  IconList,
+  IconListTree,
   IconLock,
   IconMessage,
   IconMicrophone,
@@ -39,6 +44,7 @@ import {
   IconShield,
   IconSquareFilled,
   IconSun,
+  IconTag,
   IconTerminal2,
   IconTool,
   IconTrash,
@@ -150,6 +156,13 @@ export const BranchIcon = fromTabler(IconGitBranch)
 export const MinusIcon = fromTabler(IconMinus)
 export const DiscardIcon = fromTabler(IconArrowBackUp)
 export const SyncIcon = fromTabler(IconArrowsExchange)
+export const PullIcon = fromTabler(IconArrowDown)
+export const PushIcon = fromTabler(IconArrowUp)
+export const CloudDownIcon = fromTabler(IconCloudDownload)
+export const TagIcon = fromTabler(IconTag)
+export const OpenFileIcon = fromTabler(IconFileArrowRight)
+export const TreeIcon = fromTabler(IconListTree)
+export const ListIcon = fromTabler(IconList)
 export const PlayIcon = fromTabler(IconPlayerPlay)
 export const PauseIcon = fromTabler(IconPlayerPause)
 export const ServerIcon = fromTabler(IconServer)
