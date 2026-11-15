@@ -10,7 +10,7 @@ services:
       context: ../..
       dockerfile: deploy/vps/Dockerfile
     image: barebone-vps
-    # The app is built for x64 only (electron-builder.yml).
+    # The app is built for x64 only (electron-builder.ts).
     platform: linux/amd64
     container_name: barebone
     hostname: barebone

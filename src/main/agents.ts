@@ -114,7 +114,7 @@ const PROVIDERS: Provider[] = [commandCode, openCode, cline, custom]
  * runs them on its own Node, so they need nothing installed but the CLI they
  * run: the user's own, the one they signed in to, named in the variable each
  * adapter reads. The copies of the CLIs the adapters' packages bring are left
- * out of the app (electron-builder.yml).
+ * out of the app (electron-builder.ts).
  */
 const ADAPTERS = {
   codex: {

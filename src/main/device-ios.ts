@@ -49,7 +49,7 @@ interface SimNative {
 
 let simNative: SimNative | undefined
 
-/** Loaded once an iOS simulator is first used; unpacked from the app's asar (electron-builder.yml). */
+/** Loaded once an iOS simulator is first used; unpacked from the app's asar (electron-builder.ts). */
 function native(): SimNative {
   simNative ??= createRequire(import.meta.url)(
     join(app.getAppPath(), 'node_modules/serve-sim/dist/native/serve-sim-native.node')

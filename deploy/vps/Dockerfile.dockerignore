@@ -3,7 +3,7 @@
 !package.json
 !package-lock.json
 !electron.vite.config.ts
-!electron-builder.yml
+!electron-builder.ts
 !tsconfig*.json
 !install.sh
 !build/**

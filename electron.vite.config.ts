@@ -17,7 +17,7 @@ export default defineConfig({
     // file starts faster than hundreds of small ones read out of the asar.
     // ONNX Runtime, the window's Liquid Glass and the terminal's pty are native
     // code, which cannot be bundled: they are dependencies the app ships (see
-    // electron-builder.yml).
+    // electron-builder.ts).
     build: {
       externalizeDeps: false,
       minify: true,
