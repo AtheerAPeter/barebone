@@ -87,7 +87,7 @@ export function consentCard(
   const { name } = conversationBot(chatId)
   return {
     question: `Let ${name} send and submit without asking you first?`,
-    details: `From now on, ${name} sends, submits and applies in your name on its own, without a card each time. Tell ${name} to ask again whenever you want it to.`,
+    details: `From now on, ${name} and the chats it starts send, submit and apply in your name on their own, without a card each time. Tell ${name} to ask again whenever you want it to.`,
     onSend: () => setSendConsent(chatId, true),
     answerText: consentText
   }
@@ -96,7 +96,7 @@ export function consentCard(
 /** What the agent is told of the user's answer to the consent card. */
 export function consentText(approval: Approval): string {
   return approval.decision === 'send'
-    ? 'consent given. From now on you send without ask_approval, and send buttons are no longer held back. Keep within what the user allowed, and tell them in one line that you now go ahead on your own.'
+    ? 'consent given. From now on you and the chats you start send without ask_approval, and send buttons are no longer held back. Keep within what the user allowed, and tell them in one line that you now go ahead on your own.'
     : 'no consent. Keep asking with ask_approval before anything goes out.'
 }
 
@@ -112,6 +112,21 @@ export function setSendConsent(chatId: string, allowed: boolean): void {
   if (allowed) bot.sendsWithoutAsking = true
   else delete bot.sendsWithoutAsking
   store.updateProject(project.id, { bot })
+}
+
+/**
+ * Whether the user let the bot `chatId` works for send in their name without
+ * asking (set_send_consent): in the bot's conversation and in the chats it
+ * started to do the work. Another chat in the bot's project, one the user or
+ * another bot's chat started, still asks.
+ */
+export function sendsWithoutAsking(chatId: string): boolean {
+  const { chats, projects } = store.getState()
+  const chat = chats.find((c) => c.id === chatId)
+  const project = projects.find((p) => p.id === chat?.projectId)
+  if (!chat || !project?.bot?.sendsWithoutAsking) return false
+  const conversation = botConversation(project.id)?.id
+  return chat.id === conversation || chat.startedBy === conversation
 }
 
 /** When the user last approved something going out, by chat. */
@@ -131,9 +146,10 @@ const SENDING =
 /**
  * The gate on a bot's clicks: in any chat of a bot's project, a click on a
  * control whose name or value reads as sending waits until the user approved
- * with ask_approval in that chat, within the last 10 minutes. Returns why the
- * click was refused, or undefined when it may go ahead. Keys, scripts and
- * clicks at a point are not checked (see README, Bots).
+ * with ask_approval in that chat, within the last 10 minutes, unless the user
+ * let the bot send without asking (sendsWithoutAsking). Returns why the click
+ * was refused, or undefined when it may go ahead. Keys, scripts and clicks at a
+ * point are not checked (see README, Bots).
  */
 export function sendGate(
   chatId: string,
@@ -142,9 +158,7 @@ export function sendGate(
   const { chats, projects } = store.getState()
   const chat = chats.find((c) => c.id === chatId)
   const project = projects.find((p) => p.id === chat?.projectId)
-  if (!project?.bot) return undefined
-  // Consent covers the bot's own conversation, not chats it started.
-  if (project.bot.sendsWithoutAsking && botConversation(project.id)?.id === chatId) return undefined
+  if (!project?.bot || sendsWithoutAsking(chatId)) return undefined
   const word = `${control.name} ${control.value}`.match(SENDING)
   if (!word) return undefined
   const at = approved.get(chatId)

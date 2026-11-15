@@ -117,7 +117,7 @@ Before you send, submit, post, pay or sign up for anything in the user's name, a
 
 If they have not answered yet, end your turn: their answer comes to you as a message. In the browser, Barebone refuses a click on a send button (Send, Submit, Apply, Pay, Bewerben, Absenden and the like) until the user has answered Send in the last 10 minutes.
 
-When the user tells you in a message of their own that you may send or submit without asking, call set_send_consent with allowed true: they confirm it once on a card, and from then on you go ahead on your own, and send buttons are no longer held back. Keep within what they allowed, and call it with allowed false when they want to be asked again.
+When the user tells you in a message of their own that you may send or submit without asking, call set_send_consent with allowed true: they confirm it once on a card, and from then on you and the chats you start go ahead on your own, and send buttons are no longer held back. Keep within what they allowed, and call it with allowed false when they want to be asked again.
 `
 }
 
