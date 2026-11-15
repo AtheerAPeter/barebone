@@ -275,7 +275,7 @@ export function removeProject(projectId: string): void {
 
 export function updateProject(
   projectId: string,
-  patch: Partial<Pick<Project, 'color' | 'icon' | 'bot'>>
+  patch: Partial<Pick<Project, 'name' | 'color' | 'icon' | 'bot'>>
 ): void {
   Object.assign(getProject(projectId), patch)
   scheduleFlush()

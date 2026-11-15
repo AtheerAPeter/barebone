@@ -161,6 +161,11 @@ export interface BotLook {
   job: string
   /** Regular work the user asked for, which wakes its conversation (main/routines.ts). */
   routines?: BotRoutine[]
+  /**
+   * Set when the user told the bot in its conversation that it may send,
+   * submit and pay in their name without asking first (main/approvals.ts).
+   */
+  sendsWithoutAsking?: true
 }
 
 /** The days a routine can run on, Monday first. */

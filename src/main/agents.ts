@@ -81,7 +81,8 @@ import {
   approvalText,
   approve,
   APPROVAL_WAIT_MS,
-  type Approval
+  type Approval,
+  type ApprovalOptions
 } from './approvals'
 import { chatPreview } from './preview'
 import * as background from './background'
@@ -2175,9 +2176,7 @@ function reaches(self: Chat, chat: Chat): boolean {
  */
 function projectNamed(name: string, parent: Chat): Project {
   const wanted = name.trim().toLowerCase()
-  const open = store
-    .getState()
-    .projects.filter((p) => !p.bot || p.id === parent.projectId)
+  const open = store.getState().projects.filter((p) => !p.bot || p.id === parent.projectId)
   const project = open.find((p) => p.name.toLowerCase() === wanted || p.path === name.trim())
   if (project) return project
   throw new Error(
@@ -2845,13 +2844,9 @@ export class AgentManager implements ChatsApi {
    * project, the chats it started and the chat that started it, wherever they are.
    */
   private chatById(id: string, self: Chat): Chat {
-    const chat = store
-      .getState()
-      .chats.find((c) => browserId(c.id) === id && reaches(self, c))
+    const chat = store.getState().chats.find((c) => browserId(c.id) === id && reaches(self, c))
     if (chat) return chat
-    throw new Error(
-      `No chat you can reach has the ID "${id}". list_chats shows the running ones.`
-    )
+    throw new Error(`No chat you can reach has the ID "${id}". list_chats shows the running ones.`)
   }
 
   /** The calling chat. It must be working on a turn: a key used between turns does nothing. */
@@ -3107,9 +3102,7 @@ export class AgentManager implements ChatsApi {
     const self = this.caller(caller)
     return store
       .getState()
-      .chats.filter(
-        (c) => (c.projectId === self.projectId && c.running) || c.startedBy === self.id
-      )
+      .chats.filter((c) => (c.projectId === self.projectId && c.running) || c.startedBy === self.id)
       .map((c) => ({
         id: browserId(c.id),
         title: c.title,
@@ -3298,7 +3291,8 @@ export class AgentManager implements ChatsApi {
     caller: string,
     question: string,
     details: string,
-    signal: AbortSignal
+    signal: AbortSignal,
+    { onSend, answerText = approvalText }: ApprovalOptions = {}
   ): Promise<Approval | undefined> {
     const chat = this.caller(caller)
     this.approvals.get(chat.id)?.abort()
@@ -3315,7 +3309,10 @@ export class AgentManager implements ChatsApi {
       if (this.approvals.get(chat.id) === card) this.approvals.delete(chat.id)
       if (response.action === 'cancel') return 'closed' as const
       const approval = approvalOf(response)
-      if (approval.decision === 'send') approve(chat.id)
+      if (approval.decision === 'send') {
+        approve(chat.id)
+        onSend?.()
+      }
       return approval
     })
     // The call ends after APPROVAL_WAIT_MS, or sooner when the agent withdraws it.
@@ -3334,7 +3331,7 @@ export class AgentManager implements ChatsApi {
       if (approval === 'closed') return
       this.wake(
         chat.id,
-        `The user answered your approval card "${question}": ${approvalText(approval)}`,
+        `The user answered your approval card "${question}": ${answerText(approval)}`,
         { kind: 'approval', question },
         'You answered an approval card'
       )

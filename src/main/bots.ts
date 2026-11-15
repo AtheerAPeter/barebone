@@ -1,6 +1,6 @@
 import { net, protocol, type CustomScheme } from 'electron'
 import { createHash, randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, watch, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, watch, writeFileSync } from 'node:fs'
 import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { extname, join, resolve, sep } from 'node:path'
@@ -53,12 +53,17 @@ export interface NewBot {
   color: ProjectColor
 }
 
+/** How AGENTS.md begins: the bot's name and job (restyleBot changes them in place). */
+function introduction(name: string, job: string): string {
+  return `# ${name}
+
+You are ${name}, a bot the user made in Barebone. Your job: ${job}.
+`
+}
+
 /** The bot's AGENTS.md: who it is, its job, and how it keeps its folder. */
 function agentsFile(bot: NewBot, path: string): string {
-  return `# ${bot.name}
-
-You are ${bot.name}, a bot the user made in Barebone. Your job: ${bot.job}.
-
+  return `${introduction(bot.name, bot.job)}
 ## Who you are
 
 ${bot.personality.trim()}
@@ -110,7 +115,9 @@ Before you send, submit, post, pay or sign up for anything in the user's name, a
 - Change: revise it as they say, and ask again with the new draft.
 - Skip: leave it, and note in \`${MEMORY}\` if it tells you something for next time.
 
-If they have not answered yet, end your turn: their answer comes to you as a message. In the browser, Barebone refuses a click on a send button (Send, Submit, Apply, Pay, Bewerben, Absenden and the like) until the user has answered Send in the last 10 minutes, so ask there every time.
+If they have not answered yet, end your turn: their answer comes to you as a message. In the browser, Barebone refuses a click on a send button (Send, Submit, Apply, Pay, Bewerben, Absenden and the like) until the user has answered Send in the last 10 minutes.
+
+When the user tells you in a message of their own that you may send or submit without asking, call set_send_consent with allowed true: they confirm it once on a card, and from then on you go ahead on your own, and send buttons are no longer held back. Keep within what they allowed, and call it with allowed false when they want to be asked again.
 `
 }
 
@@ -150,6 +157,47 @@ export function createBot(bot: NewBot): Project {
   }
   store.addProject(project)
   return project
+}
+
+/** What a bot may change of how it looks, when the user asks (change_look). */
+export type BotRestyle = Partial<Pick<NewBot, 'name' | 'job' | 'shape' | 'color'>>
+
+/**
+ * Change the name, job line, character or color of the bot whose conversation
+ * `chatId` is. Its folder keeps its name. The start of its AGENTS.md follows a
+ * new name or job when it still reads as Barebone wrote it; `instructions`
+ * says whether it did.
+ */
+export function restyleBot(
+  chatId: string,
+  change: BotRestyle
+): { project: Project; instructions: boolean } {
+  const project = store.getProject(store.getChat(chatId).projectId)
+  if (!project.bot || botConversation(project.id)?.id !== chatId) {
+    throw new Error(
+      'Only a bot can change its look, in its own conversation, and this chat is not one.'
+    )
+  }
+  const name = change.name?.trim() ?? project.name
+  const job = change.job?.trim() ?? project.bot.job
+  if (!name) throw new Error('"name" is empty.')
+  if (name.length > MAX_NAME) throw new Error(`"name" is longer than ${MAX_NAME} characters.`)
+  if (!job) throw new Error('"job" is empty.')
+
+  let instructions = true
+  if (name !== project.name || job !== project.bot.job) {
+    const file = join(project.path, 'AGENTS.md')
+    const text = existsSync(file) ? readFileSync(file, 'utf8') : ''
+    const before = introduction(project.name, project.bot.job)
+    instructions = text.startsWith(before)
+    if (instructions) writeFileSync(file, introduction(name, job) + text.slice(before.length))
+  }
+  store.updateProject(project.id, {
+    name,
+    color: change.color ?? project.color,
+    bot: { ...project.bot, job, shape: change.shape ?? project.bot.shape }
+  })
+  return { project, instructions }
 }
 
 function botProject(projectId: string): Project | undefined {

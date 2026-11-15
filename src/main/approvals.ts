@@ -1,5 +1,6 @@
 import type * as acp from '@agentclientprotocol/sdk'
-import { APPROVAL_FIELDS, type ChatItem } from '../shared/types'
+import { APPROVAL_FIELDS, type ChatItem, type Project } from '../shared/types'
+import { botConversation } from './bots'
 import * as store from './store'
 
 /**
@@ -57,6 +58,62 @@ export function approvalText(approval: Approval): string {
   }
 }
 
+/** What else an approval card does (see Agents.askApproval). */
+export interface ApprovalOptions {
+  /** Run when the user answers Send, however late. */
+  onSend?: () => void
+  /** What the agent is told of an answer that comes after its call ended. */
+  answerText?: (approval: Approval) => string
+}
+
+/** The bot whose own conversation `chatId` is; throws for any other chat. */
+function conversationBot(chatId: string): Project {
+  const project = store.getProject(store.getChat(chatId).projectId)
+  if (!project.bot || botConversation(project.id)?.id !== chatId) {
+    throw new Error("This is only for a bot's own conversation, and this chat is not one.")
+  }
+  return project
+}
+
+/**
+ * The card that asks the user, once, whether the bot whose conversation
+ * `chatId` is may send in their name without asking (set_send_consent).
+ * Consent is set only by the user's Send on it, never by the agent alone, so
+ * no page or mail the bot reads can give it.
+ */
+export function consentCard(
+  chatId: string
+): { question: string; details: string } & ApprovalOptions {
+  const { name } = conversationBot(chatId)
+  return {
+    question: `Let ${name} send and submit without asking you first?`,
+    details: `From now on, ${name} sends, submits and applies in your name on its own, without a card each time. Tell ${name} to ask again whenever you want it to.`,
+    onSend: () => setSendConsent(chatId, true),
+    answerText: consentText
+  }
+}
+
+/** What the agent is told of the user's answer to the consent card. */
+export function consentText(approval: Approval): string {
+  return approval.decision === 'send'
+    ? 'consent given. From now on you send without ask_approval, and send buttons are no longer held back. Keep within what the user allowed, and tell them in one line that you now go ahead on your own.'
+    : 'no consent. Keep asking with ask_approval before anything goes out.'
+}
+
+/**
+ * Let the bot whose conversation `chatId` is send in the user's name without
+ * asking, or make it ask again. Only consentCard's Send allows it; taking it
+ * back needs no such proof.
+ */
+export function setSendConsent(chatId: string, allowed: boolean): void {
+  const project = conversationBot(chatId)
+  if (!project.bot) return
+  const bot = { ...project.bot }
+  if (allowed) bot.sendsWithoutAsking = true
+  else delete bot.sendsWithoutAsking
+  store.updateProject(project.id, { bot })
+}
+
 /** When the user last approved something going out, by chat. */
 const approved = new Map<string, number>()
 
@@ -84,7 +141,10 @@ export function sendGate(
 ): string | undefined {
   const { chats, projects } = store.getState()
   const chat = chats.find((c) => c.id === chatId)
-  if (!projects.some((p) => p.id === chat?.projectId && p.bot)) return undefined
+  const project = projects.find((p) => p.id === chat?.projectId)
+  if (!project?.bot) return undefined
+  // Consent covers the bot's own conversation, not chats it started.
+  if (project.bot.sendsWithoutAsking && botConversation(project.id)?.id === chatId) return undefined
   const word = `${control.name} ${control.value}`.match(SENDING)
   if (!word) return undefined
   const at = approved.get(chatId)

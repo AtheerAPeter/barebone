@@ -79,6 +79,7 @@ import { handleImageRequests, imageScheme, thumbnail } from './images'
 import {
   botScheme,
   createBot,
+  restyleBot,
   DASHBOARD,
   handleBotRequests,
   hasDashboard,
@@ -691,6 +692,11 @@ function registerBotsIpc(): void {
       const project = createBot(bot)
       stateChanged()
       return project
+    },
+    restyle: (caller, change) => {
+      const restyled = restyleBot(caller, change)
+      stateChanged()
+      return restyled
     }
   })
   provideRoutines(routines)
