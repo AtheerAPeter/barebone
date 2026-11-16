@@ -7,8 +7,11 @@ import {
   type CustomProvider,
   type CustomProviderCheck,
   type CustomProviderInput,
-  type ProviderApi
+  type LimitWindow,
+  type ProviderApi,
+  type UsageLimits
 } from '../../shared/types'
+import { money } from '../limits'
 import { catalogFile, modelInfoLookup, savedCatalog } from './catalog'
 import type { Provider, Source } from './provider'
 import { listModels, type Endpoint, type Model } from './wire'
@@ -218,6 +221,101 @@ async function sourceOf(provider: Stored): Promise<Source> {
   }
 }
 
+// --- Limits -----------------------------------------------------------------
+
+interface Budget {
+  limit_usd: number
+  spend_usd: number
+  remaining_usd: number
+  resets_at: string | null
+}
+
+/**
+ * What the key may still spend, for providers that report it to a normal API
+ * key; the others (OpenAI, Anthropic, Gemini, xAI, Groq, Mistral, local
+ * servers) have no such call.
+ */
+const LIMIT_READERS: Record<string, (key: string) => Promise<UsageLimits | undefined>> = {
+  // https://openrouter.ai/docs/api-reference/limits
+  'openrouter.ai': async (key) => {
+    const { data } = await getAuthorized<{
+      data: {
+        limit: number | null
+        limit_remaining: number | null
+        effective_budget: Budget | null
+        is_free_tier: boolean
+        free_model_daily_requests?: { used: number; limit: number }
+      }
+    }>('https://openrouter.ai/api/v1/key', key)
+    const windows: LimitWindow[] = []
+    let balance: string | undefined
+    // The budget that stops requests first, else the key's own credit limit.
+    const budget = data.effective_budget
+    if (budget && budget.limit_usd > 0) {
+      windows.push({
+        name: 'Budget',
+        usedPercent: (budget.spend_usd / budget.limit_usd) * 100,
+        resetsAt: budget.resets_at ? Date.parse(budget.resets_at) : undefined
+      })
+      balance = `${money(budget.remaining_usd)} left`
+    } else if (data.limit !== null && data.limit > 0 && data.limit_remaining !== null) {
+      windows.push({
+        name: 'Key limit',
+        usedPercent: ((data.limit - data.limit_remaining) / data.limit) * 100
+      })
+      balance = `${money(data.limit_remaining)} left`
+    }
+    // Free models are all a key that never bought credits can use much of.
+    const free = data.free_model_daily_requests
+    if (data.is_free_tier && free && free.limit > 0) {
+      windows.push({
+        name: 'Free requests today',
+        usedPercent: (free.used / free.limit) * 100,
+        resetsAt: nextUtcMidnight()
+      })
+    }
+    return windows.length > 0 || balance
+      ? { account: 'OpenRouter key', windows, balance }
+      : undefined
+  },
+  // https://api-docs.deepseek.com/api/get-user-balance
+  'api.deepseek.com': async (key) => {
+    const { balance_infos } = await getAuthorized<{
+      balance_infos: { currency: string; total_balance: string }[]
+    }>('https://api.deepseek.com/user/balance', key)
+    if (balance_infos.length === 0) return undefined
+    const left = balance_infos.map((b) => money(Number(b.total_balance), b.currency)).join(' + ')
+    return { account: 'DeepSeek balance', windows: [], balance: `${left} left` }
+  },
+  // https://platform.kimi.ai/docs/api/balance
+  'api.moonshot.ai': async (key) => {
+    const { data } = await getAuthorized<{ data: { available_balance: number } }>(
+      'https://api.moonshot.ai/v1/users/me/balance',
+      key
+    )
+    return {
+      account: 'Moonshot balance',
+      windows: [],
+      balance: `${money(data.available_balance)} left`
+    }
+  }
+}
+
+async function getAuthorized<T>(url: string, key: string): Promise<T> {
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${key}` },
+    signal: AbortSignal.timeout(10_000)
+  })
+  if (!response.ok) throw new Error(`${url} answered ${response.status}.`)
+  return (await response.json()) as T
+}
+
+/** When OpenRouter's daily counters start over: midnight UTC. */
+function nextUtcMidnight(): number {
+  const now = new Date()
+  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)
+}
+
 export const custom: Provider = {
   id: 'custom-api',
   name: 'Custom providers',
@@ -235,5 +333,11 @@ export const custom: Provider = {
   // A new chat starts on the model last picked, which the window remembers.
   preferred: async () => undefined,
   // MCP servers are set up in each CLI; these providers have none of their own.
-  mcpServers: async () => []
+  mcpServers: async () => [],
+  async limits(source) {
+    const provider = providers.find((p) => p.id === source)
+    if (!provider?.apiKey) return undefined
+    const read = LIMIT_READERS[new URL(provider.baseURL).host]
+    return read?.(provider.apiKey)
+  }
 }

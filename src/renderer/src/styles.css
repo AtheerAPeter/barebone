@@ -3011,36 +3011,123 @@ img.project-icon {
   visibility: hidden;
 }
 
-/* How full the context window is, at the end of the settings row. */
-.context-meter {
+/* What the chat's account has used of its plan, at the end of the settings row;
+   clicked, a popover lists every window (LimitsMeter.tsx). */
+.limits {
+  position: relative;
+  flex-shrink: 0;
   margin-left: auto;
-  display: inline-flex;
-  align-items: center;
+}
+
+.limits-meter {
   gap: 5px;
-  padding: 0 8px;
   color: var(--text-muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.context-meter.full {
+.limits-meter svg {
+  flex-shrink: 0;
+}
+
+/* Rings sit close together, apart from the label. */
+.limits-meter svg + svg {
+  margin-left: -3px;
+}
+
+.limits-meter.full {
   color: var(--warn);
 }
 
-.context-track,
-.context-fill {
+.limits-track,
+.limits-fill {
   fill: none;
   stroke-width: 2;
 }
 
-.context-track {
+.limits-track {
   stroke: var(--fill-strong);
 }
 
-.context-fill {
-  stroke: currentColor;
+.limits-fill {
+  stroke: var(--text-muted);
   stroke-linecap: round;
+}
+
+/* Only the windows nearly used up turn: the others keep their plain ring. */
+.limits-meter svg.full .limits-fill {
+  stroke: var(--warn);
+}
+
+/* Opens toward the row's end, where the meter is; over .picker-menu's own placement. */
+.picker-menu.limits-menu {
+  left: auto;
+  right: 0;
+  width: 280px;
+  gap: 14px;
+  padding: 14px 16px 16px;
+  overflow-y: auto;
+}
+
+.limits-account {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.limits-window {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.limits-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.limits-used {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.limits-window small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.limits-bar {
+  height: 6px;
+  overflow: hidden;
+  background: var(--fill-strong);
+  border-radius: var(--radius-pill);
+}
+
+.limits-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+}
+
+.limits-window.full .limits-used {
+  color: var(--warn);
+}
+
+.limits-window.full .limits-bar span {
+  background: var(--warn);
+}
+
+.limits-balance {
+  font-size: 13px;
+}
+
+/* Set apart from the windows above it. */
+.limits-window ~ .limits-balance {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
 
 .composer-hint {

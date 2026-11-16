@@ -22,8 +22,10 @@ import type {
   ChatSender,
   FormAnswers,
   Project,
-  ToolStatus
+  ToolStatus,
+  UsageLimits
 } from '../shared/types'
+import { claudeLimits, codexLimits, type LimitsAccount } from './limits'
 import {
   AGENTS,
   autoModeOn,
@@ -138,6 +140,18 @@ const COMMANDS: Record<Exclude<AcpAgent, AdapterAgent>, { command: string; args:
   cline: { command: 'cline', args: ['--acp'] },
   commandcode: { command: 'cmd', args: ['acp'] }
 }
+
+/** The user's own CLI an adapter runs: the one its variable names, else the one on the PATH. */
+async function adapterCli(agent: AdapterAgent): Promise<string> {
+  const { cli, variable } = ADAPTERS[agent]
+  const path = process.env[variable] ?? (await commandPath(cli))
+  if (!path) throw new Error(`\`${cli}\` was not found on your PATH.`)
+  return path
+}
+
+/** How Codex and Claude Code report their plan's limits (limits.ts), from the same CLI. */
+const PLAN_LIMITS: Record<AdapterAgent, (executable: string) => Promise<UsageLimits | undefined>> =
+  { codex: codexLimits, claude: claudeLimits }
 
 /** The CLI an agent needs installed. */
 const cliOf = (agent: AcpAgent): string =>
@@ -339,9 +353,8 @@ async function loadSdk(): Promise<typeof acp> {
  */
 async function agentEnv(agent: AgentId): Promise<{ env: NodeJS.ProcessEnv; mcpInConfig: boolean }> {
   if (isAdapterAgent(agent)) {
-    const { cli, variable } = ADAPTERS[agent]
-    const path = process.env[variable] ?? (await commandPath(cli))
-    if (!path) throw new Error(`\`${cli}\` was not found on your PATH.`)
+    const { variable } = ADAPTERS[agent]
+    const path = await adapterCli(agent)
     return {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', [variable]: path },
       mcpInConfig: false
@@ -2282,6 +2295,17 @@ export class AgentManager implements ChatsApi {
   /** The providers added in Settings changed: their open chats offer what is there now. */
   customProvidersChanged(): Promise<void> {
     return this.harness.get('custom-api')!.refreshOptions()
+  }
+
+  /**
+   * The account whose limits a chat uses up: Codex's or Claude Code's sign-in,
+   * or the harness source that bills the chat. The other CLIs report none.
+   */
+  async limitsAccount(chatId: string): Promise<LimitsAccount | undefined> {
+    const { agent } = store.getChat(chatId)
+    if (isHarnessAgent(agent)) return this.harness.get(agent)!.limitsAccount(chatId)
+    if (!isAdapterAgent(agent)) return undefined
+    return { key: agent, read: async () => PLAN_LIMITS[agent](await adapterCli(agent)) }
   }
 
   /** Whether the CLI is installed, and its version. */

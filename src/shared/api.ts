@@ -41,6 +41,7 @@ import type {
   TelegramStatus,
   TerminalInfo,
   Theme,
+  UsageLimits,
   VoiceModelId,
   WalkAt,
   WalkControl,
@@ -364,6 +365,10 @@ export function makeApi(t: Transport) {
     agentStatus: (agent: AgentId): Promise<AgentStatus> => invoke('agents:status', agent),
     agentModels: (agent: AgentId, projectId: string): Promise<AgentModels> =>
       invoke('agents:models', agent, projectId),
+    /** What the account the chat runs on has used and has left; null when it reports none. */
+    limits: (chatId: string): Promise<UsageLimits | null> => invoke('limits:get', chatId),
+    /** An account's limits may have changed (a turn used some): ask again. */
+    onLimitsChanged: (listener: () => void) => on('limits:changed', listener),
 
     browser: {
       setBounds: (rect: Rect | null): void => send('browser:setBounds', rect),

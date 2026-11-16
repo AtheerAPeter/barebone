@@ -34,6 +34,7 @@ import type {
 import { BOT_SCHEME, OWN_BROWSER, REMOTE_BOTS } from '../shared/types'
 import * as store from './store'
 import { AgentManager } from './agents'
+import { Limits } from './limits'
 import { BotNotices } from './bot-notices'
 import { Routines } from './routines'
 import { BuiltinBrowser } from './browser'
@@ -198,6 +199,7 @@ const agents = new AgentManager(
     turnEnded: (chatId, end) => {
       telegram.turnEnded(chatId, end)
       notices.turnEnded(chatId, end)
+      void limits.turnEnded(chatId)
     },
     stateChanged: () => {
       stateChanged()
@@ -211,6 +213,12 @@ const agents = new AgentManager(
     }
   },
   (chatId) => browser?.state(chatId)
+)
+
+/** What the account each chat runs on has used and has left, shown under the composer. */
+const limits = new Limits(
+  (chatId) => agents.limitsAccount(chatId),
+  () => send('limits:changed')
 )
 
 /** Bots' routines, which wake their conversations at the times the user asked for. */
@@ -1044,6 +1052,7 @@ function registerIpc(browser: BuiltinBrowser): void {
   )
 
   handle('agents:status', (agent: AgentId) => agents.status(agent))
+  handle('limits:get', (chatId: string) => limits.forChat(chatId))
   handle('agents:models', (agent: AgentId, projectId: string) => agents.models(agent, projectId))
 
   listen(

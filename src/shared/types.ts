@@ -639,6 +639,28 @@ export interface AgentStatus {
   error?: string
 }
 
+/** One usage window of a plan: how much of it is used, and when it starts over. */
+export interface LimitWindow {
+  /** "5-hour", "Weekly", "Weekly Opus". */
+  name: string
+  /** 0 to 100. */
+  usedPercent: number
+  /** When the window starts over, in ms since the epoch. */
+  resetsAt?: number
+}
+
+/**
+ * What the account a chat runs on has used and has left, as its provider
+ * reports it (main/limits.ts): a subscription's usage windows, a balance, or both.
+ */
+export interface UsageLimits {
+  /** Whose limits these are: "Claude Max", "ChatGPT Pro", "OpenRouter key". */
+  account: string
+  windows: LimitWindow[]
+  /** What is left to spend, worded for display: "$4.20 left", "61,799 credits". */
+  balance?: string
+}
+
 /**
  * Who sent a message the user did not write (see chats-mcp.ts): another
  * chat's agent, with the title it had then (saved before senders had a kind,

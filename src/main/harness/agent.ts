@@ -40,6 +40,7 @@ import {
   summaryTurn
 } from './compaction'
 import type { Provider, Source } from './provider'
+import type { LimitsAccount } from '../limits'
 import {
   browserTools,
   chatTools,
@@ -317,6 +318,14 @@ How to communicate:
       used: contextTokens(session.system, session.tools ?? [], session.turns),
       size: model.context
     }
+  }
+
+  /** The account of the source that bills the chat, when the provider reports its limits. */
+  async limitsAccount(chatId: string): Promise<LimitsAccount | undefined> {
+    const { provider } = this
+    if (!provider.limits) return undefined
+    const { source } = await this.choice(chatId)
+    return { key: `${provider.id}:${source.id}`, read: () => provider.limits!(source.id) }
   }
 
   // --- Options --------------------------------------------------------------

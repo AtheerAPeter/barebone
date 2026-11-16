@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { chmod, rename, writeFile } from 'node:fs/promises'
 import { getJson, imageInputLookup, readJson, savedCatalog } from './catalog'
 import { clineMcpServers } from './mcp-config'
+import { money } from '../limits'
 import type { Provider } from './provider'
 import type { Model } from './wire'
 
@@ -203,6 +204,45 @@ const catalog = savedCatalog('cline', async (): Promise<Listed> => {
 /** Anthropic models are cached only where requests mark it. */
 const isAnthropic = (model: string): boolean => /^anthropic\/|claude/.test(model)
 
+// --- Balance ----------------------------------------------------------------
+
+/**
+ * A GET on Cline's account API (https://docs.cline.bot/enterprise-solutions/api-reference),
+ * unwrapped as the CLI's ClineAccountService does: some answers come in a
+ * { success, data } envelope.
+ */
+async function account<T>(path: string, key: string): Promise<T> {
+  const response = await fetch(`${API}${path}`, {
+    headers: { Authorization: `Bearer ${key}` },
+    signal: AbortSignal.timeout(10_000)
+  })
+  if (!response.ok) throw new Error(`Cline's ${path} answered ${response.status}.`)
+  const body = (await response.json()) as { success?: boolean; data?: T; error?: string } & T
+  if (typeof body.success !== 'boolean') return body
+  if (!body.success) throw new Error(body.error || `Cline's ${path} failed.`)
+  return body.data as T
+}
+
+/**
+ * The credits usage billing draws on: the active organization's when the user
+ * is in one, else their own, as the CLI shows it. Balances are in millionths
+ * of a dollar (the CLI's normalizeCreditBalance).
+ */
+async function creditBalance(key: string): Promise<number> {
+  const me = await account<{
+    id: string
+    organizations?: { organizationId: string; active?: boolean }[]
+  }>('/users/me', key)
+  const active = me.organizations?.find((o) => o.active)
+  const { balance } = active
+    ? await account<{ balance: number }>(
+        `/organizations/${encodeURIComponent(active.organizationId)}/balance`,
+        key
+      )
+    : await account<{ balance: number }>(`/users/${encodeURIComponent(me.id)}/balance`, key)
+  return balance / 1_000_000
+}
+
 export const cline: Provider = {
   id: 'cline-api',
   name: 'Cline',
@@ -240,5 +280,13 @@ export const cline: Provider = {
     if (!model) return undefined
     return { source: used === 'cline-pass' ? 'cline-pass' : 'cline', model }
   },
-  mcpServers: clineMcpServers
+  mcpServers: clineMcpServers,
+  // Usage billing spends the credit balance; Cline's API reports nothing on ClinePass's limits.
+  async limits(source) {
+    if (source !== 'cline') return undefined
+    const key = await clineToken()
+    if (!key) return undefined
+    const balance = await creditBalance(key)
+    return { account: 'Cline credits', windows: [], balance: `${money(balance)} left` }
+  }
 }

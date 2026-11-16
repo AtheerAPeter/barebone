@@ -1,7 +1,7 @@
 import type { McpEntry } from './mcp'
 import type { Endpoint, Model } from './wire'
 
-import type { HarnessAgentId } from '../../shared/types'
+import type { HarnessAgentId, UsageLimits } from '../../shared/types'
 export { HARNESS_AGENTS, isHarnessAgent, type HarnessAgentId } from '../../shared/types'
 
 /** One list of models with one bill: a plan, a key, or the free tier. */
@@ -34,4 +34,9 @@ export interface Provider {
   preferred(): Promise<{ source?: string; model: string } | undefined>
   /** The MCP servers the provider's own CLI has set up for the project (see mcp-config.ts). */
   mcpServers(cwd: string): Promise<McpEntry[]>
+  /**
+   * What a source's account has used and has left, for providers with a
+   * documented way to ask; undefined when the source reports nothing.
+   */
+  limits?(source: string): Promise<UsageLimits | undefined>
 }
