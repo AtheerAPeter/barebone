@@ -311,7 +311,8 @@ export function createChat({
     startedBy,
     running: false,
     createdAt: Date.now(),
-    updatedAt: Date.now()
+    updatedAt: Date.now(),
+    activeAt: Date.now()
   }
   state.chats.push(chat)
   messages.set(chat.id, [])

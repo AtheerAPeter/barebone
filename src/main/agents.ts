@@ -2579,6 +2579,8 @@ export class AgentManager implements ChatsApi {
     // or a chat that ended would otherwise start an agent as the app stops them.
     if (this.quitting) return
     this.recentChats = [...this.recentChats.filter((id) => id !== chatId), chatId]
+    // The user chatting (not another chat, a timer or a routine) keeps the chat in front of them.
+    if (!from) store.updateChat(chatId, { activeAt: Date.now() })
     const chat = store.getChat(chatId)
     if (chat.running) {
       if (from) throw new Error('This chat is already running.')

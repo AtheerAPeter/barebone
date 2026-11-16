@@ -720,14 +720,13 @@ html.remote .remote-browser.wide .rb-notice {
   }
 
   html.remote .chat-row.card {
-    gap: 3px;
-    margin-bottom: 6px;
-    padding: 11px 10px 12px 13px;
+    gap: 2px;
+    margin-bottom: 4px;
+    padding: 9px 8px 10px 13px;
   }
 
-  html.remote .card-head,
-  html.remote .card-foot {
-    height: 28px;
+  html.remote .card-meta {
+    height: 24px;
   }
 
   html.remote .chat-row.card .chat-line {
@@ -738,9 +737,14 @@ html.remote .remote-browser.wide .rb-notice {
     font-size: 17px;
   }
 
-  html.remote .card-project,
-  html.remote .card-latest {
+  html.remote .card-project {
     font-size: 14px;
+  }
+
+  html.remote .settled-bar {
+    height: 44px;
+    padding: 0 12px;
+    font-size: 13.5px;
   }
 
   html.remote .card-status {

@@ -251,6 +251,14 @@ export interface Chat {
   renamed?: boolean
   /** Listed in the sidebar's Pinned section, by status, until the user unpins it. */
   pinned?: boolean
+  /**
+   * When the user last sent a message in the chat, or started it. By status,
+   * the sidebar keeps a chat in front of the user for a day after (inFront),
+   * then settles it. Missing in chats saved before it was recorded.
+   */
+  activeAt?: number
+  /** When the user settled the chat from the sidebar; a message they send after brings it back. */
+  settledAt?: number
   agent: AgentId
   /**
    * The agent the chat switched from after it had started. The new agent has
@@ -328,6 +336,23 @@ export interface Chat {
   context?: { used: number; size: number }
   createdAt: number
   updatedAt: number
+}
+
+/** How long a chat stays in front of the user, by status, after they last chatted in it. */
+export const IN_FRONT_MS = 24 * 60 * 60_000
+
+/**
+ * Whether the user keeps the chat in front of them in the sidebar, by status:
+ * they chatted in it within the last day and have not settled it since. Chats
+ * saved before activeAt was recorded count from their last update.
+ */
+export function inFront(
+  chat: Pick<Chat, 'activeAt' | 'settledAt' | 'updatedAt'>,
+  now: number
+): boolean {
+  const active = chat.activeAt ?? chat.updatedAt
+  if (chat.settledAt !== undefined && chat.settledAt >= active) return false
+  return now - active < IN_FRONT_MS
 }
 
 /** A chat's permission mode: set together, so it never applies half-changed. */

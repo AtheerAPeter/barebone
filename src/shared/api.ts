@@ -319,6 +319,8 @@ export function makeApi(t: Transport) {
     renameChat: (chatId: string, title: string): Promise<void> =>
       invoke('chat:rename', chatId, title),
     pinChat: (chatId: string, pinned: boolean): Promise<void> => invoke('chat:pin', chatId, pinned),
+    /** Move the chat to the sidebar's Settled sheet until the user next chats in it. */
+    settleChat: (chatId: string): Promise<void> => invoke('chat:settle', chatId),
     getMessages: (chatId: string): Promise<ChatItem[]> => invoke('chat:messages', chatId),
     setAgent: (chatId: string, agent: AgentId, settings: Record<string, string>): Promise<void> =>
       invoke('chat:setAgent', chatId, agent, settings),

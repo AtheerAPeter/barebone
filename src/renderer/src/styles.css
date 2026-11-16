@@ -696,6 +696,103 @@ kbd {
   padding: 0 6px 12px;
 }
 
+/* Between the top bar and the footer: the actions and the chats, under which the Settled sheet rises. */
+.sidebar-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* Clipped, not scrollable: the lowered sheet waits below, out of sight. */
+  overflow: clip;
+  margin: 0 -6px;
+  padding: 0 6px;
+}
+
+/* The settled chats' bar at the bottom of the list; it raises their sheet. */
+.settled-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  color: var(--text-soft);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.006em;
+  text-align: left;
+  border-top: 1px solid var(--border);
+}
+
+.settled-bar b {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.settled-bar .chevron {
+  margin-left: auto;
+  transform: rotate(-90deg);
+}
+
+.settled-bar:hover {
+  color: var(--text);
+}
+
+/* Raised, the sheet covers the actions and the list, and its bar turns to lower it. */
+.settled-sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  padding: 0 6px;
+  /* Frosted like the menus: the sidebar itself is the window's clear glass. */
+  background: var(--menu);
+  backdrop-filter: var(--glass-blur);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: var(--menu-shadow);
+  transform: translateY(100%);
+  visibility: hidden;
+  transition:
+    transform var(--move) var(--ease),
+    visibility 0s linear var(--move);
+}
+
+.settled-sheet.open {
+  transform: none;
+  visibility: visible;
+  transition:
+    transform var(--move) var(--ease),
+    visibility 0s linear 0s;
+}
+
+.settled-sheet .sheet-head {
+  border-top: 0;
+}
+
+.settled-sheet .sheet-head .chevron {
+  transform: rotate(90deg);
+}
+
+.sheet-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  margin: 0 -6px;
+  padding: 0 6px 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settled-sheet,
+  .settled-sheet.open {
+    transition: none;
+  }
+}
+
 /* A section's name, quiet as in ChatGPT, and how many chats it holds. */
 .side-label {
   display: flex;
@@ -719,23 +816,6 @@ kbd {
 .side-label.waiting b {
   color: var(--accent-text);
   font-weight: 500;
-}
-
-/* Settled's name opens and closes its list; the chevron shows on hover, or while closed. */
-.side-toggle:hover {
-  color: var(--text-soft);
-}
-
-.side-toggle .chevron {
-  opacity: 0;
-}
-
-.side-toggle:is(:hover, :focus-visible, :not(.open)) .chevron {
-  opacity: 1;
-}
-
-.side-toggle.open .chevron {
-  transform: rotate(90deg);
 }
 
 .side-empty {
@@ -1063,55 +1143,17 @@ img.project-icon {
 }
 
 /*
- * By status, each chat is a card: its project and status on top, its title,
- * then its latest message and the agent's logo.
+ * By status, each chat is a compact card: its title on top, the most visible,
+ * then its project, the agent's logo and its status or age.
  */
 .chat-row.card {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 2px;
-  margin-bottom: 4px;
-  padding: 9px 10px 9px 12px;
+  gap: 1px;
+  margin-bottom: 2px;
+  padding: 6px 6px 7px 10px;
   border-radius: var(--radius-lg);
-}
-
-.card-head,
-.card-foot {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  height: 24px;
-}
-
-.card-project,
-.card-latest {
-  flex: 1;
-  min-width: 0;
-  color: var(--text-soft);
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.card-latest {
-  color: var(--text-muted);
-}
-
-.card-status {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-muted);
-  font-size: 12.5px;
-  font-variant-numeric: tabular-nums;
-}
-
-.card-status:is(.running, .waiting) {
-  color: var(--accent-text);
 }
 
 .chat-row.card .chat-line {
@@ -1119,14 +1161,47 @@ img.project-icon {
 }
 
 .chat-row.card .chat-title {
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 600;
-  letter-spacing: -0.012em;
+  letter-spacing: -0.01em;
 }
 
-.card-foot .agent-logo {
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 20px;
+  /* In line with the ⋮ menu above, so the status ends where the title's row does. */
+  padding-right: 6px;
+}
+
+.card-project {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-soft);
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-meta .agent-logo {
   flex-shrink: 0;
-  margin-right: 2px;
+}
+
+.card-status {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-status:is(.running, .waiting) {
+  color: var(--accent-text);
 }
 
 .row-menu {

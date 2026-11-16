@@ -8,6 +8,7 @@ import { RowMenu } from './RowMenu'
 import { useTelegramStatus } from '../lib/telegram'
 import { AgentLogo } from './model-picker/AgentLogo'
 import {
+  inFront,
   startedChats,
   waitingOn,
   type AppState,
@@ -63,10 +64,11 @@ interface SidebarProps {
 /**
  * Laid out like ChatGPT's: actions on top, then one scrolling list of chats,
  * grouped one of two ways the user switches between. By status, chats that
- * need the user or are working come first; every other chat is settled, in
- * its own section below them, and each chat shows its project's icon, which is
- * how chats of different projects are told apart. By project, each project is
- * a folder that opens to its chats, in the same order.
+ * need the user or are working come first, then the idle ones the user chatted
+ * in today (inFront); every other chat is settled, in a sheet that rises from
+ * the bottom. Each chat shows its project's icon, which is how chats of
+ * different projects are told apart. By project, each project is a folder that
+ * opens to its chats.
  */
 export function Sidebar({
   open,
@@ -96,7 +98,14 @@ export function Sidebar({
   const [openLeads, setOpenLeads] = useState<Set<string>>(new Set())
   /** The selected chat that was last brought into view. */
   const [revealedChatId, setRevealedChatId] = useState<string>()
-  const [settledOpen, setSettledOpen] = useState(() => readPref('settledOpen', true))
+  /** Whether the Settled sheet is raised over the list, by status. */
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const settledBarRef = useRef<HTMLButtonElement>(null)
+  const sheetHeadRef = useRef<HTMLButtonElement>(null)
+  // Raised, the sheet takes the keyboard's focus from the bar it covers, so Escape lowers it.
+  useEffect(() => {
+    if (sheetOpen) sheetHeadRef.current?.focus()
+  }, [sheetOpen])
   const [settledShown, setSettledShown] = useState(SETTLED_PAGE)
   const navRef = useRef<HTMLElement>(null)
   const [width, setWidth] = useState(() => readPref('sidebarWidth', SIDEBAR_WIDTH))
@@ -123,7 +132,6 @@ export function Sidebar({
     window.api.update.available().then(setUpdate)
     return window.api.update.onAvailable(setUpdate)
   }, [])
-  useEffect(() => writePref('settledOpen', settledOpen), [settledOpen])
   // The time the rows' ages are counted from, moved on each minute so "5m" does not go stale.
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
@@ -132,13 +140,12 @@ export function Sidebar({
   }, [])
 
   const projects = new Map(state.projects.map((p) => [p.id, p]))
-  // Open the Settled section, the project's folder and the chat that leads a newly selected
-  // chat, so a new or picked chat stays in view in either grouping. Done while rendering, once
-  // per selection; the user can close them after.
+  // Open the project's folder and the chat that leads a newly selected chat, so a new or picked
+  // chat stays in view in either grouping. Done while rendering, once per selection; the user can
+  // close them after. A settled chat stays in its sheet: picking it there lowers the sheet.
   const selectedChat = state.chats.find((c) => c.id === selectedChatId)
   if (selectedChat && selectedChatId !== revealedChatId) {
     setRevealedChatId(selectedChatId)
-    if (!settledOpen && !selectedChat.running) setSettledOpen(true)
     if (!openProjects.has(selectedChat.projectId)) {
       setOpenProjects(new Set(openProjects).add(selectedChat.projectId))
     }
@@ -155,9 +162,12 @@ export function Sidebar({
     const opening = nav.getAnimations({ subtree: true }).filter((a) => a instanceof CSSTransition)
     Promise.all(opening.map((a) => a.finished.catch(() => undefined))).then(() => {
       if (!live) return
-      // A waiting chat can also be listed in a closed section; scroll to the row that shows.
+      // A waiting chat can also be listed in a closed section, and a settled one in the lowered
+      // sheet; scroll to the row that shows.
       const rows = nav.querySelectorAll<HTMLElement>(`[data-chat="${CSS.escape(revealedChatId)}"]`)
-      const shown = [...rows].find((row) => row.offsetHeight > 0)
+      const shown = [...rows].find(
+        (row) => row.offsetHeight > 0 && !row.closest('.settled-sheet:not(.open)')
+      )
       shown?.scrollIntoView({ block: 'nearest' })
     })
     return () => {
@@ -199,11 +209,17 @@ export function Sidebar({
   const running = chats.filter(
     (c) => !c.pinned && working(c) && !c.waiting && !leadWorking(c) && !ofBot(c)
   )
-  const settled = chats.filter(
+  // The rest are idle: in front of the user for a day after they last chatted in them, unless
+  // they settle them sooner; then settled, until they chat in them again.
+  const rest = chats.filter(
     (c) => !c.pinned && !working(c) && !c.waiting && !nested(c) && !ofBot(c)
   )
-  // While searching, settled matches are always listed.
-  const settledShut = !settledOpen && !q
+  const idle = rest.filter((c) => inFront(c, now))
+  const settled = rest.filter((c) => !inFront(c, now))
+  // While searching, settled matches are listed with the others rather than in the sheet.
+  const sheet = !byProject && !q && settled.length > 0
+  // A sheet that went away (a search, the last settled chat brought back) comes back lowered.
+  if (!sheet && sheetOpen) setSheetOpen(false)
   /** Whether the open chat is this one or one it leads, to keep it in view past "Show more". */
   const holdsSelected = (chat: Chat): boolean =>
     chat.id === selectedChatId ||
@@ -217,15 +233,18 @@ export function Sidebar({
     setOpenProjects((current) => toggled(current, projectId))
   }
 
-  /** One chat: by status, a card that names its project; in a project's folder, one line. */
-  function chatRow(chat: Chat): React.JSX.Element {
+  /**
+   * One chat: by status, a card that names its project; in a project's folder, one line.
+   * Picked in the Settled sheet, it lowers the sheet.
+   */
+  function chatRow(chat: Chat, inSheet = false): React.JSX.Element {
     const project = projects.get(chat.projectId)
     const led = q ? undefined : started.get(chat.id)
     const workingLed = led?.filter((c) => c.running).length ?? 0
     const isOpen = openLeads.has(chat.id)
     const waits = !chat.running ? waitingOn(chat, startedWorking(chat)) : undefined
     const latest = chat.waiting ? 'Waiting for approval' : waits || chat.preview
-    // By status, each chat is a card: its project and status, its title, then its latest and agent.
+    // By status, each chat is a card: its title, then its project, agent and status or age.
     // Pinned chats are one line, led by their project's icon, so the Pinned list stays short.
     const compact = !byProject && chat.pinned && !chat.waiting
     const card = !byProject && !compact
@@ -235,19 +254,12 @@ export function Sidebar({
         data-chat={chat.id}
         className={`chat-row${card ? ' card' : ''}${led ? ' lead' : ''}${view === 'chat' && chat.id === selectedChatId ? ' selected' : ''}`}
         title={[project?.name, latest].filter(Boolean).join(' · ')}
-        onClick={() => onSelectChat(chat.id)}
+        onClick={() => {
+          onSelectChat(chat.id)
+          if (inSheet) setSheetOpen(false)
+        }}
       >
-        {card ? (
-          <div className="card-head">
-            {project && <ProjectIcon project={project} size={22} />}
-            <span className="card-project">{project?.name}</span>
-            <CardStatus chat={chat} working={working(chat)} now={now} />
-          </div>
-        ) : compact && project ? (
-          <ProjectIcon project={project} size={20} />
-        ) : (
-          <span />
-        )}
+        {card ? null : compact && project ? <ProjectIcon project={project} size={20} /> : <span />}
         <div className="chat-line">
           {renaming === chat.id ? (
             <RenameField
@@ -298,6 +310,10 @@ export function Sidebar({
                     }
                   ]
                 : []),
+              // By status, a chat in front of the user can be settled before its day is up.
+              ...(!byProject && !chat.pinned && !ofBot(chat) && inFront(chat, now)
+                ? [{ name: 'Settle', onSelect: () => window.api.settleChat(chat.id) }]
+                : []),
               { name: 'Rename', onSelect: () => setRenaming(chat.id) },
               ...(telegram?.state === 'ready' && !chat.startedBy
                 ? [
@@ -321,9 +337,11 @@ export function Sidebar({
           />
         </div>
         {card && (
-          <div className="card-foot">
-            <span className="card-latest">{waits ?? chat.preview}</span>
-            <AgentLogo agent={chat.agent} size={18} />
+          <div className="card-meta">
+            {project && <ProjectIcon project={project} size={16} />}
+            <span className="card-project">{project?.name}</span>
+            <AgentLogo agent={chat.agent} size={15} />
+            <CardStatus chat={chat} working={working(chat)} now={now} />
           </div>
         )}
       </div>
@@ -333,7 +351,7 @@ export function Sidebar({
       <Fragment key={chat.id}>
         {row}
         <Collapse open={isOpen} className="chat-children">
-          {led.map(chatRow)}
+          {led.map((c) => chatRow(c, inSheet))}
         </Collapse>
       </Fragment>
     )
@@ -366,7 +384,8 @@ export function Sidebar({
   function pagedRows(
     list: Chat[],
     shown: number,
-    onMore: (limit: number) => void
+    onMore: (limit: number) => void,
+    inSheet = false
   ): React.JSX.Element {
     const limit = q ? list.length : shown
     const visible = list.slice(0, limit)
@@ -374,7 +393,7 @@ export function Sidebar({
     if (selected && !visible.includes(selected)) visible.push(selected)
     return (
       <>
-        {visible.map(chatRow)}
+        {visible.map((c) => chatRow(c, inSheet))}
         {list.length > limit && (
           <div className="chat-more">
             <button onClick={() => onMore(limit)}>Show more ({list.length - limit})</button>
@@ -384,7 +403,10 @@ export function Sidebar({
     )
   }
 
-  /** The chats grouped by status: Needs you, Pinned, Working, then Settled. */
+  /**
+   * The chats grouped by status: Needs you, Pinned, Working, then Idle. Settled chats are in
+   * their sheet (settledSheet), or listed last while searching.
+   */
   function statusLists(): React.JSX.Element {
     return (
       <>
@@ -393,7 +415,7 @@ export function Sidebar({
             <div className="side-label waiting">
               Needs you <b>{waiting.length}</b>
             </div>
-            {waiting.map(chatRow)}
+            {waiting.map((c) => chatRow(c))}
           </>
         )}
         {pinned.length > 0 && (
@@ -401,7 +423,7 @@ export function Sidebar({
             <div className="side-label">
               Pinned <b>{pinned.length}</b>
             </div>
-            {pinned.map(chatRow)}
+            {pinned.map((c) => chatRow(c))}
           </>
         )}
         {running.length > 0 && (
@@ -409,24 +431,76 @@ export function Sidebar({
             <div className="side-label">
               Working <b>{running.length}</b>
             </div>
-            {running.map(chatRow)}
+            {running.map((c) => chatRow(c))}
           </>
         )}
-        {settled.length > 0 && (
+        {idle.length > 0 && (
           <>
-            <button
-              className={`side-label side-toggle${settledShut ? '' : ' open'}`}
-              aria-expanded={!settledShut}
-              onClick={() => setSettledOpen((o) => !o)}
-            >
-              Settled <b>{settled.length}</b>
-              <ChevronIcon width={10} height={10} className="chevron" />
-            </button>
-            <Collapse open={!settledShut}>
-              {pagedRows(settled, settledShown, (limit) => setSettledShown(limit + SETTLED_PAGE))}
-            </Collapse>
+            <div className="side-label">
+              Idle <b>{idle.length}</b>
+            </div>
+            {idle.map((c) => chatRow(c))}
           </>
         )}
+        {q && settled.length > 0 && (
+          <>
+            <div className="side-label">
+              Settled <b>{settled.length}</b>
+            </div>
+            {settled.map((c) => chatRow(c))}
+          </>
+        )}
+      </>
+    )
+  }
+
+  /**
+   * The settled chats, by status: a bar at the bottom of the list that raises
+   * them as a sheet over it, as a phone's bottom sheet. Escape, the bar or
+   * picking a chat lowers it.
+   */
+  function settledSheet(): React.JSX.Element {
+    /** Lowered from the keyboard or its bar, the focus goes back to the bar that raised it. */
+    const lower = (): void => {
+      setSheetOpen(false)
+      settledBarRef.current?.focus()
+    }
+    return (
+      <>
+        <button
+          ref={settledBarRef}
+          className="settled-bar"
+          aria-expanded={sheetOpen}
+          onClick={() => setSheetOpen(true)}
+        >
+          Settled <b>{settled.length}</b>
+          <ChevronIcon width={10} height={10} className="chevron" />
+        </button>
+        <div
+          className={`settled-sheet${sheetOpen ? ' open' : ''}`}
+          role="dialog"
+          aria-label="Settled chats"
+          inert={!sheetOpen}
+          onKeyDown={(e) => {
+            if (e.key !== 'Escape') return
+            // Handled: lowering the sheet must not also stop the agent.
+            e.preventDefault()
+            lower()
+          }}
+        >
+          <button ref={sheetHeadRef} className="settled-bar sheet-head" onClick={lower}>
+            Settled <b>{settled.length}</b>
+            <ChevronIcon width={10} height={10} className="chevron" />
+          </button>
+          <div className="sheet-scroll">
+            {pagedRows(
+              settled,
+              settledShown,
+              (limit) => setSettledShown(limit + SETTLED_PAGE),
+              true
+            )}
+          </div>
+        </div>
       </>
     )
   }
@@ -473,7 +547,7 @@ export function Sidebar({
           </div>
         </div>
         <Collapse open={isOpen}>
-          {active.map(chatRow)}
+          {active.map((c) => chatRow(c))}
           {pagedRows(rest, folderShown.get(project.id) ?? FOLDER_PAGE, (limit) =>
             setFolderShown((current) => new Map(current).set(project.id, limit + FOLDER_PAGE))
           )}
@@ -555,7 +629,7 @@ export function Sidebar({
       <Fragment key={project.id}>
         {row}
         <Collapse open={isOpen} className="chat-children">
-          {led.map(chatRow)}
+          {led.map((c) => chatRow(c))}
         </Collapse>
       </Fragment>
     )
@@ -587,92 +661,96 @@ export function Sidebar({
           <SidebarIcon />
         </button>
       </div>
-      <div className="side-nav">
-        <button className="nav-row" title={`New chat (${shortcut('N')})`} onClick={onNewChat}>
-          <ComposeIcon />
-          New chat
-        </button>
-        <button
-          className={`nav-row${query !== undefined ? ' on' : ''}`}
-          onClick={() => setQuery((current) => (current === undefined ? '' : undefined))}
-        >
-          <SearchIcon />
-          Search chats
-        </button>
-        <button
-          className={`nav-row${view === 'skills' ? ' on' : ''}`}
-          onClick={() => onShow('skills')}
-        >
-          <BookIcon />
-          Skills
-        </button>
-        <button
-          className={`nav-row${view === 'files' ? ' on' : ''}`}
-          onClick={() => onShow('files')}
-        >
-          <FolderIcon />
-          Files
-        </button>
-        <button
-          className={`nav-row${view === 'terminal' ? ' on' : ''}`}
-          onClick={() => onShow('terminal')}
-        >
-          <TerminalIcon />
-          Terminal
-        </button>
-        <button
-          className={`nav-row${view === 'browser' ? ' on' : ''}`}
-          onClick={() => onShow('browser')}
-        >
-          <GlobeIcon />
-          Browser
-        </button>
-        {/* A project is a folder chosen with the Mac's folder picker. */}
-        {!window.api.remote && (
-          <button
-            className="nav-row"
-            title={`Open project folder (${shortcut('O')})`}
-            onClick={() => window.api.addProject()}
-          >
-            <FolderPlusIcon />
-            Open project
+      {/* The Settled sheet rises over everything between the top bar and the footer. */}
+      <div className="sidebar-body">
+        <div className="side-nav">
+          <button className="nav-row" title={`New chat (${shortcut('N')})`} onClick={onNewChat}>
+            <ComposeIcon />
+            New chat
           </button>
+          <button
+            className={`nav-row${query !== undefined ? ' on' : ''}`}
+            onClick={() => setQuery((current) => (current === undefined ? '' : undefined))}
+          >
+            <SearchIcon />
+            Search chats
+          </button>
+          <button
+            className={`nav-row${view === 'skills' ? ' on' : ''}`}
+            onClick={() => onShow('skills')}
+          >
+            <BookIcon />
+            Skills
+          </button>
+          <button
+            className={`nav-row${view === 'files' ? ' on' : ''}`}
+            onClick={() => onShow('files')}
+          >
+            <FolderIcon />
+            Files
+          </button>
+          <button
+            className={`nav-row${view === 'terminal' ? ' on' : ''}`}
+            onClick={() => onShow('terminal')}
+          >
+            <TerminalIcon />
+            Terminal
+          </button>
+          <button
+            className={`nav-row${view === 'browser' ? ' on' : ''}`}
+            onClick={() => onShow('browser')}
+          >
+            <GlobeIcon />
+            Browser
+          </button>
+          {/* A project is a folder chosen with the Mac's folder picker. */}
+          {!window.api.remote && (
+            <button
+              className="nav-row"
+              title={`Open project folder (${shortcut('O')})`}
+              onClick={() => window.api.addProject()}
+            >
+              <FolderPlusIcon />
+              Open project
+            </button>
+          )}
+        </div>
+        {query !== undefined && (
+          <label className="sidebar-search">
+            <SearchIcon width={14} height={14} />
+            <input
+              autoFocus
+              placeholder="Search chats"
+              value={query}
+              spellCheck={false}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Escape') return
+                // Handled: closing the search must not also stop the agent.
+                e.preventDefault()
+                setQuery(undefined)
+              }}
+            />
+          </label>
         )}
-      </div>
-      {query !== undefined && (
-        <label className="sidebar-search">
-          <SearchIcon width={14} height={14} />
-          <input
-            autoFocus
-            placeholder="Search chats"
-            value={query}
-            spellCheck={false}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key !== 'Escape') return
-              // Handled: closing the search must not also stop the agent.
-              e.preventDefault()
-              setQuery(undefined)
-            }}
-          />
-        </label>
-      )}
-      <div className="sidebar-scroll">
-        {bots.length > 0 && (
-          <>
-            <div className="side-label">Bots</div>
-            {bots.map(botRow)}
-          </>
-        )}
-        {byProject ? (
-          <>
-            <div className="side-label">Projects</div>
-            {state.projects.filter((p) => !p.bot).map(projectFolder)}
-          </>
-        ) : (
-          statusLists()
-        )}
-        {q && chats.length === 0 && <div className="side-empty">No matching chats</div>}
+        <div className="sidebar-scroll">
+          {bots.length > 0 && (
+            <>
+              <div className="side-label">Bots</div>
+              {bots.map(botRow)}
+            </>
+          )}
+          {byProject ? (
+            <>
+              <div className="side-label">Projects</div>
+              {state.projects.filter((p) => !p.bot).map(projectFolder)}
+            </>
+          ) : (
+            statusLists()
+          )}
+          {q && chats.length === 0 && <div className="side-empty">No matching chats</div>}
+        </div>
+        {sheet && settledSheet()}
       </div>
       <div className="sidebar-footer">
         {update && <UpdateButton version={update} />}
@@ -725,6 +803,8 @@ function useRowMotion(root: RefObject<HTMLElement | null>, paused: boolean): voi
   function measure(): Map<string, { el: HTMLElement; top: number; offset: number }> {
     const rows = new Map<string, { el: HTMLElement; top: number; offset: number }>()
     for (const el of root.current?.querySelectorAll<HTMLElement>('[data-chat]') ?? []) {
+      // The Settled sheet's rows move with the sheet as it rises and lowers, not on their own.
+      if (el.closest('.settled-sheet')) continue
       const rect = el.getBoundingClientRect()
       // Rows in a closed section have no place.
       if (rect.height === 0 || rows.has(el.dataset.chat!)) continue

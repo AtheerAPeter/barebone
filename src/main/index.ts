@@ -1008,6 +1008,10 @@ function registerIpc(browser: BuiltinBrowser): void {
     store.updateChat(chatId, { pinned: pinned || undefined })
     stateChanged()
   })
+  handle('chat:settle', (chatId: string) => {
+    store.updateChat(chatId, { settledAt: Date.now() })
+    stateChanged()
+  })
   handle('chat:messages', (chatId: string) => store.getMessages(chatId))
 
   handle('chat:setAgent', (chatId: string, agent: AgentId, settings: Record<string, string>) =>
