@@ -138,6 +138,12 @@ export const ComposeIcon = (p: IconProps): React.JSX.Element => (
     <path d="M18.4 3.6a2 2 0 0 1 2.9 2.9L12.5 15.3 9 16l.7-3.5z" />
   </Icon>
 )
+/** Two lines, the lower one shorter: the chats, opened from under the composer on a phone. */
+export const ChatsIcon = (p: IconProps): React.JSX.Element => (
+  <Icon {...p}>
+    <path d="M5 8h14M5 16h9" />
+  </Icon>
+)
 export const FolderPlusIcon = fromTabler(IconFolderPlus)
 /** The chevron after a picker's value, as in ChatGPT's "Instant ⌄". */
 export const ChevronDownIcon = fromTabler(IconChevronDown)

@@ -24,9 +24,11 @@ import { botColor, botStatus, BotsContext, nextRoutine } from './lib/bots'
 import {
   BranchIcon,
   ChatIcon,
+  ChatsIcon,
   ComposeIcon,
   GlobeIcon,
   OrbIcon,
+  PlusIcon,
   SidebarIcon
 } from './components/icons'
 import { readPref, writePref } from './lib/prefs'
@@ -198,6 +200,11 @@ export default function App(): React.JSX.Element {
   // A bot's chat shows its dashboard or memory in its place until the user goes back to it.
   const [botPane, setBotPane] = useState<{ chatId: string; pane: BotPaneName }>()
   const pane: BotPaneName = bot && botPane && botPane.chatId === chat?.id ? botPane.pane : 'chat'
+  /**
+   * A chat on a phone through the link: Chats and New chat sit under the
+   * composer, where the thumb reaches, instead of in the top bar.
+   */
+  const thumbBar = drawer && view === 'chat' && Boolean(chat && project) && pane === 'chat'
   const botTabs = bot && chat && view === 'chat' && (
     <BotTabs pane={pane} onPane={(next) => setBotPane({ chatId: chat.id, pane: next })} />
   )
@@ -333,8 +340,11 @@ export default function App(): React.JSX.Element {
         ref={mainRef}
       >
         <header className="topbar">
-          {/* With the sidebar hidden, its toggle and New chat move here, as in ChatGPT. */}
-          {!sidebarOpen && (
+          {/*
+           * With the sidebar hidden, its toggle and New chat move here, as in
+           * ChatGPT; in a chat on a phone, under the composer instead.
+           */}
+          {!sidebarOpen && !thumbBar && (
             <>
               <button
                 className="icon-btn"
@@ -407,6 +417,12 @@ export default function App(): React.JSX.Element {
             </span>
           )}
           <span className="spacer" />
+          {/* Tells this page from the Mac's own window; a phone hides it (remote.css). */}
+          {REMOTE && (
+            <span className="remote-chip" title="Opened through the remote link">
+              Remote
+            </span>
+          )}
           {botTabs && !narrowBar && botTabs}
           {browserOpen && view === 'chat' && chat && (
             <button
@@ -502,6 +518,20 @@ export default function App(): React.JSX.Element {
                 remoteBrowserAllowed ? () => toggleRemoteBrowser(chat.id, true) : undefined
               }
               hidden={pane !== 'chat'}
+              composerLeading={
+                thumbBar && (
+                  <button className="icon-btn" title="Chats" onClick={() => setSidebarOpen(true)}>
+                    <ChatsIcon />
+                  </button>
+                )
+              }
+              composerTrailing={
+                thumbBar && (
+                  <button className="icon-btn" title="New chat" onClick={() => setPicking(true)}>
+                    <PlusIcon />
+                  </button>
+                )
+              }
             />
           </BotsContext.Provider>
         ) : null}

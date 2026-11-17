@@ -71,6 +71,9 @@ interface ChatViewProps {
   onOpenBrowser?: () => void
   /** Out of sight while a bot's other pane shows, kept with its place and live output. */
   hidden?: boolean
+  /** Controls at the ends of the composer's settings row (Composer). */
+  composerLeading?: React.ReactNode
+  composerTrailing?: React.ReactNode
 }
 
 export function ChatView({
@@ -82,7 +85,9 @@ export function ChatView({
   folded,
   speaking,
   onOpenBrowser,
-  hidden = false
+  hidden = false,
+  composerLeading,
+  composerTrailing
 }: ChatViewProps): React.JSX.Element {
   const [items, setItems] = useState<ChatItem[]>([])
   const [options, setOptions] = useState<AgentOption[]>()
@@ -291,6 +296,8 @@ export function ChatView({
           onOptionChange={onOptionChange}
           folded={folded}
           onVoiceChange={setVoice}
+          leading={composerLeading}
+          trailing={composerTrailing}
         />
       </div>
     </div>
@@ -1750,7 +1757,11 @@ function Working(): React.JSX.Element {
   return (
     <div className="working">
       <span className="shimmer">Working</span>
-      <span className="working-time">{elapsed(seconds)} · Esc to stop</span>
+      <span className="working-time">
+        {elapsed(seconds)}
+        {/* A key to press, so not on a touch screen (remote.css). */}
+        <span className="working-hint"> · Esc to stop</span>
+      </span>
     </div>
   )
 }

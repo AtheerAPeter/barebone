@@ -53,6 +53,12 @@ interface ComposerProps {
   folded: boolean
   /** Voice input started, ended or is being written out, for the orb to show. */
   onVoiceChange: (state: VoiceState) => void
+  /**
+   * Controls at the two ends of the settings row: on a phone through the
+   * remote link, the top bar's buttons move here, within the thumb's reach.
+   */
+  leading?: React.ReactNode
+  trailing?: React.ReactNode
 }
 
 /** How much the agent may do without asking, per chat. */
@@ -127,7 +133,9 @@ export function Composer({
   onAgentChange,
   onOptionChange,
   folded,
-  onVoiceChange
+  onVoiceChange,
+  leading,
+  trailing
 }: ComposerProps): React.JSX.Element {
   // ChatView is keyed by chat, so each chat's composer starts from its saved draft.
   const [text, setText] = useState(chat.draft ?? '')
@@ -662,6 +670,7 @@ export function Composer({
       </div>
       {/* The chat's settings, in their own row under the composer. */}
       <div className="composer-settings">
+        {leading}
         <ModelPicker
           agent={chat.agent}
           projectId={chat.projectId}
@@ -727,6 +736,7 @@ export function Composer({
             {error}
           </span>
         )}
+        {trailing && <span className="composer-trailing-end">{trailing}</span>}
       </div>
     </>
   )

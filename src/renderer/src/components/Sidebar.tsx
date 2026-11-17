@@ -664,44 +664,52 @@ export function Sidebar({
       {/* The Settled sheet rises over everything between the top bar and the footer. */}
       <div className="sidebar-body">
         <div className="side-nav">
-          <button className="nav-row" title={`New chat (${shortcut('N')})`} onClick={onNewChat}>
+          {/*
+           * Through the link the tabs are one row of icons (remote.css), each
+           * label shown as its tooltip; the Mac keeps them as labelled rows.
+           */}
+          <button
+            className="nav-row"
+            title={window.api.remote ? undefined : `New chat (${shortcut('N')})`}
+            onClick={onNewChat}
+          >
             <ComposeIcon />
-            New chat
+            <span className="nav-label">New chat</span>
           </button>
           <button
             className={`nav-row${query !== undefined ? ' on' : ''}`}
             onClick={() => setQuery((current) => (current === undefined ? '' : undefined))}
           >
             <SearchIcon />
-            Search chats
+            <span className="nav-label">Search chats</span>
           </button>
           <button
             className={`nav-row${view === 'skills' ? ' on' : ''}`}
             onClick={() => onShow('skills')}
           >
             <BookIcon />
-            Skills
+            <span className="nav-label">Skills</span>
           </button>
           <button
             className={`nav-row${view === 'files' ? ' on' : ''}`}
             onClick={() => onShow('files')}
           >
             <FolderIcon />
-            Files
+            <span className="nav-label">Files</span>
           </button>
           <button
             className={`nav-row${view === 'terminal' ? ' on' : ''}`}
             onClick={() => onShow('terminal')}
           >
             <TerminalIcon />
-            Terminal
+            <span className="nav-label">Terminal</span>
           </button>
           <button
             className={`nav-row${view === 'browser' ? ' on' : ''}`}
             onClick={() => onShow('browser')}
           >
             <GlobeIcon />
-            Browser
+            <span className="nav-label">Browser</span>
           </button>
           {/* A project is a folder chosen with the Mac's folder picker. */}
           {!window.api.remote && (
