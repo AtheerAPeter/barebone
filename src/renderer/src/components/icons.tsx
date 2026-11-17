@@ -44,6 +44,7 @@ import {
   IconRoute,
   IconSearch,
   IconServer,
+  IconSettings,
   IconShield,
   IconSquareFilled,
   IconSun,
@@ -117,6 +118,8 @@ export const DiffIcon = fromTabler(IconFileDiff)
 export const GaugeIcon = fromTabler(IconGauge)
 export const ShieldIcon = fromTabler(IconShield)
 export const SidebarIcon = fromTabler(IconLayoutSidebar)
+/** A gear: Settings. */
+export const SettingsIcon = fromTabler(IconSettings)
 /** A window with a dot in its corner: the chat folded into the agent orb over the browser. */
 export const OrbIcon = (p: IconProps): React.JSX.Element => (
   <Icon {...p}>

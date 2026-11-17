@@ -1,5 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
-import { ThemeToggle } from './ThemeToggle'
+import { PopupMenu } from './PopupMenu'
+import { useThemeSwitch } from '../lib/theme-switch'
+import type { MenuAt } from '../lib/menus'
 import { Collapse } from './Collapse'
 import { ProjectIcon } from './ProjectIcon'
 import { BotAvatar } from './BotAvatar'
@@ -18,15 +20,22 @@ import {
 import { readPref, writePref } from '../lib/prefs'
 import { shortcut } from '../lib/platform'
 import { useUpdateInstall } from '../lib/update'
+import { PHONE, useMedia } from '../lib/touch'
 import {
   BookIcon,
   ChevronIcon,
+  CloseIcon,
   ComposeIcon,
   FolderIcon,
   FolderPlusIcon,
   GlobeIcon,
+  GridIcon,
+  MoonIcon,
+  PlusIcon,
   SearchIcon,
+  SunIcon,
   PhoneIcon,
+  SettingsIcon,
   SidebarIcon,
   TerminalIcon
 } from './icons'
@@ -122,11 +131,14 @@ export function Sidebar({
   const telegram = useTelegramStatus()
   /** The search text; undefined while the search field is closed. */
   const [query, setQuery] = useState<string>()
-  const [version, setVersion] = useState<string>()
+  /** Where the More menu (Skills, Files, Terminal, Browser…) is open, while it is. */
+  const [more, setMore] = useState<MenuAt>()
+  const theme = useThemeSwitch()
+  /** On a phone through the link the sidebar is a sheet from the bottom, closed with an X. */
+  const asSheet = useMedia(PHONE) && window.api.remote
   /** A newer release's version, once the app has found one. */
   const [update, setUpdate] = useState<string | null>(null)
   useEffect(() => {
-    window.api.appVersion().then(setVersion)
     // Updating quits and reopens the app: something to do on the Mac.
     if (window.api.remote) return
     window.api.update.available().then(setUpdate)
@@ -657,72 +669,16 @@ export function Sidebar({
         >
           <FolderIcon />
         </button>
-        <button className="icon-btn" title={`Hide sidebar (${shortcut('B')})`} onClick={onHide}>
-          <SidebarIcon />
+        <button
+          className="icon-btn"
+          title={asSheet ? 'Close' : `Hide sidebar (${shortcut('B')})`}
+          onClick={onHide}
+        >
+          {asSheet ? <CloseIcon /> : <SidebarIcon />}
         </button>
       </div>
       {/* The Settled sheet rises over everything between the top bar and the footer. */}
       <div className="sidebar-body">
-        <div className="side-nav">
-          {/*
-           * Through the link the tabs are one row of icons (remote.css), each
-           * label shown as its tooltip; the Mac keeps them as labelled rows.
-           */}
-          <button
-            className="nav-row"
-            title={window.api.remote ? undefined : `New chat (${shortcut('N')})`}
-            onClick={onNewChat}
-          >
-            <ComposeIcon />
-            <span className="nav-label">New chat</span>
-          </button>
-          <button
-            className={`nav-row${query !== undefined ? ' on' : ''}`}
-            onClick={() => setQuery((current) => (current === undefined ? '' : undefined))}
-          >
-            <SearchIcon />
-            <span className="nav-label">Search chats</span>
-          </button>
-          <button
-            className={`nav-row${view === 'skills' ? ' on' : ''}`}
-            onClick={() => onShow('skills')}
-          >
-            <BookIcon />
-            <span className="nav-label">Skills</span>
-          </button>
-          <button
-            className={`nav-row${view === 'files' ? ' on' : ''}`}
-            onClick={() => onShow('files')}
-          >
-            <FolderIcon />
-            <span className="nav-label">Files</span>
-          </button>
-          <button
-            className={`nav-row${view === 'terminal' ? ' on' : ''}`}
-            onClick={() => onShow('terminal')}
-          >
-            <TerminalIcon />
-            <span className="nav-label">Terminal</span>
-          </button>
-          <button
-            className={`nav-row${view === 'browser' ? ' on' : ''}`}
-            onClick={() => onShow('browser')}
-          >
-            <GlobeIcon />
-            <span className="nav-label">Browser</span>
-          </button>
-          {/* A project is a folder chosen with the Mac's folder picker. */}
-          {!window.api.remote && (
-            <button
-              className="nav-row"
-              title={`Open project folder (${shortcut('O')})`}
-              onClick={() => window.api.addProject()}
-            >
-              <FolderPlusIcon />
-              Open project
-            </button>
-          )}
-        </div>
         {query !== undefined && (
           <label className="sidebar-search">
             <SearchIcon width={14} height={14} />
@@ -760,25 +716,86 @@ export function Sidebar({
         </div>
         {sheet && settledSheet()}
       </div>
+      {/*
+       * Under the chats, one row of icons, each label its tooltip: Search and
+       * More (Skills, Files, Terminal, Browser, the theme) at its start,
+       * Settings and New chat at its end.
+       */}
       <div className="sidebar-footer">
         {update && <UpdateButton version={update} />}
-        <div className="profile-row">
+        <div className="side-nav">
           <button
-            className={`profile${view === 'settings' ? ' on' : ''}`}
-            title={`Settings (${shortcut(',')})`}
+            className={`nav-row${query !== undefined ? ' on' : ''}`}
+            onClick={() => setQuery((current) => (current === undefined ? '' : undefined))}
+          >
+            <SearchIcon />
+            <span className="nav-label">Search chats</span>
+          </button>
+          <button
+            className={`nav-row${more || MORE_VIEWS.includes(view) ? ' on' : ''}`}
+            aria-haspopup="menu"
+            aria-expanded={Boolean(more)}
+            onClick={(e) => setMore(more ? undefined : { below: e.currentTarget })}
+          >
+            <GridIcon />
+            <span className="nav-label">More</span>
+          </button>
+          <span className="nav-spacer" />
+          <button
+            className={`nav-row${view === 'settings' ? ' on' : ''}`}
             onClick={() => onShow('settings')}
           >
-            <span className="avatar">B</span>
-            <span className="profile-text">
-              <span className="profile-name">Barebone</span>
-              {version && <span className="profile-sub">v{version}</span>}
+            <SettingsIcon />
+            <span className="nav-label">
+              Settings <NavKey keys={shortcut(',')} />
             </span>
           </button>
-          <ThemeToggle />
+          <button className="nav-row" onClick={onNewChat}>
+            <PlusIcon />
+            <span className="nav-label">
+              New chat <NavKey keys={shortcut('N')} />
+            </span>
+          </button>
         </div>
+        {more && (
+          <PopupMenu
+            at={more}
+            onClose={() => setMore(undefined)}
+            entries={[
+              { name: 'Skills', icon: <BookIcon />, onSelect: () => onShow('skills') },
+              { name: 'Files', icon: <FolderIcon />, onSelect: () => onShow('files') },
+              { name: 'Terminal', icon: <TerminalIcon />, onSelect: () => onShow('terminal') },
+              { name: 'Browser', icon: <GlobeIcon />, onSelect: () => onShow('browser') },
+              // A project is a folder chosen with the Mac's folder picker.
+              ...(window.api.remote
+                ? []
+                : [
+                    {
+                      name: 'Open project',
+                      icon: <FolderPlusIcon />,
+                      onSelect: () => window.api.addProject()
+                    }
+                  ]),
+              null,
+              {
+                name: theme.dark ? 'Light mode' : 'Dark mode',
+                icon: theme.dark ? <SunIcon /> : <MoonIcon />,
+                onSelect: theme.toggle
+              }
+            ]}
+          />
+        )}
       </div>
     </nav>
   )
+}
+
+/** The views the More menu opens; its button shows as on while one of them is open. */
+const MORE_VIEWS: View[] = ['skills', 'files', 'terminal', 'browser']
+
+/** A tab's shortcut in its tooltip, on the Mac, whose app menu gives it. */
+function NavKey({ keys }: { keys: string }): React.JSX.Element | null {
+  return window.api.remote ? null : <kbd>{keys}</kbd>
 }
 
 /** Above the footer once a newer release is out. Installing it quits and reopens the app. */

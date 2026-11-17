@@ -1,8 +1,8 @@
 /*
  * The app in a browser, through the remote link (web.tsx): styles.css, plus
- * what a page needs that the Mac window does not. A page has no window glass
- * behind it (html.no-glass in styles.css), and on a phone the sidebar is a
- * drawer over the chat and the code panel a sheet over everything.
+ * what a page needs that the Mac window does not. On a phone the controls sit
+ * where the thumb reaches: the chats, New chat's projects and the menus are
+ * sheets from the bottom, and the code panel a sheet over everything.
  */
 
 /* The visible height, which on a phone shrinks with its toolbars and keyboard. */
@@ -686,19 +686,6 @@ html.remote .remote-browser.wide .rb-notice {
     height: 20px;
   }
 
-  html.remote .nav-row {
-    height: 48px;
-    padding: 0 12px;
-    gap: 12px;
-    font-size: 16px;
-    border-radius: var(--radius);
-  }
-
-  html.remote .nav-row > svg {
-    width: 21px;
-    height: 21px;
-  }
-
   html.remote .side-label {
     padding: 18px 12px 6px;
     font-size: 13.5px;
@@ -774,30 +761,12 @@ html.remote .remote-browser.wide .rb-notice {
     font-size: 15px;
   }
 
-  html.remote .avatar {
-    width: 34px;
-    height: 34px;
-    font-size: 13px;
-  }
-
-  html.remote .profile {
-    padding: 8px;
-  }
-
-  html.remote .profile-name {
-    font-size: 16px;
-  }
-
-  html.remote .profile-sub {
-    font-size: 13px;
-  }
-
-  /* The chat: 17px at 1.8, as a page of prose. */
+  /* The chat: 17px at 1.65, as a page of prose. */
   html.remote .chat-items {
     padding: 18px 18px 36px;
     gap: 10px;
     font-size: 17px;
-    line-height: 1.8;
+    line-height: 1.65;
   }
 
   html.remote .chat-empty h2 {
@@ -1699,425 +1668,11 @@ html.remote .remote-browser.wide .rb-notice {
 }
 
 /*
- * Pitch: the page's own look beside the Mac's graphite glass. One black for
- * every pane, set apart by hairlines; crisp near-white text; white raised
- * keys for what is pressed most (send, New chat), which sink when pressed
- * and spring back. The composer is a pill lit along its top edge, the
- * user's messages white pills, a turn's summary and "Working" outlined
- * pills. On a phone, Thumb: Chats and New chat sit under the composer and
- * the chats rise as a sheet from the bottom. Wider than a phone, a Remote
- * chip in the top bar tells this page from the Mac's window. Light keeps its
- * colors and takes the same shapes.
+ * Thumb: on a phone, Chats and New chat sit under the composer, and the
+ * chats, New chat's projects and the model menu rise as sheets from the
+ * bottom, sized for a finger. Wider than a phone, a Remote chip in the top
+ * bar tells this page from the Mac's window.
  */
-
-/* ── Colors, light first: the dark theme overrides them below ── */
-
-html.remote {
-  --composer-top: var(--composer);
-  /* A row pressed in: the shade along its inner top edge. */
-  --press-in: rgba(0, 0, 0, 0.12);
-  --sheet-bg: var(--panel-main);
-  --key: linear-gradient(#1a1a1a, #000000);
-  --key-pressed: linear-gradient(#000000, #1a1a1a);
-  --key-text: #ffffff;
-}
-
-/* ── Colors, dark ─────────────────────────────────────────────── */
-
-@media (prefers-color-scheme: dark) {
-  html.remote {
-    --canvas: #000000;
-    --panel: #000000;
-    --panel-main: #000000;
-
-    /* Crisp: near-white text on true black, the quieter shades lifted to match. */
-    --text: #fafafa;
-    --text-soft: #b8b8b8;
-    --text-muted: #8c8c8c;
-    --placeholder: #8c8c8c;
-
-    --border: rgba(255, 255, 255, 0.1);
-    --border-strong: rgba(255, 255, 255, 0.2);
-
-    --fill: rgba(255, 255, 255, 0.06);
-    --fill-strong: rgba(255, 255, 255, 0.1);
-    --hover: rgba(255, 255, 255, 0.05);
-    --selected: rgba(255, 255, 255, 0.08);
-    --menu-hover: rgba(255, 255, 255, 0.09);
-
-    --glass: rgba(255, 255, 255, 0.05);
-    --glass-strong: rgba(255, 255, 255, 0.1);
-    --glass-rim: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-    --raised-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
-
-    --card: #0c0c0c;
-    --card-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 0 1px var(--border);
-    --sheet: #0c0c0c;
-    --sheet-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 0 1px var(--border);
-    --well: #0a0a0a;
-    --surface: #121212;
-    --strip: #0c0c0c;
-    --strip-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 0 1px var(--border);
-    --ask-bg: #0c0c0c;
-
-    --menu: #101010;
-    --menu-title: #101010;
-    --menu-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1),
-      0 24px 60px -12px rgba(0, 0, 0, 0.95);
-
-    /* The composer's card: a little lighter at its top, as if lit from above. */
-    --composer: #0f0f0f;
-    --composer-top: #161616;
-    --press-in: rgba(0, 0, 0, 0.55);
-    /* The phone's chats sheet: a step above the black it rises over. */
-    --sheet-bg: #0b0b0b;
-
-    /* The white controls: raised, lit along the top, shaded along the bottom. */
-    --key: linear-gradient(#ffffff, #e8e8e8);
-    --key-pressed: linear-gradient(#e2e2e2, #f0f0f0);
-    --key-text: #000000;
-
-    --bubble: linear-gradient(#ffffff, #ececec);
-    --bubble-text: #0a0a0a;
-  }
-
-  /* A bot's chat keeps its color for the user's messages (styles.css .bot-chat). */
-  html.remote .bot-chat {
-    --bubble-text: #ffffff;
-  }
-}
-
-/* ── Crisp text ───────────────────────────────────────────────── */
-
-/*
- * Kerned and set for legibility, thin-smoothed on a Mac (styles.css), and
- * never enlarged by iOS on its own, which softens a phone's layout.
- */
-html.remote {
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
-}
-
-html.remote body {
-  text-rendering: optimizeLegibility;
-  font-kerning: normal;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-/* Replies: a little tighter, and what they stress in full white. */
-html.remote .chat-items {
-  line-height: 1.65;
-  letter-spacing: -0.003em;
-}
-
-@media (prefers-color-scheme: dark) {
-  html.remote .markdown :is(strong, b, h1, h2, h3, h4) {
-    color: #ffffff;
-  }
-}
-
-/* ── The white key: the send button ──────────────────────────── */
-
-html.remote .send-button {
-  background: var(--key);
-  color: var(--key-text);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.6),
-    inset 0 -2px 0 rgba(0, 0, 0, 0.14),
-    0 1px 2px rgba(0, 0, 0, 0.4);
-}
-
-html.remote .send-button:hover:not(:disabled) {
-  background: var(--key);
-  filter: brightness(0.95);
-}
-
-html.remote .send-button:active:not(:disabled) {
-  background: var(--key-pressed);
-  box-shadow:
-    inset 0 2px 3px rgba(0, 0, 0, 0.22),
-    0 0 0 rgba(0, 0, 0, 0);
-}
-
-html.remote .send-button:disabled {
-  background: var(--fill-strong);
-  color: var(--text-muted);
-  box-shadow: none;
-  opacity: 1;
-}
-
-/* ── Tactile: pressed, a control sinks; let go, it springs back ── */
-
-html.remote
-  :is(
-    .icon-btn,
-    .send-button,
-    .btn,
-    .label-btn,
-    .picker-button,
-    .nav-row,
-    .profile,
-    .turn-work-head,
-    .menu button,
-    .picker-item,
-    .palette-row
-  ) {
-  transition:
-    transform 460ms cubic-bezier(0.3, 1.6, 0.5, 1),
-    background-color 150ms ease,
-    box-shadow 150ms ease,
-    filter 150ms ease;
-}
-
-html.remote :is(.icon-btn, .send-button, .btn, .label-btn, .picker-button):active:not(:disabled) {
-  transform: scale(0.9);
-  transition-duration: 90ms;
-  transition-timing-function: ease-out;
-}
-
-/* Not a chat row: it holds its ⋮ menu, fixed to the window, which a transform would carry. */
-html.remote
-  :is(
-    .nav-row,
-    .profile,
-    .turn-work-head,
-    .menu button,
-    .picker-item,
-    .palette-row,
-    .model-row,
-    .model-source-item,
-    .model-source-back,
-    .slash-item
-  ):active {
-  transform: scale(0.97);
-  transition-duration: 90ms;
-  transition-timing-function: ease-out;
-}
-
-/*
- * A row pressed sinks in, chat rows too: it takes the composer's fill with
- * a shade along its inner top edge, as a key pushed into its surface.
- */
-html.remote
-  :is(
-    .chat-row,
-    .nav-row,
-    .profile,
-    .settled-bar,
-    .menu button,
-    .picker-item,
-    .palette-row,
-    .model-row,
-    .model-source-item,
-    .model-source-back,
-    .slash-item
-  ):active {
-  background: linear-gradient(var(--composer-top), var(--composer));
-  box-shadow:
-    inset 0 2px 5px var(--press-in),
-    0 0 0 1px var(--border);
-}
-
-/* No swell and glow for the composer, the Mac's Liquid Glass press. */
-html.remote .composer:active {
-  transform: none;
-}
-
-/* ── The composer: a pill, lit along its top edge ────────────── */
-
-html.remote .composer {
-  background: linear-gradient(var(--composer-top), var(--composer));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.07),
-    0 0 0 1px var(--border);
-}
-
-/* Its edge brightens while it is typed in. */
-html.remote .composer:focus-within {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.09),
-    0 0 0 1px var(--border-strong);
-}
-
-/* ── The conversation ─────────────────────────────────────────── */
-
-/* The user's messages: raised pills with a tight corner at the speaker's side. */
-html.remote .bubble {
-  border-radius: 22px 22px 8px 22px;
-  box-shadow:
-    inset 0 -2px 0 rgba(0, 0, 0, 0.08),
-    0 1px 2px rgba(0, 0, 0, 0.35);
-}
-
-/* A turn's summary and the live "Working": outlined pills, not loose lines. */
-html.remote .turn-work-head {
-  width: auto;
-  align-self: flex-start;
-  padding: 2px 12px;
-  border-radius: var(--radius-pill);
-  box-shadow: inset 0 0 0 1px var(--border);
-}
-
-html.remote .working {
-  align-self: flex-start;
-  display: inline-flex;
-  padding: 2px 14px;
-  border-radius: var(--radius-pill);
-  box-shadow: inset 0 0 0 1px var(--border);
-}
-
-/* Code and output: rounder wells with an edge. */
-html.remote .markdown pre {
-  border-radius: 14px;
-  box-shadow: inset 0 0 0 1px var(--border);
-}
-
-/*
- * A project's Edit and Remove in New chat's picker: small raised keys with
- * the composer's fill, lit along the top edge, that sink in when pressed.
- */
-html.remote .palette-actions {
-  gap: 8px;
-}
-
-html.remote .palette-actions .label-btn {
-  width: 44px;
-  min-width: 44px;
-  height: 44px;
-  min-height: 44px;
-  padding: 0;
-  justify-content: center;
-  border-radius: 50%;
-  background: linear-gradient(var(--composer-top), var(--composer));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    inset 0 -1px 0 var(--press-in),
-    0 0 0 1px var(--border);
-}
-
-html.remote .palette-actions .label-btn:active {
-  background: var(--composer);
-  box-shadow:
-    inset 0 2px 4px var(--press-in),
-    0 0 0 1px var(--border);
-}
-
-html.remote .palette-actions .label-btn.danger {
-  color: var(--danger);
-}
-
-html.remote .palette-actions .label-btn svg {
-  width: 20px;
-  height: 20px;
-}
-
-/* ── The bars ─────────────────────────────────────────────────── */
-
-/* The glyphs sit on the black itself; a circle comes only on hover, focus or when on. */
-html.remote :is(.sidebar-top, .topbar, .panel-toolbar, .finder-toolbar, .profile-row) .icon-btn {
-  background: transparent;
-}
-
-html.remote
-  :is(.sidebar-top, .topbar, .panel-toolbar, .finder-toolbar, .profile-row)
-  .icon-btn:is(:hover, :focus-visible, .on) {
-  background: var(--glass-strong);
-  box-shadow: var(--glass-rim);
-}
-
-/* The sidebar beside the chat ends in a hairline. */
-html.remote .sidebar {
-  background: var(--canvas);
-  box-shadow: inset -1px 0 0 var(--border);
-}
-
-/*
- * The open chat, the open view among the tabs and the model under the
- * pointer or keys: the composer's own surface, its fill lit along the top
- * edge and the same hairline around it.
- */
-html.remote
-  :is(
-    .chat-row.selected,
-    .nav-row.on,
-    .model-row.active,
-    .model-source-item.active,
-    .palette-row.active
-  ) {
-  background: linear-gradient(var(--composer-top), var(--composer));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.07),
-    0 0 0 1px var(--border);
-}
-
-/*
- * The tabs (New chat, Search, Skills, Files, Terminal, Browser): one row of
- * icons, each as wide as its share of the row and 44px tall. Its label is
- * its tooltip, shown on hover and focus, and while pressed on a touch screen.
- */
-html.remote .side-nav {
-  flex-direction: row;
-  gap: 2px;
-  padding: 2px 0 8px;
-}
-
-html.remote .nav-row {
-  position: relative;
-  flex: 1;
-  justify-content: center;
-  height: 44px;
-  padding: 0;
-}
-
-html.remote .nav-row > svg {
-  width: 20px;
-  height: 20px;
-}
-
-html.remote .nav-label {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 6px);
-  left: 50%;
-  translate: -50% 0;
-  padding: 4px 9px;
-  border-radius: 8px;
-  background: var(--menu);
-  box-shadow: var(--menu-shadow);
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease;
-}
-
-/* The row's ends keep their tooltips inside the sidebar. */
-html.remote .nav-row:first-child .nav-label {
-  left: 0;
-  translate: none;
-}
-
-html.remote .nav-row:last-child .nav-label {
-  left: auto;
-  right: 0;
-  translate: none;
-}
-
-@media (hover: hover) {
-  html.remote .nav-row:is(:hover, :focus-visible) .nav-label {
-    opacity: 1;
-    transition-delay: 300ms;
-  }
-}
-
-@media (hover: none) {
-  html.remote .nav-row:active .nav-label {
-    opacity: 1;
-  }
-}
 
 /* ── A phone ──────────────────────────────────────────────────── */
 
@@ -2163,14 +1718,9 @@ html.remote .nav-row:last-child .nav-label {
     background: rgba(0, 0, 0, 0.6);
   }
 
-  /* The tabs at the sheet's foot, over the profile, where the thumb is. */
-  html.remote .side-nav {
-    order: 1;
-    padding: 8px 0 4px;
-    box-shadow: 0 -1px 0 var(--border);
-  }
-
+  /* The tabs at the sheet's foot, where the thumb is: 48px, icons and tooltips larger. */
   html.remote .nav-row {
+    flex-basis: 48px;
     height: 48px;
   }
 
@@ -2180,8 +1730,6 @@ html.remote .nav-row:last-child .nav-label {
   }
 
   html.remote .nav-label {
-    top: auto;
-    bottom: calc(100% + 6px);
     font-size: 13px;
   }
 

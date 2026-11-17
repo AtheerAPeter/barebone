@@ -65,10 +65,7 @@ const config: Configuration = {
       '!node_modules/serve-sim/dist/*.{js,cjs}',
       '!node_modules/node-pty/prebuilds/{linux,win32}-*/**'
     ],
-    asarUnpack: [
-      'node_modules/electron-liquid-glass/prebuilds/**',
-      'node_modules/serve-sim/dist/native/**'
-    ],
+    asarUnpack: ['node_modules/serve-sim/dist/native/**'],
     // Signed with a self-signed certificate in the login keychain of the Mac that
     // builds releases. macOS remembers a privacy grant (Desktop, microphone) by the
     // signature's designated requirement: an ad-hoc one is the build's hash, so each
@@ -105,8 +102,8 @@ const config: Configuration = {
       '!node_modules/onnxruntime-node/bin/napi-v*/{darwin,win32}/**',
       '!node_modules/onnxruntime-node/bin/napi-v*/linux/arm64/**',
       '!node_modules/node-pty/prebuilds/{darwin-*,win32-*,linux-arm64}/**',
-      // Mac only: Liquid Glass and iOS simulators.
-      '!node_modules/{electron-liquid-glass,serve-sim}/**'
+      // Mac only: iOS simulators.
+      '!node_modules/serve-sim/**'
     ]
   },
   appImage: {

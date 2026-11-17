@@ -1,17 +1,18 @@
 /*
- * Laid out like ChatGPT: a sidebar of plain rows beside one centered chat
- * column, the user's messages in blue pills on the right, the agent's replies
- * as plain text, and a rounded composer docked under them. The system font at
- * regular weight, the system monospace for paths, commands and output. Blue
- * marks the user's messages, status dots, progress and the send button. Every
- * color and shadow is a token, so dark mode is the same design with its own
- * values.
+ * Laid out like ChatGPT: the chats in a sidebar beside one centered chat
+ * column, the user's messages in pills on the right, the agent's replies as
+ * plain text, and a rounded composer docked under them. The system font at
+ * regular weight, crisp, the system monospace for paths, commands and output.
+ * Every color and shadow is a token, so dark mode is the same design with its
+ * own values.
  *
- * In macOS 26's Liquid Glass: the window is see-through to Apple's glass behind
- * the page (index.ts). The sidebar and browser show it as it is, the chat tints
- * it so long text reads, and what floats over them (menus, pickers, the
- * palette) is a CSS glass of its own: a translucent fill that blurs what is
- * under it, with a light rim along its top edge.
+ * Pitch: in dark, one true black for every pane, set apart by hairlines, with
+ * near-white text; depth comes from light catching top edges, since no shadow
+ * shows on black. White is the accent there: the user's messages and the send
+ * key; blue stays for dots and links. The composer is a pill lit along its top
+ * edge, and what is open or chosen (a chat, a view, a model, a project) takes
+ * its surface. What is pressed sinks and springs back, and a row presses in.
+ * Light is the same design in white.
  */
 
 :root {
@@ -54,12 +55,10 @@
   --selected: rgba(255, 255, 255, 0.85);
   --menu-hover: rgba(255, 255, 255, 0.75);
 
-  /* Behind everything: see-through to the window's Liquid Glass (index.ts). */
-  --canvas: transparent;
-
-  /* The sidebar and browser, which show the glass, and the chat, which tints it. */
-  --panel: transparent;
-  --panel-main: rgba(255, 255, 255, 0.78);
+  /* Behind everything, and the sidebar and browser on it; the chat is a step lighter. */
+  --canvas: #f9f9f9;
+  --panel: var(--canvas);
+  --panel-main: #ffffff;
 
   /* Raised: the on segment, the active browser tab. */
   --raised: var(--glass-strong);
@@ -90,12 +89,12 @@
   --glass-rim:
     inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 0 0 0.5px rgba(0, 0, 0, 0.12),
     0 1px 3px rgba(0, 0, 0, 0.08);
-  /*
-   * A pressed control: a faint, wide lift in light, a little stronger under the
-   * pointer, and its rim catching more light.
-   */
-  --press-light: rgba(255, 255, 255, 0.35);
-  --press-rim: rgba(255, 255, 255, 0.9);
+  /* A row pressed in: the shade along its inner top edge. */
+  --press-in: rgba(0, 0, 0, 0.12);
+  /* The send key: raised, lit along the top, shaded along the bottom; ink in light. */
+  --key: linear-gradient(#1a1a1a, #000000);
+  --key-pressed: linear-gradient(#000000, #1a1a1a);
+  --key-text: #ffffff;
   /* Glass tinted with the accent: the primary and send buttons, the user's messages. */
   --tint-rim:
     inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.1),
@@ -128,10 +127,17 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.8), inset 0 0 0 1px rgba(255, 255, 255, 0.35),
     0 0 0 0.5px rgba(0, 0, 0, 0.15), 0 16px 40px -10px rgba(0, 0, 0, 0.25);
 
-  --composer: rgba(255, 255, 255, 0.72);
-  --composer-edge:
-    inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 0 0 0.5px rgba(0, 0, 0, 0.14),
-    0 8px 24px -8px rgba(0, 0, 0, 0.15);
+  /*
+   * The composer, and what is open or chosen (a chat, a view, a model): its
+   * fill lit along the top edge, a hairline around it. --composer-top is the
+   * fill's top, a step lighter in dark.
+   */
+  --composer: #ffffff;
+  --composer-top: var(--composer);
+  --composer-edge: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 0 0 1px var(--border);
+  --composer-focus: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 0 0 1px var(--border-strong);
+  /* The phone's sheets through the link (remote.css). */
+  --sheet-bg: var(--panel-main);
   --strip: rgba(255, 255, 255, 0.55);
   --strip-edge: 0 0 0 1px var(--border), inset 0 1px 0 rgba(255, 255, 255, 0.7);
   --ask-bg: rgba(255, 255, 255, 0.72);
@@ -141,6 +147,8 @@
   /* The user's messages: pills of blue-tinted glass. */
   --bubble: rgba(47, 111, 237, 0.16);
   --bubble-text: #0d0d0d;
+  /* Raised: its bottom edge shaded, a contact shadow under it. */
+  --bubble-edge: inset 0 -1px 0 rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.08);
 
   /*
    * Corners, ChatGPT's: chips and inline code, rows and buttons, menus and
@@ -163,8 +171,9 @@
 }
 
 /*
- * Dark is the same glass at night: the chat tints it darker, surfaces lift off
- * it in white veils, hairline edges, and the user's messages in navy.
+ * Dark is Pitch: one true black for every pane, crisp near-white text, the
+ * quieter shades lifted to match, surfaces a step above black with a light
+ * top edge, and white for the user's messages and the send key.
  */
 @media (prefers-color-scheme: dark) {
   :root {
@@ -176,10 +185,10 @@
     --focus-ring: rgba(138, 176, 255, 0.2);
     --focus: var(--accent-text);
 
-    --text: #ededed;
-    --text-soft: #afafaf;
-    --text-muted: #8f8f8f;
-    --placeholder: #afafaf;
+    --text: #fafafa;
+    --text-soft: #b8b8b8;
+    --text-muted: #8c8c8c;
+    --placeholder: #8c8c8c;
     --border: rgba(255, 255, 255, 0.1);
     --border-strong: rgba(255, 255, 255, 0.2);
     --danger: #ff6b64;
@@ -192,33 +201,27 @@
     --fill: rgba(255, 255, 255, 0.06);
     --fill-strong: rgba(255, 255, 255, 0.1);
     --hover: rgba(255, 255, 255, 0.05);
-    --selected: rgba(255, 255, 255, 0.12);
-    --menu-hover: rgba(255, 255, 255, 0.12);
+    --selected: rgba(255, 255, 255, 0.08);
+    --menu-hover: rgba(255, 255, 255, 0.09);
 
-    --canvas: transparent;
-
-    --panel: transparent;
-    --panel-main: rgba(0, 0, 0, 0.72);
+    --canvas: #000000;
+    --panel-main: #000000;
 
     --raised: var(--glass-strong);
-    --raised-shadow: var(--glass-rim);
 
-    --card: rgba(255, 255, 255, 0.05);
-    --card-edge: 0 0 0 1px var(--border), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-    --sheet: rgba(255, 255, 255, 0.075);
-    --sheet-edge:
-      inset 0 1px 0 rgba(255, 255, 255, 0.12), inset 0 0 0 0.5px rgba(255, 255, 255, 0.1),
-      0 0 0 0.5px rgba(0, 0, 0, 0.6), 0 1px 2px rgba(0, 0, 0, 0.3);
-    --well: rgba(0, 0, 0, 0.25);
-    --surface: #2a2a2a;
+    --card: #0c0c0c;
+    --card-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 0 1px var(--border);
+    --sheet: #0c0c0c;
+    --sheet-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 0 1px var(--border);
+    --well: #0a0a0a;
+    --surface: #121212;
 
-    --glass: rgba(255, 255, 255, 0.07);
-    --glass-strong: rgba(255, 255, 255, 0.14);
-    --press-light: rgba(255, 255, 255, 0.07);
-    --press-rim: rgba(255, 255, 255, 0.2);
-    --glass-rim:
-      inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06),
-      0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.3);
+    /* Controls: no veil to lift them off a backdrop, only an edge. */
+    --glass: rgba(255, 255, 255, 0.05);
+    --glass-strong: rgba(255, 255, 255, 0.1);
+    --press-in: rgba(0, 0, 0, 0.55);
+    --glass-rim: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    --raised-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
     --tint-rim:
       inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 0 0 0.5px rgba(0, 0, 0, 0.5),
       0 2px 6px -2px rgba(0, 0, 0, 0.5);
@@ -238,49 +241,41 @@
     --graph-4: #40b0a6;
     --graph-5: #b66dff;
 
-    --menu: rgba(40, 40, 42, 0.62);
-    --menu-title: rgba(44, 44, 46, 0.96);
+    /* Menus and sheets: opaque, an edge, and a shadow that darkens what is under them. */
+    --menu: #101010;
+    --menu-title: #101010;
     --menu-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 0 0 1px rgba(255, 255, 255, 0.07),
-      0 0 0 0.5px rgba(0, 0, 0, 0.6), 0 16px 40px -10px rgba(0, 0, 0, 0.7);
+      inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1),
+      0 24px 60px -12px rgba(0, 0, 0, 0.95);
 
-    --composer: rgba(255, 255, 255, 0.07);
-    --composer-edge:
-      inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 0 0 1px rgba(255, 255, 255, 0.08),
-      0 8px 24px -8px rgba(0, 0, 0, 0.5);
-    --strip: rgba(255, 255, 255, 0.05);
-    --strip-edge: 0 0 0 1px var(--border), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-    --ask-bg: rgba(255, 255, 255, 0.07);
+    --composer: #0f0f0f;
+    --composer-top: #161616;
+    --sheet-bg: #0b0b0b;
+    --strip: #0c0c0c;
+    --strip-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 0 1px var(--border);
+    --ask-bg: #0c0c0c;
     --ask-glow: inset 0 0 0 1px rgba(138, 176, 255, 0.4), 0 8px 24px -10px rgba(0, 0, 0, 0.5);
 
-    --bubble: rgba(60, 102, 191, 0.6);
-    --bubble-text: #ffffff;
+    /* The user's messages and the send key: white, raised. */
+    --bubble: linear-gradient(#ffffff, #ececec);
+    --bubble-text: #0a0a0a;
+    --bubble-edge: inset 0 -2px 0 rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.35);
+    --key: linear-gradient(#ffffff, #e8e8e8);
+    --key-pressed: linear-gradient(#e2e2e2, #f0f0f0);
+    --key-text: #000000;
     color-scheme: dark;
   }
 }
 
 /*
- * No window glass behind the page: the remote link's browser page (web.html)
- * and the app's window off the Mac (main.tsx). Panels are solid, and there are
- * no traffic lights to leave room for.
+ * No window buttons to leave room for: the remote link's browser page
+ * (web.html) and the app's window off the Mac (main.tsx).
  */
-html.no-glass {
-  --canvas: #f9f9f9;
-  --panel-main: #ffffff;
-}
-
-@media (prefers-color-scheme: dark) {
-  html.no-glass {
-    --canvas: #0d0d0d;
-    --panel-main: #000000;
-  }
-}
-
-html.no-glass .sidebar-hidden .topbar {
+html.no-window-buttons .sidebar-hidden .topbar {
   padding-left: 12px;
 }
 
-html.no-glass .sidebar-hidden.chat-folded .panel-tabs {
+html.no-window-buttons .sidebar-hidden.chat-folded .panel-tabs {
   padding-left: 8px;
 }
 
@@ -320,12 +315,22 @@ body,
   margin: 0;
 }
 
+/* Never enlarged by iOS on its own, which softens a phone's layout. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   background: var(--canvas);
   color: var(--text);
   /* Regular weight throughout; titles and emphasis step up to 500 or 600. */
   font: 400 14px/1.5 var(--sans);
+  /* Crisp: thin-smoothed, kerned and set for legibility. */
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-kerning: normal;
   user-select: none;
   overflow: hidden;
 }
@@ -436,8 +441,7 @@ kbd {
 
 /*
  * Layout: three regions edge to edge, as in a macOS split view. Adjacent panes
- * are flush and tell each other apart by material alone — the sidebar keeps
- * the window's glass, the chat tints it — with no rule or shadow between them.
+ * are flush; a hairline ends the sidebar.
  */
 
 .app {
@@ -575,6 +579,7 @@ kbd {
   display: flex;
   flex-direction: column;
   padding: 0 6px 6px;
+  box-shadow: inset -1px 0 0 var(--border);
 }
 
 /* The sidebar's right edge: dragged, it resizes the sidebar. */
@@ -653,37 +658,98 @@ kbd {
   color: var(--text-muted);
 }
 
-/* New chat, Search, Skills and Open project: ChatGPT's rows, each led by an icon. */
+/*
+ * The sidebar's footer: one row of four 44px icons under the chats, Search
+ * and More (Skills, Files, Terminal, Browser, the theme) at its start,
+ * Settings and New chat at its end. Each label is its tooltip, shown above it
+ * on hover and focus, and while pressed on a touch screen.
+ */
 .side-nav {
   flex-shrink: 0;
   display: flex;
-  flex-direction: column;
-  padding-bottom: 6px;
+  gap: 2px;
+  padding: 2px 0;
 }
 
 .nav-row {
+  position: relative;
+  flex: 0 0 44px;
+  height: 44px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 36px;
-  padding: 0 10px;
-  font-weight: 500;
-  letter-spacing: -0.006em;
-  text-align: left;
+  justify-content: center;
+  color: var(--text-soft);
   border-radius: var(--radius);
 }
 
 .nav-row > svg {
   flex-shrink: 0;
+  width: 20px;
+  height: 20px;
 }
 
 .nav-row:hover {
   background: var(--hover);
+  color: var(--text);
 }
 
 .nav-row.on {
-  background: var(--selected);
-  box-shadow: var(--glass-rim);
+  color: var(--text);
+}
+
+.nav-spacer {
+  flex: 1;
+}
+
+.nav-label {
+  position: absolute;
+  z-index: 30;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  translate: -50% 0;
+  display: flex;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: var(--menu);
+  box-shadow: var(--menu-shadow);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.nav-label kbd {
+  color: var(--text-muted);
+  font: inherit;
+}
+
+/* The row's ends keep their tooltips inside the sidebar. */
+.nav-row:first-child .nav-label {
+  left: 0;
+  translate: none;
+}
+
+.nav-row:last-child .nav-label {
+  left: auto;
+  right: 0;
+  translate: none;
+}
+
+@media (hover: hover) {
+  .nav-row:is(:hover, :focus-visible) .nav-label {
+    opacity: 1;
+    transition-delay: 300ms;
+  }
+}
+
+@media (hover: none) {
+  .nav-row:active .nav-label {
+    opacity: 1;
+  }
 }
 
 /* Every chat, in one list under the actions. It scrolls without a scrollbar. */
@@ -866,66 +932,6 @@ kbd {
   background: var(--danger);
 }
 
-.profile-row {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-/* The app as ChatGPT shows its user: an avatar, the name and the version under it. Opens Settings. */
-.profile {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
-  text-align: left;
-  border-radius: var(--radius);
-}
-
-.profile:hover {
-  background: var(--hover);
-}
-
-.profile.on {
-  background: var(--selected);
-  box-shadow: var(--glass-rim);
-}
-
-.avatar {
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--accent);
-  color: var(--on-accent);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.profile-text {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  line-height: 1.3;
-}
-
-.profile-name {
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.profile-sub {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
 /* The project's icon, drawn bare in the project's color: how chats and projects are told apart. */
 .project-icon {
   flex-shrink: 0;
@@ -1034,9 +1040,11 @@ img.project-icon {
   background: var(--hover);
 }
 
-.chat-row.selected {
-  background: var(--selected);
-  box-shadow: var(--glass-rim);
+/* The open chat: the composer's surface, as everything open or chosen is. */
+.chat-row.selected,
+.nav-row.on {
+  background: linear-gradient(var(--composer-top), var(--composer));
+  box-shadow: var(--composer-edge);
 }
 
 .chat-dot {
@@ -1319,25 +1327,21 @@ img.project-icon {
 }
 
 /*
- * The toolbar's buttons, and the theme toggle beside the profile, are glyphs
- * first, as in macOS toolbars: a faint veil at rest keeps them legible over a
- * wallpaper, and the full glass circle and its rim arrive only under the
- * pointer, on focus, or when on.
+ * The toolbars' buttons are glyphs on the surface itself, as in macOS
+ * toolbars; a circle with an edge comes only under the pointer, on focus, or
+ * when on.
  */
 .sidebar-top .icon-btn,
 .topbar .icon-btn,
 .panel-toolbar .icon-btn,
-.finder-toolbar .icon-btn,
-.profile-row .icon-btn {
-  background: color-mix(in srgb, var(--glass) 45%, transparent);
+.finder-toolbar .icon-btn {
   border-radius: 50%;
 }
 
 .sidebar-top .icon-btn:is(:hover, :focus-visible, .on),
 .topbar .icon-btn:is(:hover, :focus-visible, .on),
 .panel-toolbar .icon-btn:is(:hover, :focus-visible, .on),
-.finder-toolbar .icon-btn:is(:hover, :focus-visible, .on),
-.profile-row .icon-btn:is(:hover, :focus-visible, .on) {
+.finder-toolbar .icon-btn:is(:hover, :focus-visible, .on) {
   background: var(--glass-strong);
   box-shadow: var(--glass-rim);
 }
@@ -1527,7 +1531,8 @@ img.project-icon {
   flex-direction: column;
   gap: 8px;
   font-size: 16px;
-  line-height: 1.75;
+  line-height: 1.65;
+  letter-spacing: -0.003em;
   user-select: text;
 }
 
@@ -1563,8 +1568,9 @@ img.project-icon {
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  border-radius: var(--radius-bubble);
-  box-shadow: var(--tint-rim);
+  /* A tight corner at the speaker's side; raised, its bottom edge shaded. */
+  border-radius: var(--radius-bubble) var(--radius-bubble) 8px var(--radius-bubble);
+  box-shadow: var(--bubble-edge);
 }
 
 /* A message another chat's agent sent: who it came from, above the text. */
@@ -1625,12 +1631,16 @@ img.project-icon {
   font-size: 12px;
 }
 
+/* The live "Working", and a turn's summary below: outlined pills, not loose lines. */
 .working {
-  display: flex;
+  align-self: flex-start;
+  display: inline-flex;
   align-items: baseline;
   gap: 8px;
-  padding: 3px 4px;
+  padding: 2px 14px;
   font-size: 14px;
+  border-radius: var(--radius-pill);
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .working-time {
@@ -1792,9 +1802,11 @@ img.project-icon {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 4px;
+  padding: 2px 12px;
   color: var(--text-muted);
   text-align: left;
+  border-radius: var(--radius-pill);
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .turn-work-head:hover,
@@ -2452,6 +2464,13 @@ img.project-icon {
   font-weight: 600;
 }
 
+/* What a reply stresses, and its headings, in full white on black. */
+@media (prefers-color-scheme: dark) {
+  .markdown :is(strong, b, h1, h2, h3, h4) {
+    color: #ffffff;
+  }
+}
+
 .markdown a {
   color: var(--text);
   text-decoration-color: var(--accent);
@@ -2734,22 +2753,15 @@ img.project-icon {
   max-width: var(--chat-width);
   margin: 0 auto;
   padding: 8px;
-  background: var(--composer);
+  background: linear-gradient(var(--composer-top), var(--composer));
   box-shadow: var(--composer-edge);
-  transition:
-    box-shadow 0.2s,
-    transform var(--flex) var(--spring);
+  transition: box-shadow 0.2s;
   border-radius: var(--radius-xl);
 }
 
-/*
- * Writing focuses the whole pill, as in ChatGPT: a quiet accent halo around
- * the glass rather than a ring inside it. The caret takes the accent too.
- */
+/* Writing brightens the pill's edge. The caret takes the accent. */
 .composer:focus-within {
-  box-shadow:
-    var(--composer-edge),
-    0 0 0 3px var(--focus-ring);
+  box-shadow: var(--composer-focus);
 }
 
 .composer textarea {
@@ -3223,6 +3235,7 @@ img.project-icon {
   text-overflow: ellipsis;
 }
 
+/* The send key: raised, lit along its top edge and shaded along its bottom; pressed, it sinks in. */
 .send-button {
   width: 36px;
   height: 36px;
@@ -3230,19 +3243,29 @@ img.project-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--key);
+  color: var(--key-text);
   border-radius: 50%;
-  box-shadow: var(--tint-rim);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.14),
+    0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
 .send-button:hover:not(:disabled) {
-  background: var(--accent-hover);
+  filter: brightness(0.95);
 }
 
-/* Blue even before there is something to send, as ChatGPT's button is; dimmed until then. */
+.send-button:active:not(:disabled) {
+  background: var(--key-pressed);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.22);
+}
+
+/* Nothing to send yet: a quiet disc. */
 .send-button:disabled {
-  opacity: 0.5;
+  background: var(--fill-strong);
+  color: var(--text-muted);
+  box-shadow: none;
 }
 
 .permission-mode[data-mode='project'] .picker-label {
@@ -3745,9 +3768,9 @@ img.project-icon {
 }
 
 .model-source-item.active {
-  background: var(--menu-hover);
+  background: linear-gradient(var(--composer-top), var(--composer));
   color: var(--text);
-  box-shadow: var(--glass-rim);
+  box-shadow: var(--composer-edge);
 }
 
 .model-source-chevron {
@@ -3819,8 +3842,8 @@ img.project-icon {
 }
 
 .model-row.active {
-  background: var(--menu-hover);
-  box-shadow: var(--glass-rim);
+  background: linear-gradient(var(--composer-top), var(--composer));
+  box-shadow: var(--composer-edge);
 }
 
 .model-row > svg {
@@ -6626,61 +6649,7 @@ button,
   }
 }
 
-/*
- * Liquid Glass under a press, as Apple describes it (WWDC25, "Meet Liquid
- * Glass"): it "responds to interaction by instantly flexing and energizing with
- * light". Controls swell a little and spring back when let go. Rows rest
- * quiet and lift into glass while pressed; they do not swell, as a row holds
- * its ⋮ menu, which is fixed to the window and would move with it.
- */
-.icon-btn:active:not(:disabled),
-.send-button:active:not(:disabled),
-.style-grid button:active,
-.lead-toggle:active {
-  transform: scale(1.12);
-}
-
-.btn:active:not(:disabled),
-.label-btn:active:not(:disabled),
-.viewport-chip:active,
-.panel-tab:active {
-  transform: scale(1.05);
-}
-
-.composer:active {
-  transform: scale(1.008);
-}
-
-.nav-row:active,
-.chat-row:active,
-.finder-place:active,
-.crumb-btn:active,
-.profile:active,
-.skill-row:active,
-.palette-row:active,
-.menu button:active,
-.slash-item:active,
-.picker-item:active,
-.model-row:active,
-.model-source-item:active {
-  background: var(--glass-strong);
-  box-shadow: var(--glass-rim);
-}
-
-/*
- * And it lights up: "starting right under your fingertips, the glow spreads
- * throughout the element". In Apple's own controls this is quiet: the whole
- * glass turns faintly milky and its rim brightens, with no hot spot under the
- * finger. The light is a layer under the control's content, centered where the
- * press landed (lib/glass-press.ts) and reaching well past its edges, so it
- * reads as a lift across the element; when let go it fades where it reached.
- */
-@property --glow {
-  syntax: '<percentage>';
-  inherits: false;
-  initial-value: 0%;
-}
-
+/* Positioned, for what sits on them: an agent's dot, a row's ⋮ menu, a tab's tooltip. */
 .btn,
 .icon-btn,
 .label-btn,
@@ -6691,7 +6660,6 @@ button,
 .composer,
 .nav-row,
 .chat-row,
-.profile,
 .skill-row,
 .palette-row,
 .menu button,
@@ -6700,68 +6668,91 @@ button,
 .model-row,
 .model-source-item {
   position: relative;
-  isolation: isolate;
 }
 
-.btn::after,
-.icon-btn::after,
-.label-btn::after,
-.viewport-chip::after,
-.send-button::after,
-.panel-tab::after,
-.segmented button::after,
-.composer::after,
-.nav-row::after,
-.chat-row::after,
-.profile::after,
-.skill-row::after,
-.palette-row::after,
-.menu button::after,
-.slash-item::after,
-.picker-item::after,
-.model-row::after,
-.model-source-item::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background: radial-gradient(
-    circle at var(--press-x, 50%) var(--press-y, 50%),
-    var(--press-light),
-    transparent var(--glow)
-  );
-  box-shadow: inset 0 0 0 1px var(--press-rim);
-  opacity: 0;
-  pointer-events: none;
+/*
+ * A press, felt. A control sinks under the finger and springs back when let
+ * go. A row presses in: it takes the composer's fill with a shade along its
+ * inner top edge, as a key pushed into its surface. Rows in a list sink a
+ * little too, except a chat row: it holds its ⋮ menu, fixed to the window,
+ * which a transform would carry.
+ */
+.btn,
+.icon-btn,
+.label-btn,
+.viewport-chip,
+.send-button,
+.panel-tab,
+.picker-button,
+.style-grid button,
+.lead-toggle,
+.nav-row,
+.turn-work-head,
+.skill-row,
+.palette-row,
+.menu button,
+.slash-item,
+.picker-item,
+.model-row,
+.model-source-item {
   transition:
-    opacity 600ms ease,
-    --glow 0s 600ms;
-  border-radius: inherit;
+    transform 460ms cubic-bezier(0.3, 1.6, 0.5, 1),
+    background-color 150ms ease,
+    box-shadow 150ms ease,
+    filter 150ms ease,
+    color 150ms ease;
 }
 
-.btn:active:not(:disabled)::after,
-.icon-btn:active:not(:disabled)::after,
-.label-btn:active:not(:disabled)::after,
-.viewport-chip:active::after,
-.send-button:active:not(:disabled)::after,
-.panel-tab:active::after,
-.segmented button:active::after,
-.composer:active::after,
-.nav-row:active::after,
-.chat-row:active::after,
-.profile:active::after,
-.skill-row:active::after,
-.palette-row:active::after,
-.menu button:active::after,
-.slash-item:active::after,
-.picker-item:active::after,
-.model-row:active::after,
-.model-source-item:active::after {
-  --glow: 250%;
-  opacity: 1;
-  transition:
-    opacity 80ms ease,
-    --glow 500ms var(--ease);
+:is(
+    .btn,
+    .icon-btn,
+    .label-btn,
+    .viewport-chip,
+    .send-button,
+    .panel-tab,
+    .picker-button,
+    .style-grid button,
+    .lead-toggle
+  ):active:not(:disabled) {
+  transform: scale(0.9);
+  transition-duration: 90ms;
+  transition-timing-function: ease-out;
+}
+
+:is(
+  .nav-row,
+  .turn-work-head,
+  .skill-row,
+  .palette-row,
+  .menu button,
+  .slash-item,
+  .picker-item,
+  .model-row,
+  .model-source-item
+):active {
+  transform: scale(0.97);
+  transition-duration: 90ms;
+  transition-timing-function: ease-out;
+}
+
+:is(
+  .chat-row,
+  .nav-row,
+  .finder-place,
+  .crumb-btn,
+  .skill-row,
+  .palette-row,
+  .settled-bar,
+  .menu button,
+  .slash-item,
+  .picker-item,
+  .model-row,
+  .model-source-item
+):active {
+  background: linear-gradient(var(--composer-top), var(--composer));
+  box-shadow:
+    inset 0 2px 5px var(--press-in),
+    0 0 0 1px var(--border);
 }
 
 .chevron {
@@ -7067,8 +7058,8 @@ button,
 }
 
 .palette-row.active {
-  background: var(--selected);
-  box-shadow: var(--glass-rim);
+  background: linear-gradient(var(--composer-top), var(--composer));
+  box-shadow: var(--composer-edge);
 }
 
 .palette-text {
@@ -7101,10 +7092,39 @@ button,
   font-size: 11.5px;
 }
 
-/* A project's own actions. */
+/* A project's own actions, Edit and Remove: round raised keys that sink in when pressed. */
 .palette-actions {
   display: inline-flex;
-  gap: 2px;
+  gap: 8px;
+}
+
+.palette-actions .label-btn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 50%;
+  background: linear-gradient(var(--composer-top), var(--composer));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 0 var(--press-in),
+    0 0 0 1px var(--border);
+}
+
+.palette-actions .label-btn:active {
+  background: var(--composer);
+  box-shadow:
+    inset 0 2px 4px var(--press-in),
+    0 0 0 1px var(--border);
+}
+
+.palette-actions .label-btn.danger {
+  color: var(--danger);
+}
+
+.palette-actions .label-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 .palette .project-style {
@@ -7340,6 +7360,7 @@ button,
     --accent-hover: color-mix(in srgb, var(--bot) 75%, black);
     --accent-text: color-mix(in oklab, var(--bot) 70%, white);
     --bubble: color-mix(in srgb, var(--bot) 50%, transparent);
+    --bubble-text: #ffffff;
     background:
       linear-gradient(180deg, color-mix(in srgb, var(--bot) 14%, transparent), transparent 240px),
       var(--panel-main);

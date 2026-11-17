@@ -274,10 +274,8 @@ function createWindow(): BuiltinBrowser {
     height: 840,
     show: false,
     // On the Mac, the traffic lights sit in the page, centred on the sidebar's
-    // 48px top row, and the window is see-through so the Liquid Glass behind the
-    // page shows where the page is (addGlass); macOS then blends the window with
-    // what is behind it on every frame. Elsewhere a framed window, opaque in the
-    // chat's background color, its menu bar shown while Alt is held.
+    // 48px top row. Elsewhere a framed window, its menu bar shown while Alt is
+    // held. Both are opaque, in the page's background color.
     // A smallest size only on the Mac: a server's desktop (deploy/vps) is as big
     // as the browser tab showing it, as small as a phone above its keyboard, and
     // its maximized window has to fit it.
@@ -287,7 +285,7 @@ function createWindow(): BuiltinBrowser {
           minHeight: 560,
           titleBarStyle: 'hiddenInset' as const,
           trafficLightPosition: { x: 16, y: 17 },
-          transparent: true
+          backgroundColor: windowBackground()
         }
       : { backgroundColor: windowBackground(), autoHideMenuBar: true, icon: appIcon }),
     webPreferences: {
@@ -349,20 +347,10 @@ function createWindow(): BuiltinBrowser {
     lastReload = Date.now()
     mainWindow.webContents.reload()
   })
-  if (process.platform === 'darwin') {
-    // The package adds the glass once the page has loaded; it stays across reloads.
-    mainWindow.webContents.once('did-finish-load', () => addGlass(mainWindow))
-  }
-  // Clear on the Mac, so the glass shows, except in full screen: nothing is
-  // behind the window there but black, which would darken the glass in light mode.
-  const setBackground = (): void => {
-    if (mainWindow.isDestroyed()) return
-    const clear = process.platform === 'darwin' && !mainWindow.isFullScreen()
-    mainWindow.setBackgroundColor(clear ? '#00000000' : windowBackground())
-  }
-  nativeTheme.on('updated', setBackground)
-  mainWindow.on('enter-full-screen', setBackground)
-  mainWindow.on('leave-full-screen', setBackground)
+  // The window's color follows the theme, so a resize or a reload shows no flash of the other one.
+  nativeTheme.on('updated', () => {
+    if (!mainWindow.isDestroyed()) mainWindow.setBackgroundColor(windowBackground())
+  })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
@@ -432,25 +420,9 @@ function createWindow(): BuiltinBrowser {
   return browser
 }
 
-/**
- * The window's color behind the page where it has no glass (outside the Mac, and
- * in full screen), matching the chat's in styles.css.
- */
+/** The window's color behind the page: its canvas (styles.css --canvas), black in dark. */
 function windowBackground(): string {
-  return nativeTheme.shouldUseDarkColors ? '#000000' : '#ffffff'
-}
-
-/**
- * macOS 26's Liquid Glass behind the whole page: Apple's NSGlassEffectView,
- * through electron-liquid-glass. It follows the window's light or dark
- * appearance; before macOS 26 the package puts the older window blur there.
- * Loaded on demand, as the package only installs on the Mac.
- */
-async function addGlass(window: BrowserWindow): Promise<void> {
-  const { default: liquidGlass } = await import('electron-liquid-glass')
-  if (liquidGlass.addView(window.getNativeWindowHandle()) === -1) {
-    console.error('Liquid Glass could not be added to the window')
-  }
+  return nativeTheme.shouldUseDarkColors ? '#000000' : '#f9f9f9'
 }
 
 /**
