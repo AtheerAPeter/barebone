@@ -100,7 +100,9 @@ export function LimitsMeter({
             {limits.windows.map((w) => (
               <Ring key={w.name} window={w} />
             ))}
-            {fullest.name} {Math.round(fullest.usedPercent)}%
+            <span className="limits-label">
+              {fullest.name} {Math.round(fullest.usedPercent)}%
+            </span>
           </>
         ) : (
           limits.balance

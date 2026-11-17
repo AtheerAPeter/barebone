@@ -834,6 +834,12 @@ html.remote .remote-browser.wide .rb-notice {
     height: 130px;
   }
 
+  /* A photo the user sent stays larger than the agent's thumbnails. */
+  html.remote .user-msg .thumb img {
+    max-width: 70vw;
+    height: 220px;
+  }
+
   html.remote .attachment {
     height: 34px;
     padding: 0 12px;
@@ -1705,7 +1711,7 @@ html.remote .remote-browser.wide .rb-notice {
     border-radius: 24px 24px 0 0;
     background: var(--sheet-bg);
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      0 0 0 1px var(--border),
       0 -24px 60px rgba(0, 0, 0, 0.6);
   }
 
@@ -1797,6 +1803,25 @@ html.remote .remote-browser.wide .rb-notice {
   html.remote .picker-button {
     min-width: 44px;
     min-height: 44px;
+  }
+
+  /*
+   * The row's controls spread evenly across it, icons only: the usage
+   * meter's rings without their label (tapped, they open the details), the
+   * model as its agent's logo; each button's tooltip names its value.
+   */
+  html.remote .composer-settings {
+    justify-content: space-between;
+  }
+
+  html.remote .composer-settings .limits,
+  html.remote .composer-trailing-end {
+    margin-left: 0;
+  }
+
+  html.remote .limits-label,
+  html.remote .model-picker :is(.picker-label, .picker-group-name, .picker-chevron) {
+    display: none;
   }
 
   html.remote .composer-settings > .icon-btn svg,

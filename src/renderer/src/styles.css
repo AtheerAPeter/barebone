@@ -7,11 +7,11 @@
  * own values.
  *
  * Pitch: in dark, one true black for every pane, set apart by hairlines, with
- * near-white text; depth comes from light catching top edges, since no shadow
- * shows on black. White is the accent there: the user's messages and the send
- * key; blue stays for dots and links. The composer is a pill lit along its top
- * edge, and what is open or chosen (a chat, a view, a model, a project) takes
- * its surface. What is pressed sinks and springs back, and a row presses in.
+ * near-white text. Everything is flat: fills and hairlines, no gradients or
+ * lit edges. The user's messages are grey pills, the send key is white; blue
+ * stays for dots and links. The composer is a pill, and what is open or
+ * chosen (a chat, a view, a model, a project) takes its surface. What is
+ * pressed sinks and springs back, and a row presses in.
  * Light is the same design in white.
  */
 
@@ -66,12 +66,10 @@
 
   /* Cards: the edits card, the new-skill form, settings. */
   --card: rgba(255, 255, 255, 0.55);
-  --card-edge: 0 0 0 1px var(--border), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --card-edge: 0 0 0 1px var(--border);
   /* Settings' sheets: denser glass than a card, a crisp hairline and only a contact shadow. */
   --sheet: rgba(255, 255, 255, 0.8);
-  --sheet-edge:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 0 0 0.5px rgba(0, 0, 0, 0.16),
-    0 1px 2px rgba(0, 0, 0, 0.05);
+  --sheet-edge: 0 0 0 0.5px rgba(0, 0, 0, 0.16), 0 1px 2px rgba(0, 0, 0, 0.05);
   /* Sunken: output, diffs, code. */
   --well: rgba(0, 0, 0, 0.035);
   /* Opaque, for a field that must hide what is under it. */
@@ -80,25 +78,20 @@
   /* What floats: menus, pickers and the palette blur what is under them. */
   --glass-blur: blur(28px) saturate(180%);
   /*
-   * Every control is glass: a veil of white, a light rim along its top edge
-   * and a hairline that sets it off the glass behind. Strong is the hovered,
+   * A control's fill and edge: a veil and a hairline. Strong is the hovered,
    * selected or raised one.
    */
   --glass: rgba(255, 255, 255, 0.55);
   --glass-strong: rgba(255, 255, 255, 0.85);
-  --glass-rim:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 0 0 0.5px rgba(0, 0, 0, 0.12),
-    0 1px 3px rgba(0, 0, 0, 0.08);
+  --glass-rim: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08);
   /* A row pressed in: the shade along its inner top edge. */
   --press-in: rgba(0, 0, 0, 0.12);
-  /* The send key: raised, lit along the top, shaded along the bottom; ink in light. */
-  --key: linear-gradient(#1a1a1a, #000000);
-  --key-pressed: linear-gradient(#000000, #1a1a1a);
+  /* The send key: a flat disc, ink in light. */
+  --key: #000000;
+  --key-pressed: #262626;
   --key-text: #ffffff;
   /* Glass tinted with the accent: the primary and send buttons, the user's messages. */
-  --tint-rim:
-    inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.1),
-    0 2px 6px -2px rgba(47, 111, 237, 0.45);
+  --tint-rim: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 2px 6px -2px rgba(47, 111, 237, 0.45);
 
   /* Solid: done todos. */
   --solid: #0d0d0d;
@@ -123,23 +116,16 @@
   --menu: rgba(255, 255, 255, 0.68);
   /* Nearly opaque, for titles that stay put while rows scroll under them. */
   --menu-title: rgba(250, 250, 250, 0.94);
-  --menu-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.8), inset 0 0 0 1px rgba(255, 255, 255, 0.35),
-    0 0 0 0.5px rgba(0, 0, 0, 0.15), 0 16px 40px -10px rgba(0, 0, 0, 0.25);
+  --menu-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.15), 0 16px 40px -10px rgba(0, 0, 0, 0.25);
 
-  /*
-   * The composer, and what is open or chosen (a chat, a view, a model): its
-   * fill lit along the top edge, a hairline around it. --composer-top is the
-   * fill's top, a step lighter in dark.
-   */
+  /* The composer, and what is open or chosen (a chat, a view, a model): a flat fill and a hairline. */
   --composer: #ffffff;
-  --composer-top: var(--composer);
-  --composer-edge: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 0 0 1px var(--border);
-  --composer-focus: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 0 0 1px var(--border-strong);
+  --composer-edge: 0 0 0 1px var(--border);
+  --composer-focus: 0 0 0 1px var(--border-strong);
   /* The phone's sheets through the link (remote.css). */
   --sheet-bg: var(--panel-main);
   --strip: rgba(255, 255, 255, 0.55);
-  --strip-edge: 0 0 0 1px var(--border), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --strip-edge: 0 0 0 1px var(--border);
   --ask-bg: rgba(255, 255, 255, 0.72);
   /* Inset, so the ring survives the group's clipping while the card animates open. */
   --ask-glow: inset 0 0 0 1px rgba(47, 111, 237, 0.45), 0 8px 24px -10px rgba(47, 111, 237, 0.3);
@@ -147,8 +133,7 @@
   /* The user's messages: pills of blue-tinted glass. */
   --bubble: rgba(47, 111, 237, 0.16);
   --bubble-text: #0d0d0d;
-  /* Raised: its bottom edge shaded, a contact shadow under it. */
-  --bubble-edge: inset 0 -1px 0 rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.08);
+  --bubble-edge: none;
 
   /*
    * Corners, ChatGPT's: chips and inline code, rows and buttons, menus and
@@ -172,8 +157,8 @@
 
 /*
  * Dark is Pitch: one true black for every pane, crisp near-white text, the
- * quieter shades lifted to match, surfaces a step above black with a light
- * top edge, and white for the user's messages and the send key.
+ * quieter shades lifted to match, flat surfaces a step above black, grey for
+ * the user's messages and white for the send key.
  */
 @media (prefers-color-scheme: dark) {
   :root {
@@ -210,9 +195,9 @@
     --raised: var(--glass-strong);
 
     --card: #0c0c0c;
-    --card-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 0 1px var(--border);
+    --card-edge: 0 0 0 1px var(--border);
     --sheet: #0c0c0c;
-    --sheet-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 0 1px var(--border);
+    --sheet-edge: 0 0 0 1px var(--border);
     --well: #0a0a0a;
     --surface: #121212;
 
@@ -222,9 +207,7 @@
     --press-in: rgba(0, 0, 0, 0.55);
     --glass-rim: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
     --raised-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
-    --tint-rim:
-      inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 0 0 0.5px rgba(0, 0, 0, 0.5),
-      0 2px 6px -2px rgba(0, 0, 0, 0.5);
+    --tint-rim: 0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 2px 6px -2px rgba(0, 0, 0, 0.5);
 
     --solid: #ffffff;
     --on-solid: #0d0d0d;
@@ -244,24 +227,21 @@
     /* Menus and sheets: opaque, an edge, and a shadow that darkens what is under them. */
     --menu: #101010;
     --menu-title: #101010;
-    --menu-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1),
-      0 24px 60px -12px rgba(0, 0, 0, 0.95);
+    --menu-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 24px 60px -12px rgba(0, 0, 0, 0.95);
 
-    --composer: #0f0f0f;
-    --composer-top: #161616;
+    --composer: #121212;
     --sheet-bg: #0b0b0b;
     --strip: #0c0c0c;
-    --strip-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 0 1px var(--border);
+    --strip-edge: 0 0 0 1px var(--border);
     --ask-bg: #0c0c0c;
     --ask-glow: inset 0 0 0 1px rgba(138, 176, 255, 0.4), 0 8px 24px -10px rgba(0, 0, 0, 0.5);
 
-    /* The user's messages and the send key: white, raised. */
-    --bubble: linear-gradient(#ffffff, #ececec);
-    --bubble-text: #0a0a0a;
-    --bubble-edge: inset 0 -2px 0 rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.35);
-    --key: linear-gradient(#ffffff, #e8e8e8);
-    --key-pressed: linear-gradient(#e2e2e2, #f0f0f0);
+    /* The user's messages: flat grey; white would glare on black. */
+    --bubble: #2c2c2e;
+    --bubble-text: #f5f5f7;
+    /* The send key: a flat white disc. */
+    --key: #ffffff;
+    --key-pressed: #d9d9d9;
     --key-text: #000000;
     color-scheme: dark;
   }
@@ -1043,7 +1023,7 @@ img.project-icon {
 /* The open chat: the composer's surface, as everything open or chosen is. */
 .chat-row.selected,
 .nav-row.on {
-  background: linear-gradient(var(--composer-top), var(--composer));
+  background: var(--composer);
   box-shadow: var(--composer-edge);
 }
 
@@ -1549,10 +1529,15 @@ img.project-icon {
   letter-spacing: -0.025em;
 }
 
-/* The user's message: a pill on the right, set apart from the turn before. */
+/*
+ * The user's message: on the right, set apart from the turn before. Photos
+ * and files come first, each on its own, then the words in their pill.
+ */
 .user-msg {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
   margin: 28px 0 4px;
 }
 
@@ -1568,7 +1553,7 @@ img.project-icon {
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  /* A tight corner at the speaker's side; raised, its bottom edge shaded. */
+  /* A tight corner at the speaker's side. */
   border-radius: var(--radius-bubble) var(--radius-bubble) 8px var(--radius-bubble);
   box-shadow: var(--bubble-edge);
 }
@@ -1583,11 +1568,6 @@ img.project-icon {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.bubble .attachment {
-  background: color-mix(in srgb, currentColor 12%, transparent);
-  color: inherit;
 }
 
 .say {
@@ -2753,7 +2733,7 @@ img.project-icon {
   max-width: var(--chat-width);
   margin: 0 auto;
   padding: 8px;
-  background: linear-gradient(var(--composer-top), var(--composer));
+  background: var(--composer);
   box-shadow: var(--composer-edge);
   transition: box-shadow 0.2s;
   border-radius: var(--radius-xl);
@@ -3002,13 +2982,20 @@ img.project-icon {
   opacity: 0.88;
 }
 
-.bubble .thumbs {
-  margin-top: 6px;
+.user-msg .thumbs,
+.user-msg .msg-attachments {
+  justify-content: flex-end;
+  margin-top: 0;
 }
 
-.bubble .thumb {
-  background: color-mix(in srgb, currentColor 8%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 12%, transparent);
+/* A photo the user sent: larger, its corners as round as the pill under it. */
+.user-msg .thumb {
+  border-radius: 18px;
+}
+
+.user-msg .thumb img {
+  max-width: min(280px, 70vw);
+  height: 200px;
 }
 
 /* The agent's images, lined up with its text. */
@@ -3235,7 +3222,7 @@ img.project-icon {
   text-overflow: ellipsis;
 }
 
-/* The send key: raised, lit along its top edge and shaded along its bottom; pressed, it sinks in. */
+/* The send key: a flat disc; pressed, it sinks. */
 .send-button {
   width: 36px;
   height: 36px;
@@ -3246,10 +3233,6 @@ img.project-icon {
   background: var(--key);
   color: var(--key-text);
   border-radius: 50%;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.6),
-    inset 0 -2px 0 rgba(0, 0, 0, 0.14),
-    0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
 .send-button:hover:not(:disabled) {
@@ -3258,7 +3241,6 @@ img.project-icon {
 
 .send-button:active:not(:disabled) {
   background: var(--key-pressed);
-  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.22);
 }
 
 /* Nothing to send yet: a quiet disc. */
@@ -3768,7 +3750,7 @@ img.project-icon {
 }
 
 .model-source-item.active {
-  background: linear-gradient(var(--composer-top), var(--composer));
+  background: var(--composer);
   color: var(--text);
   box-shadow: var(--composer-edge);
 }
@@ -3842,7 +3824,7 @@ img.project-icon {
 }
 
 .model-row.active {
-  background: linear-gradient(var(--composer-top), var(--composer));
+  background: var(--composer);
   box-shadow: var(--composer-edge);
 }
 
@@ -5683,7 +5665,7 @@ img.project-icon {
   margin: 0;
 }
 
-/* The row's tile: a white glyph on a solid color, lit along its top edge. */
+/* The row's tile: a white glyph on a solid color. */
 .settings-icon {
   display: grid;
   place-items: center;
@@ -5691,15 +5673,8 @@ img.project-icon {
   width: 30px;
   height: 30px;
   color: #ffffff;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--tile) 78%, #ffffff),
-    var(--tile) 60%
-  );
+  background: var(--tile);
   border-radius: 8px;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.35),
-    0 0 0 0.5px rgba(0, 0, 0, 0.18);
 }
 
 .settings-icon svg {
@@ -6749,7 +6724,7 @@ button,
   .model-row,
   .model-source-item
 ):active {
-  background: linear-gradient(var(--composer-top), var(--composer));
+  background: var(--composer);
   box-shadow:
     inset 0 2px 5px var(--press-in),
     0 0 0 1px var(--border);
@@ -7058,7 +7033,7 @@ button,
 }
 
 .palette-row.active {
-  background: linear-gradient(var(--composer-top), var(--composer));
+  background: var(--composer);
   box-shadow: var(--composer-edge);
 }
 
@@ -7092,7 +7067,7 @@ button,
   font-size: 11.5px;
 }
 
-/* A project's own actions, Edit and Remove: round raised keys that sink in when pressed. */
+/* A project's own actions, Edit and Remove: round keys that sink in when pressed. */
 .palette-actions {
   display: inline-flex;
   gap: 8px;
@@ -7104,11 +7079,8 @@ button,
   padding: 0;
   justify-content: center;
   border-radius: 50%;
-  background: linear-gradient(var(--composer-top), var(--composer));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    inset 0 -1px 0 var(--press-in),
-    0 0 0 1px var(--border);
+  background: var(--composer);
+  box-shadow: 0 0 0 1px var(--border);
 }
 
 .palette-actions .label-btn:active {

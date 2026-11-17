@@ -604,45 +604,48 @@ const Item = memo(function Item({
   switch (item.kind) {
     case 'user':
       return (
+        // Photos and files above the words, each on its own, as a phone's messages show them.
         <div className="user-msg">
-          <div className="bubble">
-            {item.from && (
-              <div className="bubble-from">
-                {item.from.kind === 'command'
-                  ? 'Background command ended'
-                  : item.from.kind === 'timer'
-                    ? 'Timer went off'
-                    : item.from.kind === 'routine'
-                      ? `Routine: ${item.from.note}`
-                      : item.from.kind === 'ended'
-                        ? `${item.from.title} ended its turn`
-                        : item.from.kind === 'self'
-                          ? `${agentLabel(item.from.agent)} went on by itself`
-                          : item.from.kind === 'approval'
-                            ? 'Your answer to an approval'
-                            : `From ${item.from.title}`}
-              </div>
-            )}
-            {item.text}
-            {item.attachments?.some((a) => a.file) && (
-              <Thumbnails
-                chatId={chatId}
-                files={item.attachments.flatMap((a) => (a.file ? [a.file] : []))}
-              />
-            )}
-            {item.attachments?.some((a) => !a.file) && (
-              <div className="msg-attachments">
-                {item.attachments
-                  .filter((a) => !a.file)
-                  .map((a, index) => (
-                    <span className="attachment" key={index}>
-                      <FileIcon width={12} height={12} />
-                      <span className="attachment-name">{a.name}</span>
-                    </span>
-                  ))}
-              </div>
-            )}
-          </div>
+          {item.attachments?.some((a) => a.file) && (
+            <Thumbnails
+              chatId={chatId}
+              files={item.attachments.flatMap((a) => (a.file ? [a.file] : []))}
+            />
+          )}
+          {item.attachments?.some((a) => !a.file) && (
+            <div className="msg-attachments">
+              {item.attachments
+                .filter((a) => !a.file)
+                .map((a, index) => (
+                  <span className="attachment" key={index}>
+                    <FileIcon width={12} height={12} />
+                    <span className="attachment-name">{a.name}</span>
+                  </span>
+                ))}
+            </div>
+          )}
+          {(item.text || item.from) && (
+            <div className="bubble">
+              {item.from && (
+                <div className="bubble-from">
+                  {item.from.kind === 'command'
+                    ? 'Background command ended'
+                    : item.from.kind === 'timer'
+                      ? 'Timer went off'
+                      : item.from.kind === 'routine'
+                        ? `Routine: ${item.from.note}`
+                        : item.from.kind === 'ended'
+                          ? `${item.from.title} ended its turn`
+                          : item.from.kind === 'self'
+                            ? `${agentLabel(item.from.agent)} went on by itself`
+                            : item.from.kind === 'approval'
+                              ? 'Your answer to an approval'
+                              : `From ${item.from.title}`}
+                </div>
+              )}
+              {item.text}
+            </div>
+          )}
         </div>
       )
     case 'text':
