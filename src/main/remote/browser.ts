@@ -171,12 +171,12 @@ export class RemoteBrowser {
 
     // Input goes to the page only, as an agent's does (page-driver.ts).
     handleRemote('remoteBrowser:tap', (caller, x: unknown, y: unknown) =>
-      this.page(caller).driver.clickAt({ x: num(x), y: num(y) }, 'left', 1)
+      this.page(caller).driver.tapAt(this.pointIn(caller, x, y))
     )
     handleRemote(
       'remoteBrowser:scroll',
       (caller, x: unknown, y: unknown, dx: unknown, dy: unknown) =>
-        this.page(caller).driver.wheel({ x: num(x), y: num(y) }, num(dy), num(dx))
+        this.page(caller).driver.wheelAt(this.pointIn(caller, x, y), num(dy), num(dx))
     )
     handleRemote('remoteBrowser:type', (caller, text: unknown) =>
       this.page(caller).driver.typeText(str(text).slice(0, 1000))
@@ -533,6 +533,21 @@ export class RemoteBrowser {
   }
 
   /** The page the device shows, to act on; a page it does not show cannot be used. */
+  /**
+   * A point of the page the device shows, from its picture: in the size the
+   * page is laid out at, an agent's or the device's. Checked here, so the page
+   * is not asked its size with every tap and scroll.
+   */
+  private pointIn(caller: Caller, x: unknown, y: unknown): { x: number; y: number } {
+    const view = this.use(caller)
+    const { width, height } = view.tab?.viewport ?? view.size
+    const point = { x: num(x), y: num(y) }
+    if (point.x < 0 || point.y < 0 || point.x >= width || point.y >= height) {
+      throw new Error('That point is outside the page.')
+    }
+    return point
+  }
+
   private page(caller: Caller): ChatPage {
     const tab = this.use(caller).tab
     if (!tab || !webPage(tab.contents.getURL() || tab.url)) {

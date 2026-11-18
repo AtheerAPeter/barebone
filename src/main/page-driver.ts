@@ -1524,6 +1524,17 @@ export class PageDriver {
    */
   async clickAt(point: Point, button: MouseButton, clicks: number): Promise<void> {
     await this.inViewport(point)
+    await this.tapAt(point, button, clicks)
+  }
+
+  /**
+   * Click at a point taken from a picture of the page, so in its viewport:
+   * the remote link's taps. Unlike clickAt, the page is not asked its size
+   * first, which a busy page answers late (see wheelAt).
+   */
+  async tapAt(point: Point, button: MouseButton = 'left', clicks = 1): Promise<void> {
+    await this.attach()
+    await this.ensureDrawing()
     await this.mouse('mouseMoved', point)
     for (let count = 1; count <= clicks; count++) {
       const held = { button, clickCount: count }
@@ -1592,6 +1603,18 @@ export class PageDriver {
    */
   async wheel(point: Point, pixels: number, sideways = 0): Promise<void> {
     await this.inViewport(point)
+    await this.wheelAt(point, pixels, sideways)
+  }
+
+  /**
+   * Turn the wheel at a point taken from a picture of the page, so in its
+   * viewport: the remote link's scrolls. Unlike wheel, the page is not asked
+   * its size first: a busy page (a feed loading as it scrolls) answers late,
+   * and each scroll waited for it.
+   */
+  async wheelAt(point: Point, pixels: number, sideways = 0): Promise<void> {
+    await this.attach()
+    await this.ensureDrawing()
     await this.mouse('mouseWheel', point, { deltaX: sideways, deltaY: pixels })
   }
 

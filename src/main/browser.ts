@@ -147,6 +147,8 @@ export class ChatPage extends EventEmitter {
   dialog?: PageDialog
   /** The message box showing the dialog to the user, while it is on screen. */
   box?: AbortController
+  /** In the window, where Chromium draws it: in the panel, or on a server shown remotely. */
+  inWindow = false
   /** In the panel, as opposed to parked out of sight. */
   shown = false
   /** The window is starting to capture it, to record it as a video (recording.ts). */
@@ -193,7 +195,7 @@ export class ChatPage extends EventEmitter {
         if (native) this.openDialog({ ...native, site: siteOf(this.contents.getURL()) })
         else if (this.dialog && !this.dialog.answer) this.closeDialog()
       },
-      () => this.shown
+      () => this.inWindow
     )
   }
 
@@ -752,8 +754,8 @@ export class BuiltinBrowser {
           chatId === this.activeChat &&
           tab === browser.active &&
           !this.panelHidden
-        const inWindow = tab.shown || (HEADLESS && tab.viewedRemotely)
-        tab.view.setBounds(inWindow ? bounds : parked(bounds))
+        tab.inWindow = tab.shown || (HEADLESS && tab.viewedRemotely)
+        tab.view.setBounds(tab.inWindow ? bounds : parked(bounds))
         // A page at a set size is scaled anew as the panel changes size.
         if (tab.viewport && scale !== tab.scale) tab.driver.emulate(tab.viewport, scale)
         tab.scale = scale
