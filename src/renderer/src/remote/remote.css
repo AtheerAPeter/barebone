@@ -2026,17 +2026,19 @@ html.remote .settings-sheet .picker-button {
  * is open the other rows step aside and the list fills the sheet under its
  * head; tapping outside the list, the head included, steps back to them.
  */
-html.remote .settings-sheet:has(.picker-menu) .settings-sheet-row:not(:has(.picker-menu)) {
+html.remote
+  .settings-sheet:has(.picker-menu:not(.leaving))
+  .settings-sheet-row:not(:has(.picker-menu:not(.leaving))) {
   display: none;
 }
 
-html.remote .settings-sheet-row:has(.picker-menu) {
+html.remote .settings-sheet-row:has(.picker-menu:not(.leaving)) {
   display: block;
   padding: 0;
 }
 
-html.remote .settings-sheet-row:has(.picker-menu) > .settings-sheet-name,
-html.remote .settings-sheet-row:has(.picker-menu) :is(.picker-button, .limits-meter) {
+html.remote .settings-sheet-row:has(.picker-menu:not(.leaving)) > .settings-sheet-name,
+html.remote .settings-sheet-row:has(.picker-menu:not(.leaving)) :is(.picker-button, .limits-meter) {
   display: none;
 }
 
@@ -2107,6 +2109,43 @@ html.remote .settings-sheet .picker-menu[data-side='below'] {
   html.remote .sidebar.closed > * {
     opacity: 1;
     transition: none;
+  }
+}
+
+/*
+ * Closing, a sheet sinks back the way it rose, and the dim behind it fades;
+ * it leaves the page once it is down (lib/leaving.ts). It takes no taps on
+ * its way. A list drilled into from Chat settings gives its place back to
+ * the rows at once.
+ */
+@media (max-width: 700px) {
+  html.remote .leaving {
+    pointer-events: none;
+  }
+
+  html.remote :is(.picker-menu, .menu.sheet, .settings-sheet).leaving,
+  html.remote .palette-backdrop.leaving .palette {
+    animation: sheet-down var(--sheet-time) var(--sheet-ease) forwards;
+  }
+
+  html.remote :is(.drawer-scrim, .palette-backdrop).leaving {
+    animation: fade-out var(--sheet-time) var(--sheet-ease) forwards;
+  }
+
+  html.remote .settings-sheet .picker-menu.leaving {
+    display: none;
+  }
+}
+
+@keyframes sheet-down {
+  to {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes fade-out {
+  to {
+    opacity: 0;
   }
 }
 

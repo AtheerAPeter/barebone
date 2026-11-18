@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useState } from 'react'
+import { useLeaving } from '../lib/leaving'
 import type { GitCommit, GitLog, GitStatus } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
 import {
@@ -61,6 +62,7 @@ export function GitGraph({
   const [reloads, setReloads] = useState(0)
   const [failed, setFailed] = useState<string>()
   const [menu, setMenu] = useState<{ at: MenuAt; commit: GitCommit }>()
+  const shownMenu = useLeaving(menu)
 
   // Read again whenever the status is: a commit, a pull or a fetch moves the graph.
   useEffect(() => {
@@ -206,10 +208,11 @@ export function GitGraph({
           )}
         </div>
       )}
-      {menu && (
+      {shownMenu.shown && (
         <PopupMenu
-          at={menu.at}
-          entries={menuEntries(menu.commit)}
+          at={shownMenu.shown.at}
+          entries={menuEntries(shownMenu.shown.commit)}
+          leaving={shownMenu.leaving}
           onClose={() => setMenu(undefined)}
         />
       )}

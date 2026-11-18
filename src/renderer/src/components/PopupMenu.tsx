@@ -16,11 +16,14 @@ const EDGE = 8
 export function PopupMenu({
   at,
   entries,
-  onClose
+  onClose,
+  leaving = false
 }: {
   at: MenuAt
   entries: MenuEntries
   onClose: () => void
+  /** Closed, and sinking away as a phone's sheet (lib/leaving.ts). */
+  leaving?: boolean
 }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   const sheet = menusAsSheets()
@@ -92,7 +95,7 @@ export function PopupMenu({
 
   return createPortal(
     <div
-      className={`menu popup-menu${sheet ? ' sheet' : ''}`}
+      className={`menu popup-menu${sheet ? ' sheet' : ''}${leaving ? ' leaving' : ''}`}
       role="menu"
       style={style}
       ref={ref}

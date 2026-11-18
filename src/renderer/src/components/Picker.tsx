@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { useLeaving } from '../lib/leaving'
 import { useOverlay } from '../lib/overlays'
 import { menuPlacement, placementProps, type MenuPlacement } from '../lib/menuPlacement'
 import { touchScreen } from '../lib/touch'
@@ -34,6 +35,8 @@ export function Picker({
   icon
 }: PickerProps): React.JSX.Element {
   const [open, setOpen] = useState(false)
+  /** The menu stays while it sinks away as a phone's sheet. */
+  const menu = useLeaving(open)
   const [placement, setPlacement] = useState<MenuPlacement>()
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
@@ -122,9 +125,9 @@ export function Picker({
         <span className="picker-label">{current?.name ?? placeholder ?? value}</span>
         <ChevronDownIcon width={12} height={12} className="picker-chevron" />
       </button>
-      {open && (
+      {menu.shown && (
         <div
-          className="picker-menu"
+          className={`picker-menu${menu.leaving ? ' leaving' : ''}`}
           role="listbox"
           ref={menuRef}
           {...(placement && placementProps(placement))}

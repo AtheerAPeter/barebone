@@ -22,11 +22,14 @@ const isPath = (query: string): boolean => /^[~/]/.test(query.trim())
 export function ProjectPicker({
   projects,
   onPick,
-  onClose
+  onClose,
+  leaving = false
 }: {
   projects: Project[]
   onPick: (projectId: string) => void
   onClose: () => void
+  /** Closed, and sinking away as a phone's sheet (lib/leaving.ts). */
+  leaving?: boolean
 }): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
@@ -106,7 +109,7 @@ export function ProjectPicker({
 
   return (
     <div
-      className="palette-backdrop"
+      className={`palette-backdrop${leaving ? ' leaving' : ''}`}
       onPointerDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="palette" role="dialog" aria-label="New chat in" ref={ref}>

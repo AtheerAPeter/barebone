@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useLeaving } from '../lib/leaving'
 import type { AgentOption } from '../../../shared/types'
 import { useOverlay } from '../lib/overlays'
 import { menuPlacement, placementProps, type MenuPlacement } from '../lib/menuPlacement'
@@ -56,6 +57,8 @@ export function EffortPicker({
     stops.findIndex((v) => v.value === option?.currentValue)
   )
   const [placement, setPlacement] = useState<MenuPlacement>()
+  /** Where the menu is, kept while it sinks away as a phone's sheet. */
+  const menu = useLeaving(placement)
   /** The stop shown while the menu is open; the agent's answer to a change comes later. */
   const [index, setIndex] = useState(currentIndex)
   /** Where the thumb is while it is dragged, between stops; it settles on the nearest at release. */
@@ -146,8 +149,12 @@ export function EffortPicker({
         <span className="picker-label">{label}</span>
         <ChevronDownIcon width={12} height={12} className="picker-chevron" />
       </button>
-      {placement && (
-        <div className="picker-menu effort-menu" ref={menuRef} {...placementProps(placement)}>
+      {menu.shown && (
+        <div
+          className={`picker-menu effort-menu${menu.leaving ? ' leaving' : ''}`}
+          ref={menuRef}
+          {...placementProps(menu.shown)}
+        >
           {option && (
             <>
               <div className="effort-name">{stops[index]?.name}</div>
@@ -207,6 +214,13 @@ export function EffortPicker({
       )}
     </div>
   )
+}
+
+/** An effort option's current level as its signal, for a button that names something else (the model). */
+export function EffortLevel({ option }: { option: AgentOption }): React.JSX.Element {
+  const levels = option.values.filter((v) => v.value !== DEFAULT)
+  const at = levels.findIndex((v) => v.value === option.currentValue)
+  return <LevelBars lit={at + 1} of={levels.length} />
 }
 
 /**

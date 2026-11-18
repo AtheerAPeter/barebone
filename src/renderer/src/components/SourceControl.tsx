@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLeaving } from '../lib/leaving'
 import type { GitChange, GitStatus } from '../../../shared/types'
 import { shortcut, shortcutHeld } from '../lib/platform'
 import { touchScreen } from '../lib/touch'
@@ -93,6 +94,7 @@ export function SourceControl({
   /** Where a shift-click or shift-arrow selection runs from. */
   const anchor = useRef<string>(undefined)
   const [menu, setMenu] = useState<{ at: MenuAt; entries: MenuEntries }>()
+  const shownMenu = useLeaving(menu)
   const listRef = useRef<HTMLDivElement>(null)
 
   const toggle = (key: string): void =>
@@ -384,7 +386,14 @@ export function SourceControl({
       ) : (
         <p className="code-clean">No changes to commit.</p>
       )}
-      {menu && <PopupMenu at={menu.at} entries={menu.entries} onClose={() => setMenu(undefined)} />}
+      {shownMenu.shown && (
+        <PopupMenu
+          at={shownMenu.shown.at}
+          entries={shownMenu.shown.entries}
+          leaving={shownMenu.leaving}
+          onClose={() => setMenu(undefined)}
+        />
+      )}
     </div>
   )
 }
@@ -507,6 +516,7 @@ function CommitBox({
   onMessage: (message: string) => void
 }): React.JSX.Element {
   const [menu, setMenu] = useState<MenuAt>()
+  const shownMenu = useLeaving(menu)
   const changed = repo.conflicts.length + repo.staged.length + repo.unstaged.length > 0
   const sync = (): void => void run('sync', () => window.api.git.sync(projectId))
 
@@ -603,7 +613,14 @@ function CommitBox({
           )}
         </div>
       )}
-      {menu && <PopupMenu at={menu} entries={entries} onClose={() => setMenu(undefined)} />}
+      {shownMenu.shown && (
+        <PopupMenu
+          at={shownMenu.shown}
+          entries={entries}
+          leaving={shownMenu.leaving}
+          onClose={() => setMenu(undefined)}
+        />
+      )}
     </div>
   )
 }

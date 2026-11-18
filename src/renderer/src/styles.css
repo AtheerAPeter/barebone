@@ -3871,6 +3871,33 @@ img.project-icon {
   border-radius: var(--radius);
 }
 
+/*
+ * The model menu's two views take turns as pages do: a source's models come
+ * in from the right, the list of agents and providers back from the left.
+ */
+.model-source-back,
+.model-source-back + .model-list {
+  animation: page-forward var(--move) var(--ease);
+}
+
+.model-search + .model-list {
+  animation: page-back var(--move) var(--ease);
+}
+
+@keyframes page-forward {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+@keyframes page-back {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+}
+
 .model-row.active {
   background: var(--selected);
   box-shadow: var(--selected-edge);

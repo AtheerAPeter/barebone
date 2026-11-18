@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useLeaving } from '../lib/leaving'
 import type { FileEntry, FilePreview, FolderListing } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
 import { uploadInto } from '../lib/file-upload'
@@ -69,6 +70,7 @@ export function FilesView(): React.JSX.Element {
   const [opened, setOpened] = useState<{ path: string; preview?: FilePreview; error?: string }>()
   const [prompt, setPrompt] = useState<Prompt>()
   const [menu, setMenu] = useState<{ at: MenuAt; entries: MenuEntries }>()
+  const shownMenu = useLeaving(menu)
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [dropping, setDropping] = useState(false)
@@ -548,7 +550,14 @@ export function FilesView(): React.JSX.Element {
         <PathBar path={folder} home={home} onGo={go} />
       </section>
 
-      {menu && <PopupMenu at={menu.at} entries={menu.entries} onClose={() => setMenu(undefined)} />}
+      {shownMenu.shown && (
+        <PopupMenu
+          at={shownMenu.shown.at}
+          entries={shownMenu.shown.entries}
+          leaving={shownMenu.leaving}
+          onClose={() => setMenu(undefined)}
+        />
+      )}
     </div>
   )
 }

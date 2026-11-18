@@ -37,6 +37,7 @@ import { usePageRecorder } from './lib/recording'
 import { useSpeechPlayer } from './lib/speech'
 import { LevelMeter } from './components/LevelMeter'
 import { PHONE, useMedia, useNarrower } from './lib/touch'
+import { useLeaving } from './lib/leaving'
 
 /** How often the orb is told the agent's voice level while it speaks. */
 const ORB_LEVEL_MS = 50
@@ -77,6 +78,8 @@ export default function App(): React.JSX.Element {
   const narrowBar = useNarrower(mainRef, BOT_TABS_BESIDE)
   /** Whether the user is picking the project of a new chat. */
   const [picking, setPicking] = useState(false)
+  /** New chat's projects stay while they sink away as a phone's sheet. */
+  const picker = useLeaving(picking)
   const [statuses, setStatuses] = useState<Partial<Record<AgentId, AgentStatus>>>({})
   const readStatus = (id: AgentId): void => {
     window.api.agentStatus(id).then((status) => setStatuses((c) => ({ ...c, [id]: status })))
@@ -578,8 +581,9 @@ export default function App(): React.JSX.Element {
           </div>
         )}
       </main>
-      {picking && (
+      {picker.shown && (
         <ProjectPicker
+          leaving={picker.leaving}
           // A bot has its one conversation, opened from Bots in the sidebar.
           projects={state.projects.filter((p) => !p.bot)}
           onPick={(projectId) => {

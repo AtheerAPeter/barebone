@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useLeaving } from '../lib/leaving'
 import type { AgentId, LimitWindow, UsageLimits } from '../../../shared/types'
 import { useOverlay } from '../lib/overlays'
 import { menuPlacement, placementProps, type MenuPlacement } from '../lib/menuPlacement'
@@ -30,6 +31,8 @@ export function LimitsMeter({
   const account = `${agent}:${source ?? ''}`
   const [read, setRead] = useState<{ account: string; limits: UsageLimits | null }>()
   const [open, setOpen] = useState(false)
+  /** The popover stays while it sinks away as a phone's sheet. */
+  const menu = useLeaving(open)
   const [placement, setPlacement] = useState<MenuPlacement>()
   const rootRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -108,9 +111,9 @@ export function LimitsMeter({
           limits.balance
         )}
       </button>
-      {open && (
+      {menu.shown && (
         <div
-          className="picker-menu limits-menu"
+          className={`picker-menu limits-menu${menu.leaving ? ' leaving' : ''}`}
           role="dialog"
           aria-label={`${limits.account} usage`}
           ref={menuRef}

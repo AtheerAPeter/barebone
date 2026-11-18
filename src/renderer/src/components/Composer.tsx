@@ -13,12 +13,13 @@ import {
   type Attachment
 } from '../../../shared/types'
 import { Picker } from './Picker'
-import { EffortPicker } from './EffortPicker'
+import { EffortLevel, EffortPicker } from './EffortPicker'
 import { ModelPicker } from './model-picker/ModelPicker'
 import { AgentLogo } from './model-picker/AgentLogo'
 import { CompletionMenu, type CompletionItem } from './CompletionMenu'
 import { uploadFile } from '../remote/upload'
 import { touchScreen } from '../lib/touch'
+import { useLeaving } from '../lib/leaving'
 import { addPrompt } from '../../../shared/prompt-history'
 import { LevelMeter } from './LevelMeter'
 import { LimitsMeter } from './LimitsMeter'
@@ -153,6 +154,8 @@ export function Composer({
   const [menuDismissed, setMenuDismissed] = useState<string>()
   /** The settings sheet is open (settingsSheet). */
   const [sheetOpen, setSheetOpen] = useState(false)
+  /** It stays while it sinks away. */
+  const sheet = useLeaving(sheetOpen)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const status = statuses[chat.agent]
 
@@ -759,6 +762,7 @@ export function Composer({
           >
             <AgentLogo agent={chat.agent} size={18} />
             <span className="settings-summary-text">{modelName}</span>
+            {effort && <EffortLevel option={effort} />}
             <ChevronDownIcon width={14} height={14} />
           </button>
         ) : (
@@ -788,10 +792,17 @@ export function Composer({
         )}
         {trailing && <span className="composer-trailing-end">{trailing}</span>}
       </div>
-      {settingsSheet && sheetOpen && (
+      {settingsSheet && sheet.shown && (
         <>
-          <div className="drawer-scrim" onClick={() => setSheetOpen(false)} />
-          <div className="settings-sheet" role="dialog" aria-label="Chat settings">
+          <div
+            className={`drawer-scrim${sheet.leaving ? ' leaving' : ''}`}
+            onClick={() => setSheetOpen(false)}
+          />
+          <div
+            className={`settings-sheet${sheet.leaving ? ' leaving' : ''}`}
+            role="dialog"
+            aria-label="Chat settings"
+          >
             <div className="settings-sheet-head">
               <span>Chat settings</span>
               <button

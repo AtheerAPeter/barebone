@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useLeaving } from '../lib/leaving'
 import { createPortal } from 'react-dom'
 import type {
   CodeDoc,
@@ -87,6 +88,7 @@ export function CodePanel({
   const [tree, setTree] = useState(() => readPref(TREE_PREF, false))
   const [graphOpen, setGraphOpen] = useState(() => readPref(GRAPH_PREF, true))
   const [more, setMore] = useState<MenuAt>()
+  const moreMenu = useLeaving(more)
   const projectId = project.id
 
   // A walkthrough needs room for its cards and the links beside them: the panel widens for one.
@@ -426,8 +428,13 @@ export function CodePanel({
                 <MoreIcon />
               </button>
             )}
-            {more && repo && (
-              <PopupMenu at={more} entries={moreEntries(repo)} onClose={() => setMore(undefined)} />
+            {moreMenu.shown && repo && (
+              <PopupMenu
+                at={moreMenu.shown}
+                entries={moreEntries(repo)}
+                leaving={moreMenu.leaving}
+                onClose={() => setMore(undefined)}
+              />
             )}
           </div>
           {error && (

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import { useOverlay } from '../lib/overlays'
 import { menusAsSheets } from '../lib/touch'
+import { useLeaving } from '../lib/leaving'
 import { MoreIcon } from './icons'
 
 export interface RowMenuItem {
@@ -25,6 +26,8 @@ export function RowMenu({
   items: RowMenuItem[]
 }): React.JSX.Element {
   const [at, setAt] = useState<React.CSSProperties>()
+  /** Where the menu is, kept while it sinks away as a phone's sheet. */
+  const menu = useLeaving(at)
   const rootRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   useOverlay(menuRef, Boolean(at))
@@ -80,12 +83,12 @@ export function RowMenu({
       >
         <MoreIcon width={14} height={14} />
       </button>
-      {at &&
+      {menu.shown &&
         createPortal(
           <div
-            className={`menu${menusAsSheets() ? ' sheet' : ''}`}
+            className={`menu${menusAsSheets() ? ' sheet' : ''}${menu.leaving ? ' leaving' : ''}`}
             role="menu"
-            style={at}
+            style={menu.shown}
             ref={menuRef}
           >
             {items.map((item) => (

@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { PopupMenu } from './PopupMenu'
 import { useThemeSwitch } from '../lib/theme-switch'
+import { useLeaving } from '../lib/leaving'
 import type { MenuAt } from '../lib/menus'
 import { Collapse } from './Collapse'
 import { ProjectIcon } from './ProjectIcon'
@@ -132,6 +133,7 @@ export function Sidebar({
   const [query, setQuery] = useState<string>()
   /** Where the More menu (Skills, Files, Terminal, Browser…) is open, while it is. */
   const [more, setMore] = useState<MenuAt>()
+  const moreMenu = useLeaving(more)
   const theme = useThemeSwitch()
   /** On a phone through the link the sidebar is a sheet from the bottom, closed with an X. */
   const asSheet = useMedia(PHONE) && window.api.remote
@@ -706,9 +708,10 @@ export function Sidebar({
             <span className="nav-label">Settings and more</span>
           </button>
         </div>
-        {more && (
+        {moreMenu.shown && (
           <PopupMenu
-            at={more}
+            at={moreMenu.shown}
+            leaving={moreMenu.leaving}
             onClose={() => setMore(undefined)}
             entries={[
               { name: 'Skills', icon: <BookIcon />, onSelect: () => onShow('skills') },
