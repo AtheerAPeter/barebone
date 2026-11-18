@@ -533,10 +533,9 @@ kbd {
   background: var(--accent);
 }
 
+/* Working: a spinner and a word, with no edge, as it cannot be clicked. */
 .status-chip.running {
-  background: var(--glass);
   color: var(--text-soft);
-  box-shadow: var(--glass-rim);
 }
 
 .status-chip .spinner {
