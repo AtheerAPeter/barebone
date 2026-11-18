@@ -1991,7 +1991,6 @@ html.remote .remote-browser.wide .rb-notice {
   gap: 12px;
   min-height: 56px;
   padding: 0 4px 0 8px;
-  box-shadow: 0 -1px 0 var(--border);
 }
 
 .settings-sheet-name {
@@ -2018,6 +2017,11 @@ html.remote .settings-sheet .picker-button {
   min-height: 44px;
   padding: 0 12px;
   font-size: 16px;
+}
+
+/* Every row's value is the same plain button; full access keeps only its warning color. */
+html.remote .settings-sheet .permission-mode[data-mode='full'] .picker-button {
+  background: transparent;
 }
 
 /*
