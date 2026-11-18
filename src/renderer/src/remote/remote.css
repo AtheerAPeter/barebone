@@ -1783,7 +1783,16 @@ html.remote .remote-browser.wide .rb-notice {
     justify-content: center;
   }
 
-  /* The model menu, sized for a thumb: 52px rows at 17px, and a field to match. */
+  /*
+   * The model menu, sized for a thumb: 52px rows at 17px, and a field to
+   * match. As a sheet from the bottom it fits what it lists, rather than the
+   * one height a desktop keeps for its two views.
+   */
+  html.remote .model-menu {
+    height: auto;
+    max-height: 75dvh;
+  }
+
   html.remote .model-search {
     min-height: 52px;
   }
@@ -1958,8 +1967,11 @@ html.remote .remote-browser.wide .rb-notice {
   box-shadow:
     0 0 0 1px var(--border),
     0 -24px 60px rgba(0, 0, 0, 0.6);
-  animation: pop-up var(--move) var(--ease) both;
-  transform-origin: bottom center;
+  /*
+   * Fades in, with no transform: one would make the sheet the frame of the
+   * pickers' own sheets inside it, and clip them to it.
+   */
+  animation: fade-in var(--move) var(--ease);
 }
 
 .settings-sheet-head {
@@ -1992,10 +2004,14 @@ html.remote .remote-browser.wide .rb-notice {
   display: none;
 }
 
-/* In the sheet each picker names its value again, as the row has room. */
-html.remote .settings-sheet .picker :is(.picker-label, .picker-group-name, .picker-chevron),
+/* In the sheet each picker names its value again, as the row has room; the whole row says it opens. */
+html.remote .settings-sheet .picker :is(.picker-label, .picker-group-name),
 html.remote .settings-sheet .limits-label {
   display: inline;
+}
+
+html.remote .settings-sheet .picker-chevron {
+  display: none;
 }
 
 html.remote .settings-sheet .picker-button {

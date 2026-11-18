@@ -110,6 +110,10 @@ export function EffortPicker({
     setPlacement(undefined)
   }
 
+  /** The levels besides Default, which the signal's bars stand for. */
+  const levels = stops.filter((v) => v.value !== DEFAULT).length
+  /** How many of them the current one lights: Default, first when there, lights none. */
+  const lit = currentIndex + (stops[0]?.value === DEFAULT ? 0 : 1)
   const position = drag ?? index
   const on = switches.filter((s) => s.currentValue === 'true').map((s) => s.name)
   const label = option
@@ -132,7 +136,12 @@ export function EffortPicker({
         onClick={toggle}
       >
         <span className="picker-icon">
-          <GaugeIcon width={15} height={15} />
+          {option ? (
+            // Default is the model's own effort: no level of ours lit.
+            <LevelBars lit={lit} of={levels} />
+          ) : (
+            <GaugeIcon width={15} height={15} />
+          )}
         </span>
         <span className="picker-label">{label}</span>
         <ChevronDownIcon width={12} height={12} className="picker-chevron" />
@@ -197,5 +206,40 @@ export function EffortPicker({
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * The thinking level as a signal: a bar for each level, rising and rounded,
+ * lit up to the current one. Default (the model's own effort) lights none.
+ */
+function LevelBars({ lit, of }: { lit: number; of: number }): React.JSX.Element {
+  const width = 3
+  const gap = 2
+  const height = 14
+  return (
+    <svg
+      className="level-bars"
+      width={of * width + (of - 1) * gap}
+      height={height}
+      viewBox={`0 0 ${of * width + (of - 1) * gap} ${height}`}
+      aria-hidden="true"
+    >
+      {Array.from({ length: of }, (_, i) => {
+        const h = Math.round(height * ((i + 1) / of) * 0.75 + height * 0.25)
+        return (
+          <rect
+            key={i}
+            x={i * (width + gap)}
+            y={height - h}
+            width={width}
+            height={h}
+            rx={width / 2}
+            fill="currentColor"
+            opacity={i < lit ? 1 : 0.28}
+          />
+        )
+      })}
+    </svg>
   )
 }
