@@ -1659,16 +1659,14 @@ img.project-icon {
   font-size: 12px;
 }
 
-/* The live "Working", and a turn's summary below: outlined pills, not loose lines. */
+/* The live "Working": a plain line, as it cannot be clicked. */
 .working {
   align-self: flex-start;
   display: inline-flex;
   align-items: baseline;
   gap: 8px;
-  padding: 2px 14px;
+  padding: 3px 4px;
   font-size: 14px;
-  border-radius: var(--radius-pill);
-  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .working-time {
@@ -1826,6 +1824,7 @@ img.project-icon {
   line-height: 1.6;
 }
 
+/* A turn's summary opens its calls: an outlined pill, as what can be clicked in a chat is. */
 .turn-work-head {
   display: flex;
   align-items: center;
