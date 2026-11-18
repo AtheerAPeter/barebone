@@ -5,3 +5,6 @@ out
 .eslintcache
 *.log*
 *.tsbuildinfo
+
+# Settings with secrets, such as deploy/vps/.env (tunnel tokens).
+.env

@@ -19,6 +19,7 @@ import { SERVER_NAME as DEVICES_SERVER } from '../devices-mcp'
 import { exaKey } from '../exa-key'
 import { getState } from '../store'
 import { loadShellPath } from '../shell-env'
+import { belowApp } from '../below-app'
 import type { Part, ToolSpec } from './types'
 
 /**
@@ -290,7 +291,8 @@ const bash: Tool = {
     const command = stringArg(args, 'command')
     const timeout = numberArg(args, 'timeout')
     await loadShellPath()
-    const child = spawn('/bin/bash', ['-c', command], {
+    const bash = belowApp({ command: '/bin/bash', args: ['-c', command] })
+    const child = spawn(bash.command, bash.args, {
       cwd,
       // Its own process group, so stopping it also stops what it started.
       detached: true,

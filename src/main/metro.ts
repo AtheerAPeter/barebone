@@ -5,6 +5,7 @@ import { stripVTControlCharacters } from 'node:util'
 import { lineSplitter, type DeviceLogs, type LogLevel } from './device-logs'
 import { sleep } from './device-driver'
 import { loadShellPath } from './shell-env'
+import { belowApp } from './below-app'
 
 /**
  * Metro, the server a React Native app in development loads its JavaScript
@@ -104,7 +105,8 @@ export class Metro {
       )
     }
     await loadShellPath()
-    const child = spawn('/bin/bash', ['-c', command], {
+    const bash = belowApp({ command: '/bin/bash', args: ['-c', command] })
+    const child = spawn(bash.command, bash.args, {
       cwd,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],

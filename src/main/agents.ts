@@ -99,6 +99,7 @@ import { openCode, opencodeMajor } from './harness/opencode'
 import { cline } from './harness/cline'
 import { custom } from './harness/custom'
 import { chatActivity } from './activity'
+import { belowApp } from './below-app'
 import opencodePlugin from '../../resources/opencode-plugin/server.js?asset&asarUnpack'
 import adapterEnv from '../../resources/adapter-env.cjs?asset&asarUnpack'
 
@@ -739,7 +740,7 @@ class AgentProcess implements AgentBackend {
   private async start(): Promise<acp.ClientConnection> {
     const { client, methods, ndJsonStream, PROTOCOL_VERSION } = await loadSdk()
     await loadShellPath()
-    const { command, args } = commandFor(this.agent)
+    const { command, args } = belowApp(commandFor(this.agent))
     const { env, mcpInConfig } = await agentEnv(this.agent)
     this.mcpInConfig = mcpInConfig
     const child = spawn(command, args, {

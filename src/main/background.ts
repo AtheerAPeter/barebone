@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import { groupAlive, keepForQuit, KILL_GRACE_MS, killGroup, MAX_BYTES, tail } from './harness/tools'
 import { loadShellPath } from './shell-env'
+import { belowApp } from './below-app'
 
 /**
  * Commands chats run in the background with run_in_background (chats-mcp.ts):
@@ -82,7 +83,8 @@ export async function startBackground(
   // A new file only: 'wx' fails on an existing name instead of following it.
   const fd = openSync(log, 'wx', 0o600)
   const started = Date.now()
-  const child = spawn('/bin/bash', ['-c', command], {
+  const bash = belowApp({ command: '/bin/bash', args: ['-c', command] })
+  const child = spawn(bash.command, bash.args, {
     cwd,
     // Its own process group, so stopping it also stops what it started.
     detached: true,

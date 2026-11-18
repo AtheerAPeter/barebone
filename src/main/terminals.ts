@@ -3,6 +3,7 @@ import { spawn, type IPty } from 'node-pty'
 import type { TerminalInfo } from '../shared/types'
 import { handle, handleAs, listen, onCallerGone, type Caller } from './remote/registry'
 import { loadShellPath } from './shell-env'
+import { belowApp, STARTERS } from './below-app'
 
 /**
  * Terminals: the user's shell in a pty, run by the app, so they keep running
@@ -75,15 +76,18 @@ export class Terminals {
 
   private infoOf(terminal: Terminal): TerminalInfo {
     // The program in front, which changes as the user runs one; the Mac gives its path.
+    // Starting, the starter that runs it below the app is in front for a moment (below-app.ts).
     const program = terminal.pty.process.split('/').pop()
-    return { id: terminal.info.id, title: program || terminal.info.title }
+    const shown = program && !STARTERS.has(program) ? program : terminal.info.title
+    return { id: terminal.info.id, title: shown }
   }
 
   private async open(cols: unknown, rows: unknown): Promise<TerminalInfo> {
     // The PATH the user's login shell has, as the agents get it.
     await loadShellPath()
     const shell = process.env.SHELL || userInfo().shell || '/bin/bash'
-    const pty = spawn(shell, ['-l'], {
+    const login = belowApp({ command: shell, args: ['-l'] })
+    const pty = spawn(login.command, login.args, {
       name: 'xterm-256color',
       cols: side(cols, MAX_COLS),
       rows: side(rows, MAX_ROWS),
