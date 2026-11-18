@@ -10,8 +10,8 @@
  * near-white text. Everything is flat, fills and hairlines, except the
  * composer and what is open or chosen (a chat, a view, a model, a project),
  * which keep the glass they had before: a veil lit along its top edge. The
- * user's messages are grey pills, the send key is white; blue stays for dots
- * and links. What is pressed sinks and springs back, and a row presses in.
+ * user's messages are glass too, a clear white veil (a bot's chat tints them
+ * its color); the send key is white. What is pressed sinks and springs back, and a row presses in.
  * Light is the same design in white.
  */
 
@@ -146,9 +146,12 @@
   --ask-glow: inset 0 0 0 1px rgba(47, 111, 237, 0.45), 0 8px 24px -10px rgba(47, 111, 237, 0.3);
 
   /* The user's messages: pills of blue-tinted glass. */
-  --bubble: rgba(47, 111, 237, 0.16);
+  /* The user's messages: clear white glass, lit along the top edge, set off by a soft shadow. */
+  --bubble: rgba(255, 255, 255, 0.85);
   --bubble-text: #0d0d0d;
-  --bubble-edge: none;
+  --bubble-edge:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 0 0 0.5px rgba(0, 0, 0, 0.12),
+    0 2px 6px -2px rgba(0, 0, 0, 0.15);
 
   /*
    * Corners, ChatGPT's: chips and inline code, rows and buttons, menus and
@@ -172,8 +175,8 @@
 
 /*
  * Dark is Pitch: one true black for every pane, crisp near-white text, the
- * quieter shades lifted to match, flat surfaces a step above black, grey for
- * the user's messages and white for the send key.
+ * quieter shades lifted to match, flat surfaces a step above black, a white
+ * veil of glass for the user's messages and white for the send key.
  */
 @media (prefers-color-scheme: dark) {
   :root {
@@ -260,9 +263,12 @@
     --ask-bg: #0c0c0c;
     --ask-glow: inset 0 0 0 1px rgba(138, 176, 255, 0.4), 0 8px 24px -10px rgba(0, 0, 0, 0.5);
 
-    /* The user's messages: flat grey; white would glare on black. */
-    --bubble: #2c2c2e;
-    --bubble-text: #f5f5f7;
+    /* The user's messages: a white veil of glass, lit along the top edge. */
+    --bubble: rgba(255, 255, 255, 0.1);
+    --bubble-text: #ffffff;
+    --bubble-edge:
+      inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06),
+      0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 2px 6px -2px rgba(0, 0, 0, 0.5);
     /* The send key: a flat white disc. */
     --key: #ffffff;
     --key-pressed: #d9d9d9;
@@ -7492,6 +7498,10 @@ button,
   --accent-ring: color-mix(in srgb, var(--bot) 25%, transparent);
   --focus-ring: color-mix(in srgb, var(--bot) 18%, transparent);
   --bubble: color-mix(in srgb, var(--bot) 18%, transparent);
+  /* The glass's shadow in the bot's color, not the app's blue. */
+  --bubble-edge:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.1),
+    0 2px 6px -2px color-mix(in srgb, var(--bot) 45%, transparent);
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--bot) 10%, transparent), transparent 240px),
     var(--panel-main);
@@ -7504,6 +7514,9 @@ button,
     --accent-text: color-mix(in oklab, var(--bot) 70%, white);
     --bubble: color-mix(in srgb, var(--bot) 50%, transparent);
     --bubble-text: #ffffff;
+    --bubble-edge:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 0 0 0.5px rgba(0, 0, 0, 0.5),
+      0 2px 6px -2px rgba(0, 0, 0, 0.5);
     background:
       linear-gradient(180deg, color-mix(in srgb, var(--bot) 14%, transparent), transparent 240px),
       var(--panel-main);
