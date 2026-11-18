@@ -7235,6 +7235,11 @@ button,
   color: var(--danger);
 }
 
+/* Icons only, in their round keys; each button's tooltip names it. */
+.palette-actions .label-btn-text {
+  display: none;
+}
+
 .palette-actions .label-btn svg {
   width: 16px;
   height: 16px;
