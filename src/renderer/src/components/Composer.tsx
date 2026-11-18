@@ -15,6 +15,7 @@ import {
 import { Picker } from './Picker'
 import { EffortPicker } from './EffortPicker'
 import { ModelPicker } from './model-picker/ModelPicker'
+import { AgentLogo } from './model-picker/AgentLogo'
 import { CompletionMenu, type CompletionItem } from './CompletionMenu'
 import { uploadFile } from '../remote/upload'
 import { touchScreen } from '../lib/touch'
@@ -25,6 +26,7 @@ import { writePref } from '../lib/prefs'
 import { TALK_KEY } from '../lib/platform'
 import { useVoiceInput, type VoiceState } from '../lib/voice'
 import {
+  ChevronDownIcon,
   CloseIcon,
   FileIcon,
   MicIcon,
@@ -59,6 +61,11 @@ interface ComposerProps {
    */
   leading?: React.ReactNode
   trailing?: React.ReactNode
+  /**
+   * The chat's settings (model, thinking, agent, permissions, usage) behind
+   * one button in the settings row, in a sheet from the bottom: a phone's.
+   */
+  settingsSheet?: boolean
 }
 
 /** How much the agent may do without asking, per chat. */
@@ -135,7 +142,8 @@ export function Composer({
   folded,
   onVoiceChange,
   leading,
-  trailing
+  trailing,
+  settingsSheet = false
 }: ComposerProps): React.JSX.Element {
   // ChatView is keyed by chat, so each chat's composer starts from its saved draft.
   const [text, setText] = useState(chat.draft ?? '')
@@ -143,6 +151,8 @@ export function Composer({
   const [menuActive, setMenuActive] = useState(0)
   /** Set when the user closes the menu with Escape, for the text and caret at that moment. */
   const [menuDismissed, setMenuDismissed] = useState<string>()
+  /** The settings sheet is open (settingsSheet). */
+  const [sheetOpen, setSheetOpen] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const status = statuses[chat.agent]
 
@@ -439,6 +449,74 @@ export function Composer({
   }
   const error = status?.error ?? optionsError
 
+  /** The chat's settings, beside the composer, or each on its row in the settings sheet. */
+  const modelPicker = (
+    <ModelPicker
+      agent={chat.agent}
+      projectId={chat.projectId}
+      statuses={statuses}
+      options={options}
+      agentFixed={chat.running}
+      onChange={pickModel}
+    />
+  )
+  const effortPicker = (effort || switches.length > 0) && (
+    <EffortPicker
+      option={effort}
+      switches={switches}
+      onChange={onOptionChange}
+      showLevel={settingsSheet}
+    />
+  )
+  const personaPicker = persona && (
+    <Picker
+      title={persona.name}
+      icon={<PersonaIcon width={15} height={15} />}
+      value={persona.currentValue}
+      // Claude Code's "Default" says nothing on its own beside the other pickers.
+      values={persona.values.map((v) =>
+        v.value === 'default' ? { ...v, name: `Default ${persona.name.toLowerCase()}` } : v
+      )}
+      onChange={(value) => void onOptionChange(persona.id, value)}
+    />
+  )
+  const permissionPicker = (
+    <div className="permission-mode" data-mode={permissionMode(chat)}>
+      <Picker
+        title="Permissions"
+        icon={<ShieldIcon width={15} height={15} />}
+        value={permissionMode(chat)}
+        values={permissionModes(chat)}
+        onChange={(mode) => {
+          // Per-chat settings underneath: bypass approves requests,
+          // project-only still asks for anything outside the project,
+          // auto mode leaves approving to Claude Code's classifier.
+          const permissions: ChatPermissions = {
+            bypassPermissions: mode === 'project' || mode === 'full',
+            projectOnly: mode === 'project',
+            autoMode: mode === 'auto'
+          }
+          void window.api.setPermissions(chat.id, permissions)
+          // Remembered for new chats.
+          writePref('permissions', permissions)
+        }}
+      />
+    </div>
+  )
+  const limitsMeter = (
+    <LimitsMeter
+      chatId={chat.id}
+      agent={chat.agent}
+      source={options?.find((o) => o.id === 'source')?.currentValue}
+    />
+  )
+  /** The model's name on the settings button, else the agent's. */
+  const modelOption = modelOptions(options ?? []).model
+  const modelName =
+    modelOption?.values.find((v) => v.value === modelOption.currentValue)?.name ??
+    AGENTS.find((a) => a.id === chat.agent)?.label ??
+    chat.agent
+
   return (
     <>
       <div
@@ -671,55 +749,27 @@ export function Composer({
       {/* The chat's settings, in their own row under the composer. */}
       <div className="composer-settings">
         {leading}
-        <ModelPicker
-          agent={chat.agent}
-          projectId={chat.projectId}
-          statuses={statuses}
-          options={options}
-          agentFixed={chat.running}
-          onChange={pickModel}
-        />
-        {(effort || switches.length > 0) && (
-          <EffortPicker option={effort} switches={switches} onChange={onOptionChange} />
+        {settingsSheet ? (
+          <button
+            type="button"
+            className="settings-summary"
+            aria-haspopup="dialog"
+            aria-expanded={sheetOpen}
+            onClick={() => setSheetOpen(true)}
+          >
+            <AgentLogo agent={chat.agent} size={18} />
+            <span className="settings-summary-text">{modelName}</span>
+            <ChevronDownIcon width={14} height={14} />
+          </button>
+        ) : (
+          <>
+            {modelPicker}
+            {effortPicker}
+            {personaPicker}
+            {permissionPicker}
+            {limitsMeter}
+          </>
         )}
-        {persona && (
-          <Picker
-            title={persona.name}
-            icon={<PersonaIcon width={15} height={15} />}
-            value={persona.currentValue}
-            // Claude Code's "Default" says nothing on its own beside the other pickers.
-            values={persona.values.map((v) =>
-              v.value === 'default' ? { ...v, name: `Default ${persona.name.toLowerCase()}` } : v
-            )}
-            onChange={(value) => void onOptionChange(persona.id, value)}
-          />
-        )}
-        <div className="permission-mode" data-mode={permissionMode(chat)}>
-          <Picker
-            title="Permissions"
-            icon={<ShieldIcon width={15} height={15} />}
-            value={permissionMode(chat)}
-            values={permissionModes(chat)}
-            onChange={(mode) => {
-              // Per-chat settings underneath: bypass approves requests,
-              // project-only still asks for anything outside the project,
-              // auto mode leaves approving to Claude Code's classifier.
-              const permissions: ChatPermissions = {
-                bypassPermissions: mode === 'project' || mode === 'full',
-                projectOnly: mode === 'project',
-                autoMode: mode === 'auto'
-              }
-              void window.api.setPermissions(chat.id, permissions)
-              // Remembered for new chats.
-              writePref('permissions', permissions)
-            }}
-          />
-        </div>
-        <LimitsMeter
-          chatId={chat.id}
-          agent={chat.agent}
-          source={options?.find((o) => o.id === 'source')?.currentValue}
-        />
         {voice.error && (
           <span className="composer-error" title={voice.error}>
             {voice.error}
@@ -738,7 +788,46 @@ export function Composer({
         )}
         {trailing && <span className="composer-trailing-end">{trailing}</span>}
       </div>
+      {settingsSheet && sheetOpen && (
+        <>
+          <div className="drawer-scrim" onClick={() => setSheetOpen(false)} />
+          <div className="settings-sheet" role="dialog" aria-label="Chat settings">
+            <div className="settings-sheet-head">
+              <span>Chat settings</span>
+              <button
+                type="button"
+                className="icon-btn"
+                title="Close"
+                onClick={() => setSheetOpen(false)}
+              >
+                <CloseIcon />
+              </button>
+            </div>
+            <SheetRow name="Model">{modelPicker}</SheetRow>
+            {effortPicker && <SheetRow name="Thinking">{effortPicker}</SheetRow>}
+            {personaPicker && <SheetRow name="Agent">{personaPicker}</SheetRow>}
+            <SheetRow name="Permissions">{permissionPicker}</SheetRow>
+            <SheetRow name="Usage">{limitsMeter}</SheetRow>
+          </div>
+        </>
+      )}
     </>
+  )
+}
+
+/** One of the settings sheet's rows: its name, and the setting's own picker. */
+function SheetRow({
+  name,
+  children
+}: {
+  name: string
+  children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <div className="settings-sheet-row">
+      <span className="settings-sheet-name">{name}</span>
+      {children}
+    </div>
   )
 }
 

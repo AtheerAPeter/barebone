@@ -525,6 +525,7 @@ export default function App(): React.JSX.Element {
                   </button>
                 )
               }
+              composerSettingsSheet={thumbBar}
               composerTrailing={
                 thumbBar && (
                   <button className="icon-btn" title="New chat" onClick={() => setPicking(true)}>

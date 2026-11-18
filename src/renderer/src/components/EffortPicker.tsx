@@ -35,11 +35,14 @@ const STEP_KEYS: Record<string, (i: number, last: number) => number> = {
 export function EffortPicker({
   option,
   switches,
-  onChange
+  onChange,
+  showLevel = false
 }: {
   option?: AgentOption
   switches: AgentOption[]
   onChange: (optionId: string, value: string) => void
+  /** The button names the level ("High") rather than "Thinking effort": where a row already says what it is. */
+  showLevel?: boolean
 }): React.JSX.Element {
   const stops = option
     ? [
@@ -109,7 +112,11 @@ export function EffortPicker({
 
   const position = drag ?? index
   const on = switches.filter((s) => s.currentValue === 'true').map((s) => s.name)
-  const label = option ? 'Thinking effort' : switches.map((s) => s.name).join(', ')
+  const label = option
+    ? showLevel
+      ? (stops[currentIndex]?.name ?? option.currentValue)
+      : 'Thinking effort'
+    : switches.map((s) => s.name).join(', ')
 
   return (
     <div className="picker" ref={rootRef} onKeyDown={open ? onKeyDown : undefined}>

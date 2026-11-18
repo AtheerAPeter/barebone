@@ -74,6 +74,8 @@ interface ChatViewProps {
   /** Controls at the ends of the composer's settings row (Composer). */
   composerLeading?: React.ReactNode
   composerTrailing?: React.ReactNode
+  /** The chat's settings behind one button, in a sheet (Composer). */
+  composerSettingsSheet?: boolean
 }
 
 export function ChatView({
@@ -87,7 +89,8 @@ export function ChatView({
   onOpenBrowser,
   hidden = false,
   composerLeading,
-  composerTrailing
+  composerTrailing,
+  composerSettingsSheet
 }: ChatViewProps): React.JSX.Element {
   const [items, setItems] = useState<ChatItem[]>([])
   const [options, setOptions] = useState<AgentOption[]>()
@@ -298,6 +301,7 @@ export function ChatView({
           onVoiceChange={setVoice}
           leading={composerLeading}
           trailing={composerTrailing}
+          settingsSheet={composerSettingsSheet}
         />
       </div>
     </div>
