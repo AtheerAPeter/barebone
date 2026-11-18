@@ -38,7 +38,7 @@ import { HEADLESS, loadConfig } from './config'
 import { callFromRemote, callerGone, sendFromRemote, type Caller } from './registry'
 
 /**
- * The remote link's web server, on this Mac only (127.0.0.1): zrok carries
+ * The remote link's web server, on this Mac only (127.0.0.1): the tunnel carries
  * the browser's requests to it. It serves the pairing page to anyone, and to
  * a signed-in browser the app's own UI (renderer/web.html), the chats' images,
  * uploads of attachments, and the socket that carries the window's API.
@@ -137,7 +137,7 @@ export class RemoteServer {
   private pages = new Set<Page>()
   private nextPage = 1
   private ping?: NodeJS.Timeout
-  /** The public address, once zrok gives it: a socket must come from its page. */
+  /** The public address, once the tunnel is up: a socket must come from its page. */
   publicOrigin?: string
   port = 0
   /** Compressed files, by path: the built app does not change while it runs. */
@@ -151,7 +151,8 @@ export class RemoteServer {
     return join(import.meta.dirname, '../renderer')
   }
 
-  async start(): Promise<number> {
+  /** Listen on the port, or on any free one; the port it listens on. */
+  async start(port = 0): Promise<number> {
     await this.findPairAssets()
     this.http = createServer((req, res) => {
       this.route(req, res).catch((error) => {
@@ -190,7 +191,7 @@ export class RemoteServer {
     }, PING_MS)
     await new Promise<void>((resolve, reject) => {
       this.http!.once('error', reject)
-      this.http!.listen(0, '127.0.0.1', () => resolve())
+      this.http!.listen(port, '127.0.0.1', () => resolve())
     })
     this.port = (this.http.address() as AddressInfo).port
     return this.port

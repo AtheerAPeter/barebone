@@ -422,12 +422,14 @@ export interface TelegramStatus {
 }
 
 /**
- * The remote link (main/remote): Barebone in a browser, through zrok. `zrok`
- * says whether zrok is joined to an account; `link` how the share is doing
- * while it is on. Devices are paired by a QR code and listed newest first.
+ * The remote link (main/remote): Barebone in a browser, through a tunnel:
+ * zrok, or on a server a Cloudflare tunnel. `ready` says whether the tunnel
+ * is set up (zrok joined to an account); `link` how it is doing while it is
+ * on. Devices are paired by a QR code and listed newest first.
  */
 export interface RemoteStatus {
-  zrok: 'disabled' | 'enabled'
+  tunnel: 'zrok' | 'cloudflare'
+  ready: boolean
   on: boolean
   link: 'off' | 'starting' | 'online' | 'error'
   url?: string

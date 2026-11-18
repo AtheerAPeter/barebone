@@ -1,106 +1,48 @@
-import { execFile, spawn, type ChildProcess } from 'node:child_process'
-import { randomBytes } from 'node:crypto'
-import { existsSync } from 'node:fs'
-import { homedir, hostname } from 'node:os'
-import { join } from 'node:path'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { stripVTControlCharacters } from 'node:util'
-import { zrokBinary } from './zrok-binary'
 
 /**
- * The tunnel that carries the remote link from the internet to this Mac:
- * zrok (zrok.io, free), which the app downloads (zrok-binary.ts) and joins to
- * the user's account once with their account token. The share is public
- * under a name kept for this Mac, so its address stays the same; zrok runs as
- * a child of the app and takes the share down when it stops.
+ * The tunnel that carries the remote link from the internet to this Mac: a
+ * program (zrok.ts, cloudflare.ts) run as a child of the app, which takes
+ * the link down when it stops. It is up once the pairing page answers at the
+ * public address, and is started again when it stops or stops answering.
  */
 
-/** Where zrok keeps the account an environment was enabled with. */
-const ENVIRONMENT = join(homedir(), '.zrok2', 'environment.json')
-/** How long zrok may take to answer a command (enable, names). */
-const COMMAND_TIMEOUT = 60_000
-/** After the share stops by itself, wait this long before starting it again, growing to the cap. */
+/** One kind of tunnel: its program, its address, and how it is run. */
+export interface TunnelProvider {
+  /** In messages: "zrok". */
+  name: string
+  /** The port the local server must listen on, when the tunnel's route is set elsewhere; any free one otherwise. */
+  port?: number
+  /** The program, downloaded if need be; rejects when the tunnel is not set up, which is not tried again. */
+  program(): Promise<string>
+  /** The public address, made ready before each run (https://…, no trailing slash). */
+  address(program: string): Promise<string>
+  /** How to run the program to carry the local server's port. */
+  command(port: number): { args: string[]; env?: Record<string, string> }
+}
+
+export interface TunnelEvents {
+  /** The tunnel is up at this address. */
+  online(url: string): void
+  /** The tunnel stopped or could not start; it is tried again. */
+  failed(message: string): void
+}
+
+/** After the tunnel stops by itself, wait this long before starting it again, growing to the cap. */
 const RESTART_MS = 2000
 const RESTART_CAP_MS = 60_000
-
-/** Whether zrok is joined to an account on this Mac. */
-export function zrokEnabled(): boolean {
-  return existsSync(ENVIRONMENT)
-}
-
-function run(zrok: string, args: string[]): Promise<string> {
-  return new Promise((resolve, reject) =>
-    execFile(zrok, args, { timeout: COMMAND_TIMEOUT }, (error, stdout, stderr) => {
-      if (!error) return resolve(stdout)
-      // zrok writes its errors as "[ERROR]: …" lines; the last says why.
-      const said = `${stderr}\n${stdout}`
-        .split('\n')
-        .map((line) => stripVTControlCharacters(line).trim())
-        .filter(Boolean)
-        .pop()
-      reject(new Error(said || error.message))
-    })
-  )
-}
-
-/** Join zrok to the user's account with the account token from myzrok.io. */
-export async function enableZrok(token: string): Promise<void> {
-  const trimmed = token.trim()
-  if (!/^[\w-]{6,}$/.test(trimmed)) throw new Error('That does not look like a zrok account token.')
-  const zrok = await zrokBinary()
-  await run(zrok, [
-    'enable',
-    trimmed,
-    '--headless',
-    '--description',
-    `Barebone on ${hostname().replace(/\.local$/, '')}`
-  ])
-}
-
-/** A new name for this Mac's share: random, so the address says nothing about who is behind it. */
-export function newShareName(): string {
-  return `bb${randomBytes(6).toString('hex')}`
-}
-
-interface ZrokName {
-  name: string
-  namespaceName: string
-  /** The share holding the name, while one does. */
-  shareToken?: string
-}
-
-async function names(zrok: string): Promise<ZrokName[]> {
-  return JSON.parse(await run(zrok, ['list', 'names', '--json'])) as ZrokName[]
-}
-
-/**
- * Make sure the name is the account's and free, creating it the first time;
- * its public address, as https://<name>.<namespace> (zrok's names list gives
- * both). The name is this Mac's alone, so a share holding it as the link opens
- * was left by a run of the app that ended without taking it down (a crash, a
- * power cut): it is deleted, or the new share could not take the name.
- */
-async function ensureName(zrok: string, name: string): Promise<string> {
-  let found = (await names(zrok)).find((n) => n.name === name)
-  if (!found) {
-    await run(zrok, ['create', 'name', name])
-    found = (await names(zrok)).find((n) => n.name === name)
-  }
-  if (!found) throw new Error(`zrok did not keep the name ${name}.`)
-  if (found.shareToken) await run(zrok, ['delete', 'share', found.shareToken])
-  return `https://${found.name}.${found.namespaceName}`
-}
-
-/** How often, and how long, to check that the share answers from the internet. */
+/** How often, and how long, to check that the tunnel answers from the internet. */
 const PROBE_EVERY_MS = 1000
 const PROBE_FOR_MS = 60_000
-/** While the share is up, how often to check it still answers, and how many misses in a row restart it. */
+/** While the tunnel is up, how often to check it still answers, and how many misses in a row restart it. */
 const WATCH_EVERY_MS = 60_000
 const WATCH_MISSES = 3
-/** How long zrok has to exit once asked before it is killed. */
+/** How long the program has to exit once asked before it is killed. */
 const EXIT_GRACE_MS = 5000
 
 /**
- * Whether the app's pairing page answers at the public address: the share is
+ * Whether the app's pairing page answers at the public address: the tunnel is
  * up end to end. zrok's notice page is skipped with its header for programs.
  */
 async function answers(url: string): Promise<boolean> {
@@ -116,70 +58,56 @@ async function answers(url: string): Promise<boolean> {
   }
 }
 
-export interface TunnelEvents {
-  /** The share is up at this address. */
-  online(url: string): void
-  /** The share stopped or could not start; it is tried again. */
-  failed(message: string): void
-}
-
-export class ZrokTunnel {
+export class Tunnel {
   private child?: ChildProcess
   private stopped = true
   private restartIn = RESTART_MS
   private restartTimer?: NodeJS.Timeout
 
-  constructor(private events: TunnelEvents) {}
+  constructor(
+    private provider: TunnelProvider,
+    private events: TunnelEvents
+  ) {}
 
   /**
-   * Share the local server under the name, until stop. Rejects when zrok is
-   * not set up; a share that cannot start or stops (zrok out of reach, the
-   * Mac offline) is reported and tried again.
+   * Carry the local server's port until stop. Rejects when the tunnel is not
+   * set up; one that cannot start or stops (out of reach, the Mac offline) is
+   * reported and tried again.
    */
-  async start(port: number, name: string): Promise<void> {
+  async start(port: number): Promise<void> {
     this.stopped = false
     this.restartIn = RESTART_MS
-    if (!zrokEnabled()) throw new Error('zrok is not joined to your account yet.')
-    const zrok = await zrokBinary()
-    await this.launch(zrok, port, name).catch((error: Error) => {
+    const program = await this.provider.program()
+    await this.launch(program, port).catch((error: Error) => {
       this.events.failed(error.message)
-      this.retry(zrok, port, name)
+      this.retry(program, port)
     })
   }
 
-  private async launch(zrok: string, port: number, name: string): Promise<void> {
-    const url = await ensureName(zrok, name)
-    if (!this.stopped) this.spawn(zrok, port, name, url)
+  private async launch(program: string, port: number): Promise<void> {
+    const url = await this.provider.address(program)
+    if (!this.stopped) this.spawn(program, port, url)
   }
 
-  private retry(zrok: string, port: number, name: string): void {
+  private retry(program: string, port: number): void {
     this.restartTimer = setTimeout(() => {
       if (this.stopped) return
-      this.launch(zrok, port, name).catch((error: Error) => {
+      this.launch(program, port).catch((error: Error) => {
         this.events.failed(error.message)
-        this.retry(zrok, port, name)
+        this.retry(program, port)
       })
     }, this.restartIn)
     this.restartIn = Math.min(this.restartIn * 2, RESTART_CAP_MS)
   }
 
-  private spawn(zrok: string, port: number, name: string, url: string): void {
-    const child = spawn(
-      zrok,
-      [
-        'share',
-        'public',
-        `http://127.0.0.1:${port}`,
-        '--name-selection',
-        `public:${name}`,
-        '--headless',
-        // A zrok agent running on this Mac would otherwise take the share over.
-        '--force-local'
-      ],
-      { stdio: ['ignore', 'pipe', 'pipe'] }
-    )
+  private spawn(program: string, port: number, url: string): void {
+    const { args, env } = this.provider.command(port)
+    const child = spawn(program, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: env && { ...process.env, ...env }
+    })
     this.child = child
-    // zrok says little when it writes to no terminal: its last line is kept for an error.
+    // The program says little when it writes to no terminal: its last line is kept for an error.
     let last = ''
     const read = (chunk: Buffer): void => {
       for (const line of chunk.toString().split('\n')) {
@@ -187,9 +115,9 @@ export class ZrokTunnel {
         if (clean) last = clean
       }
     }
-    // Up once the pairing page answers at the public address. zrok can keep
-    // running with its share out of reach (it never came up, or went after
-    // the Mac slept or changed networks): then it is ended, and the exit
+    // Up once the pairing page answers at the public address. The program can
+    // keep running with the tunnel out of reach (it never came up, or went
+    // after the Mac slept or changed networks): then it is ended, and the exit
     // handler below starts it again.
     const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
     const restart = (why: string): void => {
@@ -222,12 +150,12 @@ export class ZrokTunnel {
     child.on('exit', (code) => {
       if (this.child === child) this.child = undefined
       if (this.stopped) return
-      this.events.failed(last || `zrok stopped (${code ?? 'killed'}).`)
-      this.retry(zrok, port, name)
+      this.events.failed(last || `${this.provider.name} stopped (${code ?? 'killed'}).`)
+      this.retry(program, port)
     })
   }
 
-  /** Take the share down; zrok removes it from the account as it exits. */
+  /** Take the tunnel down; the program removes it as it exits. */
   async stop(): Promise<void> {
     this.stopped = true
     clearTimeout(this.restartTimer)
@@ -240,7 +168,7 @@ export class ZrokTunnel {
   }
 }
 
-/** Ask zrok to exit, which takes its share down; kill it if it does not. */
+/** Ask the program to exit, which takes the tunnel down; kill it if it does not. */
 function endProcess(child: ChildProcess): void {
   const force = setTimeout(() => child.kill('SIGKILL'), EXIT_GRACE_MS)
   child.once('exit', () => clearTimeout(force))

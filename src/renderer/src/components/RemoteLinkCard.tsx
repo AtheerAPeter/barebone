@@ -7,7 +7,7 @@ import type { RemotePairing, RemoteStatus } from '../../../shared/types'
 
 /**
  * The remote link (main/remote): this app in a browser on the user's phone or
- * another computer, through zrok. These are the body and the status of its
+ * another computer, through a tunnel. These are the body and the status of its
  * Settings row: set up on the Mac only, while a browser through the link signs
  * that browser out.
  */
@@ -41,7 +41,7 @@ export function SignedInBody({
 }
 
 /**
- * The Mac's side of the row: zrok, the pairing QR code and the paired devices.
+ * The Mac's side of the row: the tunnel, the pairing QR code and the paired devices.
  * Its switch is the row's, which saves through main and passes what went wrong.
  */
 export function RemoteLinkBody({
@@ -54,20 +54,21 @@ export function RemoteLinkBody({
   return (
     <>
       <p>
-        Use Barebone in a browser on your phone or another computer, through zrok&apos;s free
-        tunnel. A device joins by scanning a QR code shown here. Barebone has to be running, on a
-        Mac that is awake or on a server.
+        Use Barebone in a browser on your phone or another computer, through{' '}
+        {status?.tunnel === 'cloudflare' ? 'a Cloudflare tunnel' : "zrok's free tunnel"}. A device
+        joins by scanning a QR code shown here. Barebone has to be running, on a Mac that is awake
+        or on a server.
       </p>
-      {status?.zrok === 'disabled' && <JoinZrok />}
+      {status?.tunnel === 'zrok' && !status.ready && <JoinZrok />}
       {status?.on && status.link === 'online' && status.url && (
-        <Pairing url={status.url} paired={status.sessions.length} />
+        <Pairing url={status.url} paired={status.sessions.length} zrok={status.tunnel === 'zrok'} />
       )}
       {status?.link === 'error' && status.error && (
         <div className="msg-error">The link is down: {status.error} It is tried again.</div>
       )}
       {error && <div className="msg-error">{error}</div>}
       {status && status.sessions.length > 0 && <Sessions status={status} />}
-      {status?.zrok === 'enabled' && <BrowserAccess on={status.browser} />}
+      {status?.ready && <BrowserAccess on={status.browser} />}
     </>
   )
 }
@@ -121,7 +122,16 @@ function JoinZrok(): React.JSX.Element {
  * Pairing a device: a one-time QR code that opens the link signed in. It
  * goes once used (a new device shows up) or expired.
  */
-function Pairing({ url, paired }: { url: string; paired: number }): React.JSX.Element {
+function Pairing({
+  url,
+  paired,
+  zrok
+}: {
+  url: string
+  paired: number
+  /** The link goes through zrok, which shows a notice page first. */
+  zrok: boolean
+}): React.JSX.Element {
   const [pairing, setPairing] = useState<RemotePairing>()
   const [pairedBefore, setPairedBefore] = useState(paired)
   const [now, setNow] = useState(Date.now)
@@ -166,8 +176,8 @@ function Pairing({ url, paired }: { url: string; paired: number }): React.JSX.El
             <p>
               Scan it with your phone&apos;s camera. It works once, for{' '}
               {left >= 60 ? `${Math.ceil(left / 60)} more minutes` : `${left} more seconds`}. On
-              another computer, copy the pairing link and open it there. zrok shows a notice page
-              the first time: press Visit Share.
+              another computer, copy the pairing link and open it there.
+              {zrok && ' zrok shows a notice page the first time: press Visit Share.'}
             </p>
             <div className="settings-row">
               <button

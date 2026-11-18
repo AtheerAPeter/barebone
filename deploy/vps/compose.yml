@@ -2,8 +2,9 @@
 #
 #   BAREBONE_ZROK_TOKEN=… docker compose -f deploy/vps/compose.yml up -d --build
 #
-# Nothing listens on the server: Barebone opens its remote link (zrok) itself,
-# and you use it, Files and Terminal included, from your phone or computer.
+# Nothing listens on the server: Barebone opens its remote link (zrok, or a
+# Cloudflare tunnel; README.md) itself, and you use it, Files and Terminal
+# included, from your phone or computer.
 services:
   barebone:
     build:
@@ -25,6 +26,10 @@ services:
       # Your zrok account token, read the first time to join zrok; then kept
       # on the volume.
       - BAREBONE_ZROK_TOKEN=${BAREBONE_ZROK_TOKEN:-}
+      # Or a Cloudflare tunnel instead of zrok: its token, and the https
+      # address its route serves (README.md, "Use a Cloudflare tunnel").
+      - BAREBONE_CLOUDFLARE_TOKEN=${BAREBONE_CLOUDFLARE_TOKEN:-}
+      - BAREBONE_CLOUDFLARE_URL=${BAREBONE_CLOUDFLARE_URL:-}
     volumes:
       # Everything that lasts: Barebone's chats and settings, the browser's
       # logins, the agents' logins, your projects.

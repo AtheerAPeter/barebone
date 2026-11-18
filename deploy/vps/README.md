@@ -49,6 +49,28 @@ On an iPhone, pair in Safari, then add the page to the Home Screen (Share →
 Add to Home Screen): the Home Screen app takes Safari's sign-in with it. It has
 no address bar of its own to open a pairing link in.
 
+## Use a Cloudflare tunnel
+
+zrok's free plan carries 5 GB a day. A Cloudflare tunnel has no data cap and
+uses a hostname of yours, on a domain in your Cloudflare account.
+
+1. In Cloudflare's dashboard, open Networking → Tunnels, create a tunnel, and
+   copy its token from the install command (the long `eyJ…` string).
+2. On the tunnel, add a route: Published application, your hostname (for
+   example `remote.example.com`), service `http://127.0.0.1:47821`. Barebone's
+   remote link listens on that port when it uses Cloudflare.
+3. Start Barebone with both settings, and no zrok token:
+
+   ```sh
+   BAREBONE_CLOUDFLARE_TOKEN='the tunnel token' \
+   BAREBONE_CLOUDFLARE_URL='https://remote.example.com' \
+   docker compose -f deploy/vps/compose.yml up -d --build
+   ```
+
+Barebone downloads `cloudflared` itself and runs the tunnel. Pairing works as
+above. Devices paired through zrok have to pair again, because a sign-in
+belongs to its address.
+
 ## Set Barebone up
 
 1. Sign in to the agents you use: open Terminal in the sidebar and run

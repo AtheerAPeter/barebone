@@ -11,18 +11,22 @@ import { endSession, newPairingCode } from './auth'
 import { RemoteBrowser } from './browser'
 import { HEADLESS, loadConfig, saveConfig } from './config'
 import { handle, MAC_ONLY, type Caller } from './registry'
+import { cloudflareProvider, cloudflareTunnel, type CloudflareTunnel } from './cloudflare'
 import { RemoteServer } from './server'
-import { enableZrok, newShareName, zrokEnabled, ZrokTunnel } from './tunnel'
+import { Tunnel, type TunnelEvents, type TunnelProvider } from './tunnel'
+import { enableZrok, newShareName, zrokEnabled, zrokProvider } from './zrok'
 
 /**
- * The remote link: this app's UI in a browser anywhere, through zrok. Set up
- * and opened in Settings on the Mac only (none of its requests are open to the
- * link itself). A device joins by scanning a one-time QR code shown there. The
+ * The remote link: this app's UI in a browser anywhere, through a tunnel:
+ * zrok, or on a server a Cloudflare tunnel when one is set. Set up and opened
+ * in Settings on the Mac only (none of its requests are open to the link
+ * itself). A device joins by scanning a one-time QR code shown there. The
  * link opens again at launch when it was open.
  */
 export class RemoteLink {
   private server?: RemoteServer
-  private tunnel = new ZrokTunnel({
+  private tunnel?: Tunnel
+  private tunnelEvents: TunnelEvents = {
     online: (url) => {
       this.url = url
       if (this.server) this.server.publicOrigin = new URL(url).origin
@@ -30,7 +34,9 @@ export class RemoteLink {
       this.printPairing()
     },
     failed: (message) => this.setLink('error', message)
-  })
+  }
+  /** The Cloudflare tunnel this server is set to use (cloudflare.ts); zrok when there is none. */
+  private cloudflare?: CloudflareTunnel
   private link: RemoteStatus['link'] = 'off'
   /** Whether this launch printed its pairing link (printPairing); the tunnel can come online again. */
   private printedPairing = false
@@ -72,17 +78,19 @@ export class RemoteLink {
     handle('remote:enableZrok', (token: string) => this.enableZrok(token), MAC_ONLY)
     handle('remote:setOn', (on: boolean) => this.setOn(on), MAC_ONLY)
     if (HEADLESS) void this.startOnServer()
-    else if (loadConfig().on && zrokEnabled()) void this.open().catch(() => undefined)
+    else if (loadConfig().on && this.ready()) void this.open().catch(() => undefined)
   }
 
   /**
-   * On a server the link is the only way in: it opens at once, joining zrok
-   * with BAREBONE_ZROK_TOKEN the first time. Each launch prints a pairing link
-   * for the server's log (docker compose logs; printPairing).
+   * On a server the link is the only way in: it opens at once, through the
+   * Cloudflare tunnel when one is set, or else joining zrok with
+   * BAREBONE_ZROK_TOKEN the first time. Each launch prints a pairing link for
+   * the server's log (docker compose logs; printPairing).
    */
   private async startOnServer(): Promise<void> {
     try {
-      if (!zrokEnabled()) {
+      this.cloudflare = cloudflareTunnel()
+      if (!this.ready()) {
         const token = process.env.BAREBONE_ZROK_TOKEN?.trim()
         if (!token) {
           console.error('The remote link is off: set BAREBONE_ZROK_TOKEN to your zrok token.')
@@ -139,7 +147,8 @@ export class RemoteLink {
   async stop(): Promise<void> {
     if (this.awake !== undefined) powerSaveBlocker.stop(this.awake)
     this.awake = undefined
-    await this.tunnel.stop()
+    await this.tunnel?.stop()
+    this.tunnel = undefined
     await this.server?.stop()
     this.server = undefined
   }
@@ -147,7 +156,8 @@ export class RemoteLink {
   status(): RemoteStatus {
     const config = loadConfig()
     return {
-      zrok: zrokEnabled() ? 'enabled' : 'disabled',
+      tunnel: this.cloudflare ? 'cloudflare' : 'zrok',
+      ready: this.ready(),
       on: Boolean(config.on),
       browser: config.browser === true,
       link: this.link,
@@ -160,6 +170,11 @@ export class RemoteLink {
         lastSeenAt
       }))
     }
+  }
+
+  /** Whether the tunnel is set up: a Cloudflare tunnel is set, or zrok is joined to an account. */
+  private ready(): boolean {
+    return Boolean(this.cloudflare) || zrokEnabled()
   }
 
   private changed(): void {
@@ -198,7 +213,7 @@ export class RemoteLink {
   }
 
   private async setOn(on: boolean): Promise<void> {
-    if (on && !zrokEnabled()) throw new Error('Join zrok to your account first.')
+    if (on && !this.ready()) throw new Error('Join zrok to your account first.')
     loadConfig().on = on || undefined
     saveConfig()
     if (on) await this.open()
@@ -208,8 +223,13 @@ export class RemoteLink {
   private async open(): Promise<void> {
     if (this.server) return
     const config = loadConfig()
-    config.zrokName ??= newShareName()
-    saveConfig()
+    let provider: TunnelProvider
+    if (this.cloudflare) provider = cloudflareProvider(this.cloudflare)
+    else {
+      config.zrokName ??= newShareName()
+      saveConfig()
+      provider = zrokProvider(config.zrokName)
+    }
     this.setLink('starting')
     this.awake = powerSaveBlocker.start('prevent-app-suspension')
     try {
@@ -217,8 +237,9 @@ export class RemoteLink {
         state: this.host.state,
         sessionsChanged: () => this.changed()
       })
-      const port = await this.server.start()
-      await this.tunnel.start(port, config.zrokName)
+      const port = await this.server.start(provider.port)
+      this.tunnel = new Tunnel(provider, this.tunnelEvents)
+      await this.tunnel.start(port)
     } catch (error) {
       await this.close()
       this.setLink('error', (error as Error).message)
