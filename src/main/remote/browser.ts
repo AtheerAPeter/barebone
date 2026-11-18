@@ -267,7 +267,7 @@ export class RemoteBrowser {
     if (!tab) return
     view.tab = tab
     view.loading = tab.contents.isLoading()
-    tab.viewedRemotely = true
+    this.browser.viewRemotely(tab, true)
     const dialogChanged = (): void => this.sendState(view)
     const crashed = (): void => {
       view.crashed = true
@@ -298,7 +298,7 @@ export class RemoteBrowser {
     if (view.casting) tab.driver.stopScreencast()
     view.casting = false
     view.crashed = false
-    tab.viewedRemotely = false
+    this.browser.viewRemotely(tab, false)
     if (!keepSize) this.unfit(view.chatId, tab)
   }
 

@@ -14,6 +14,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { extname, basename, join } from 'node:path'
 import type { BrowserState, PageViewport, Rect, SavedTabs } from '../shared/types'
 import { PageDriver } from './page-driver'
+import { HEADLESS } from './remote/config'
 
 /**
  * `persist:` partitions are stored on disk, so cookies, localStorage and
@@ -737,7 +738,10 @@ export class BuiltinBrowser {
 
   /**
    * Put the selected chat's active tab in the panel and park every other tab,
-   * each page at the size it has there.
+   * each page at the size it has there. On a server, where no one sees the
+   * window, a page a device of the remote link shows stays in it too: parked
+   * out of the window, Chromium stops drawing it, and it is drawn only when it
+   * is pictured, so a scroll on the device showed late and in jumps.
    */
   private layout(): void {
     for (const [chatId, browser] of this.chats) {
@@ -748,7 +752,8 @@ export class BuiltinBrowser {
           chatId === this.activeChat &&
           tab === browser.active &&
           !this.panelHidden
-        tab.view.setBounds(tab.shown ? bounds : parked(bounds))
+        const inWindow = tab.shown || (HEADLESS && tab.viewedRemotely)
+        tab.view.setBounds(inWindow ? bounds : parked(bounds))
         // A page at a set size is scaled anew as the panel changes size.
         if (tab.viewport && scale !== tab.scale) tab.driver.emulate(tab.viewport, scale)
         tab.scale = scale
@@ -756,6 +761,12 @@ export class BuiltinBrowser {
     }
     this.showDialog()
     this.onPageArea?.(this.panelHidden ? undefined : this.panelBounds)
+  }
+
+  /** A device of the remote link starts or stops showing the page (remote/browser.ts). */
+  viewRemotely(tab: ChatPage, on: boolean): void {
+    tab.viewedRemotely = on
+    this.layout()
   }
 
   /**
