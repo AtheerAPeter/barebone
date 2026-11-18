@@ -6,13 +6,30 @@
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
     <meta name="robots" content="noindex, nofollow" />
+    <link rel="apple-touch-icon" href="/icon-180.png" />
+    <link rel="icon" type="image/png" href="/icon-192.png" />
     <title>Barebone</title>
   </head>
   <body>
     <main class="pair">
-      <div class="logo" aria-hidden="true">B</div>
+      <img class="logo" src="/icon-180.png" alt="" width="56" height="56" />
       <h1>Barebone</h1>
-      <p id="message" class="sub" role="status">Pairing with your Mac…</p>
+      <p id="message" class="sub" role="status">Pairing…</p>
+      <!-- For a browser that drops what follows the # of an opened link, and for a
+           Home Screen app, which has no address bar to open one in (remote/pair.ts). -->
+      <form id="paste" class="paste" hidden>
+        <input
+          id="paste-link"
+          type="text"
+          inputmode="url"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+          placeholder="Paste a pairing link"
+          aria-label="Pairing link"
+        />
+        <button type="submit">Pair</button>
+      </form>
     </main>
     <script type="module" src="/src/remote/pair.ts"></script>
   </body>

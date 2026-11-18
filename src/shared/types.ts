@@ -485,9 +485,23 @@ export const REMOTE_BOTS = '/bot'
 
 export type Theme = 'system' | 'light' | 'dark'
 
+/** The longest name a Barebone takes (AppState.name); a Home Screen label shows far fewer. */
+export const NAME_MAX = 40
+
+/** What this Barebone is called: the user's name for it, or "Barebone". */
+export function appName(state: Pick<AppState, 'name'>): string {
+  return state.name ?? 'Barebone'
+}
+
 export interface AppState {
   projects: Project[]
   chats: Chat[]
+  /**
+   * What the user calls this Barebone, to tell several apart: on the remote link
+   * the page's title and the Home Screen app's name (Settings → Name).
+   * "Barebone" when missing.
+   */
+  name?: string
   /** Appearance; 'system' follows macOS. Missing in state saved by older versions. */
   theme?: Theme
   /** The user's own instructions, given to every agent's new chats (see Chat.instructions). */

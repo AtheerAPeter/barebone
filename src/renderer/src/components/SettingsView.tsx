@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { renderSVG } from 'uqr'
-import type {
-  DownloadId,
-  Downloads,
-  DownloadStatus,
-  MobileToolCheck,
-  TelegramStatus,
-  VoiceModelId
+import {
+  NAME_MAX,
+  type DownloadId,
+  type Downloads,
+  type DownloadStatus,
+  type MobileToolCheck,
+  type TelegramStatus,
+  type VoiceModelId
 } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
 import { isMac, TALK_KEY } from '../lib/platform'
@@ -25,6 +26,7 @@ import {
   SearchIcon,
   ServerIcon,
   SpeakerIcon,
+  TagIcon,
   TelegramIcon,
   TextIcon,
   VideoIcon
@@ -84,6 +86,7 @@ interface KeyHints {
  * narrow the list, so what is off, or missing a key, is one click away.
  */
 export function SettingsView({
+  name,
   instructions,
   annotations,
   recording,
@@ -94,6 +97,7 @@ export function SettingsView({
   music,
   onProvidersChange
 }: {
+  name: string | undefined
   instructions: string | undefined
   annotations: boolean
   recording: boolean
@@ -517,6 +521,29 @@ export function SettingsView({
       )
     },
     {
+      id: 'name',
+      group: 'App',
+      name: 'Name',
+      summary: 'What this Barebone is called, to tell several apart.',
+      keywords: 'name rename profile title home screen instance server',
+      icon: <TagIcon />,
+      tone: 'gray',
+      pill: name ?? 'Barebone',
+      pillTone: name ? 'on' : 'off',
+      action: manage('name', 'Edit'),
+      detail: (
+        <>
+          <p>
+            The title of the remote link&apos;s page, its tab, and the app&apos;s name when you add
+            the page to a phone&apos;s Home Screen. Name each Barebone you use, such as Home or
+            Server, to see at once which one is open. A Home Screen app keeps the name it was added
+            with.
+          </p>
+          <NameForm saved={name ?? ''} />
+        </>
+      )
+    },
+    {
       id: 'updates',
       group: 'App',
       name: 'Updates',
@@ -701,6 +728,52 @@ function KeyForm({
             Remove
           </button>
         )}
+      </form>
+      {error && <div className="msg-error">{error}</div>}
+    </>
+  )
+}
+
+/** What this Barebone is called; empty goes back to "Barebone". */
+function NameForm({ saved }: { saved: string }): React.JSX.Element {
+  const [text, setText] = useState(saved)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string>()
+
+  async function save(): Promise<void> {
+    setSaving(true)
+    setError(undefined)
+    try {
+      await window.api.setName(text)
+      setText(text.trim().replace(/\s+/g, ' '))
+    } catch (e) {
+      setError(errorMessage(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <>
+      <form
+        className="settings-row"
+        onSubmit={(e) => {
+          e.preventDefault()
+          void save()
+        }}
+      >
+        <input
+          aria-label="Name"
+          placeholder="Barebone"
+          value={text}
+          maxLength={NAME_MAX}
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(e) => setText(e.target.value)}
+        />
+        <button type="submit" className="btn primary" disabled={saving || text.trim() === saved}>
+          Save
+        </button>
       </form>
       {error && <div className="msg-error">{error}</div>}
     </>

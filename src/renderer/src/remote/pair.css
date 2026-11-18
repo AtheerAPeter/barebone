@@ -51,17 +51,12 @@ body {
   justify-content: center;
   gap: 18px;
 }
+/* The web app's icon, rounded as a Home Screen rounds it. */
 .logo {
   width: 56px;
   height: 56px;
-  border-radius: 15px;
-  background: var(--accent);
-  color: #fff;
-  display: grid;
-  place-items: center;
-  font-size: 26px;
-  font-weight: 700;
-  box-shadow: 0 6px 18px -6px rgba(47, 111, 237, 0.6);
+  border-radius: 13px;
+  box-shadow: 0 6px 18px -8px rgba(0, 0, 0, 0.45);
 }
 h1 {
   font-size: 22px;
@@ -75,4 +70,41 @@ h1 {
 }
 .sub.error {
   color: var(--danger);
+}
+/* A pairing link pasted by hand. */
+.paste {
+  width: 100%;
+  display: flex;
+  gap: 8px;
+}
+.paste[hidden] {
+  display: none;
+}
+.paste input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--fill);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px; /* iOS zooms into a field with smaller text */
+}
+.paste input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.paste button {
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 10px;
+  /* The app's keys (Pitch): white on black, black on white. */
+  background: var(--text);
+  color: var(--surface);
+  font: inherit;
+  font-weight: 600;
+}
+.paste button:disabled {
+  opacity: 0.5;
 }

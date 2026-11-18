@@ -37,13 +37,17 @@ Then pair your phone:
 docker compose -f deploy/vps/compose.yml logs barebone
 ```
 
-Until a device is paired, Barebone prints a pairing link and its QR code
-there. Open the link on your phone or scan the code. It works once, for 5
-minutes; `docker compose -f deploy/vps/compose.yml restart` prints a new one.
+Each time it starts, Barebone prints a pairing link and its QR code there.
+Open the link on your phone or scan the code. It works once, for 5 minutes;
+`docker compose -f deploy/vps/compose.yml restart` prints a new one.
 
 To pair more devices later, open Settings → Remote link on a paired device and
-press Pair a device. The same place lists the paired devices and signs them
-out.
+press Pair a device, or restart Barebone for a new link in the log. Settings →
+Remote link also lists the paired devices and signs them out.
+
+On an iPhone, pair in Safari, then add the page to the Home Screen (Share →
+Add to Home Screen): the Home Screen app takes Safari's sign-in with it. It has
+no address bar of its own to open a pairing link in.
 
 ## Set Barebone up
 

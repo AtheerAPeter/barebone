@@ -13,6 +13,7 @@ import {
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
+  NAME_MAX,
   senderChat,
   type AppState,
   type Chat,
@@ -182,6 +183,14 @@ export function getState(): AppState {
 
 export function setTheme(theme: Theme): void {
   state.theme = theme
+  scheduleFlush()
+}
+
+/** Name this Barebone; empty goes back to "Barebone". */
+export function setName(name: string): void {
+  const trimmed = name.trim().replace(/\s+/g, ' ')
+  if (trimmed.length > NAME_MAX) throw new Error(`Keep the name to ${NAME_MAX} characters.`)
+  state.name = trimmed || undefined
   scheduleFlush()
 }
 

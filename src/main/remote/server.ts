@@ -9,7 +9,7 @@ import { pipeline } from 'node:stream/promises'
 import { gzipSync } from 'node:zlib'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { AppState, SpokenAudio } from '../../shared/types'
-import { REMOTE_BOTS, REMOTE_IMAGES } from '../../shared/types'
+import { appName, REMOTE_BOTS, REMOTE_IMAGES } from '../../shared/types'
 import {
   decode,
   diffState,
@@ -91,6 +91,19 @@ const TYPES: Record<string, string> = {
   '.wasm': 'application/wasm'
 }
 const COMPRESSIBLE = new Set(['.html', '.js', '.css', '.svg', '.json', '.wasm'])
+
+/**
+ * The web app's icons (renderer/public, drawn from build/icon-src/web-icon.svg):
+ * the same for every Barebone, so anyone may fetch them, as a phone does when
+ * the page is added to its Home Screen.
+ */
+const WEB_ICONS = new Set(['/icon-180.png', '/icon-192.png', '/icon-512.png'])
+
+const CACHE_CONTROL = {
+  'no-store': 'no-store',
+  immutable: 'public, max-age=31536000, immutable',
+  day: 'public, max-age=86400'
+}
 
 const SECURITY_HEADERS = {
   'Content-Security-Policy':
@@ -408,6 +421,7 @@ export class RemoteServer {
     if (path.startsWith('/assets/') && this.pairAssets.has(path)) {
       return this.file(req, res, path.slice(1), 'immutable')
     }
+    if (WEB_ICONS.has(path) && method === 'GET') return this.file(req, res, path.slice(1), 'day')
     const session = this.session(req)
     if (!session) {
       if (path === '/' || path === '/index.html') return this.redirect(res, '/pair')
@@ -416,6 +430,9 @@ export class RemoteServer {
 
     if (path === '/api/session') return this.json(res, 200, {})
     if (path === '/' && method === 'GET') return this.file(req, res, 'web.html', 'no-store')
+    // Paired devices only, as it holds the user's name for this Barebone; web.html
+    // asks for it with the cookie (crossorigin="use-credentials").
+    if (path === '/manifest.webmanifest' && method === 'GET') return this.manifest(res)
     if (path.startsWith('/assets/') && method === 'GET') {
       return this.file(req, res, path.slice(1), 'immutable')
     }
@@ -446,7 +463,8 @@ export class RemoteServer {
     const paired = pair(body.code, req.headers['user-agent'])
     if (!paired) {
       return this.json(res, 401, {
-        error: 'This QR code was used already or has expired. Show a new one on your Mac.'
+        error:
+          'This pairing link was used already or has expired. Make a new one in Settings → Remote link.'
       })
     }
     // The browser may keep it as long as it allows; the Mac ends a session unused for 30 days.
@@ -578,7 +596,8 @@ export class RemoteServer {
     req: IncomingMessage,
     res: ServerResponse,
     relative: string,
-    cache: 'no-store' | 'immutable'
+    /** immutable for files named after their contents; day for ones that keep their name. */
+    cache: 'no-store' | 'immutable' | 'day'
   ): Promise<void> {
     const path = normalize(join(this.root, relative))
     if (!path.startsWith(this.root + sep)) return this.text(res, 404, 'Not found.')
@@ -589,7 +608,7 @@ export class RemoteServer {
     const headers: Record<string, string> = {
       ...SECURITY_HEADERS,
       'Content-Type': type,
-      'Cache-Control': cache === 'immutable' ? 'public, max-age=31536000, immutable' : 'no-store'
+      'Cache-Control': CACHE_CONTROL[cache]
     }
     const gzip = COMPRESSIBLE.has(ext) && /\bgzip\b/.test(String(req.headers['accept-encoding']))
     if (!gzip) {
@@ -679,6 +698,35 @@ export class RemoteServer {
   private redirect(res: ServerResponse, to: string): void {
     res.writeHead(302, { ...SECURITY_HEADERS, Location: to, 'Cache-Control': 'no-store' })
     res.end()
+  }
+
+  /**
+   * The web app's manifest: installed from a browser or added to a Home Screen,
+   * the page opens as an app of its own, under this Barebone's name.
+   */
+  private manifest(res: ServerResponse): void {
+    const name = appName(this.host.state())
+    res.writeHead(200, {
+      ...SECURITY_HEADERS,
+      'Content-Type': 'application/manifest+json',
+      'Cache-Control': 'no-store'
+    })
+    res.end(
+      JSON.stringify({
+        id: '/',
+        name,
+        short_name: name,
+        start_url: '/',
+        scope: '/',
+        display: 'standalone',
+        background_color: '#000000',
+        icons: [
+          { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+        ]
+      })
+    )
   }
 
   private json(res: ServerResponse, status: number, value: unknown): void {

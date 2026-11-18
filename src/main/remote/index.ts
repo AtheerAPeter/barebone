@@ -32,6 +32,8 @@ export class RemoteLink {
     failed: (message) => this.setLink('error', message)
   })
   private link: RemoteStatus['link'] = 'off'
+  /** Whether this launch printed its pairing link (printPairing); the tunnel can come online again. */
+  private printedPairing = false
   private url?: string
   private error?: string
   /** The browser's tabs on the link's devices, once the app has a browser. */
@@ -75,8 +77,8 @@ export class RemoteLink {
 
   /**
    * On a server the link is the only way in: it opens at once, joining zrok
-   * with BAREBONE_ZROK_TOKEN the first time. Until a device is paired, a
-   * pairing link is printed for the server's log (docker compose logs).
+   * with BAREBONE_ZROK_TOKEN the first time. Each launch prints a pairing link
+   * for the server's log (docker compose logs; printPairing).
    */
   private async startOnServer(): Promise<void> {
     try {
@@ -96,9 +98,14 @@ export class RemoteLink {
     }
   }
 
-  /** On a server with no device paired yet: a link to pair the first one, in the log. */
+  /**
+   * On a server, a link to pair a device, in the log, once each time Barebone
+   * starts: the way in for the first device, and for any device later on without
+   * one already paired at hand. Whoever reads the log runs the server anyway.
+   */
   private printPairing(): void {
-    if (!HEADLESS || loadConfig().sessions.length > 0) return
+    if (!HEADLESS || this.printedPairing) return
+    this.printedPairing = true
     const { url } = this.pair()
     console.log(
       [

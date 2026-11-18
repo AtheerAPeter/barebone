@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AGENTS,
+  appName,
   OWN_BROWSER,
   waitingOn,
   type AgentStatus,
@@ -91,6 +92,13 @@ export default function App(): React.JSX.Element {
     for (const { id } of AGENTS) readStatus(id)
     return offState
   }, [])
+
+  // Through the link the page is named after this Barebone, as its tab and, when the
+  // page is added to a Home Screen, the app it becomes (iOS takes the page's title).
+  const name = appName(state)
+  useEffect(() => {
+    if (REMOTE) document.title = name
+  }, [name])
 
   useEffect(() => writePref('selectedChat', selectedChatId), [selectedChatId])
   // Escape leaves a view for the chat, unless something there used the key. Not the
@@ -490,6 +498,7 @@ export default function App(): React.JSX.Element {
           )
         ) : view === 'settings' ? (
           <SettingsView
+            name={state.name}
             instructions={state.instructions}
             annotations={state.annotations === true}
             recording={state.recording === true}

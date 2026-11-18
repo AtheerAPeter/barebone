@@ -90,6 +90,8 @@ export function makeApi(t: Transport) {
     /** Open a chat: the user clicked a bot's notification. */
     onOpenChat: (listener: (chatId: string) => void) => on('window:openChat', listener),
     setTheme: (theme: Theme): Promise<void> => invoke('theme:set', theme),
+    /** Name this Barebone; empty goes back to "Barebone". */
+    setName: (name: string): Promise<void> => invoke('name:set', name),
     /** Save the instructions the app's own agent gets in new chats; empty removes them. */
     setInstructions: (text: string): Promise<void> => invoke('instructions:set', text),
     /** Give agents the browser tools that draw on pages, and their skill, or take them away. */

@@ -814,6 +814,11 @@ function registerIpc(browser: BuiltinBrowser): void {
     MAC_ONLY
   )
   handle('theme:set', (theme: Theme) => setTheme(theme))
+  // Paired devices may rename it too: on a server, they are the only way to.
+  handle('name:set', (name: string) => {
+    store.setName(name)
+    stateChanged()
+  })
   handle('instructions:set', (text: string) => {
     store.setInstructions(text)
     stateChanged()
