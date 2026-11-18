@@ -243,19 +243,28 @@ export function makeApi(t: Transport) {
     remoteBrowser: {
       allowed: (): Promise<boolean> => invoke('remoteBrowser:allowed'),
       onAllowed: (listener: (on: boolean) => void) => on('remoteBrowser:allowed', listener),
-      /** Show a chat's tab here, the page laid out at this size; another device showing it stops. */
+      /**
+       * Show a chat's tab here, the page laid out at this size; another device
+       * showing it stops. `video`: this browser decodes H.264, which it is then sent.
+       */
       open: (
         chatId: string,
-        size: { width: number; height: number; ratio: number }
-      ): Promise<RemoteBrowserView> => invoke('remoteBrowser:open', chatId, size),
+        size: { width: number; height: number; ratio: number },
+        video = false
+      ): Promise<RemoteBrowserView> => invoke('remoteBrowser:open', chatId, size, video),
       resize: (size: { width: number; height: number; ratio: number }): Promise<void> =>
         invoke('remoteBrowser:resize', size),
       close: (): Promise<void> => invoke('remoteBrowser:close'),
       onState: (listener: (view: RemoteBrowserView) => void) => on('remoteBrowser:state', listener),
-      /** A picture of the page; call ack once it shows, for the next. */
-      onFrame: (listener: (header: FrameHeader, jpeg: Uint8Array) => void) =>
+      /**
+       * A picture of the page: a JPEG, after which call ack once it shows, for the
+       * next; or with `header.video`, H.264, which comes without waiting.
+       */
+      onFrame: (listener: (header: FrameHeader, data: Uint8Array) => void) =>
         on('remoteBrowser:frame', listener),
       ack: (): void => send('remoteBrowser:ack'),
+      /** The video could not be decoded from here on: send a picture to start again from. */
+      keyframe: (): void => send('remoteBrowser:keyframe'),
       /** It stopped showing here: another device opened it, or the Mac turned it off. */
       onClosed: (listener: (chatId: string, reason: 'elsewhere' | 'off') => void) =>
         on('remoteBrowser:closed', listener),

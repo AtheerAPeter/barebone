@@ -249,9 +249,14 @@ export class RemoteServer {
   sendBinary(caller: Caller, data: Uint8Array): boolean {
     const page = this.pageOf(caller)
     if (!page || page.socket.readyState !== page.socket.OPEN) return false
-    // Compressing a JPEG again gains nothing.
+    // Compressing a JPEG or video again gains nothing.
     page.socket.send(data, { binary: true, compress: false })
     return true
+  }
+
+  /** Bytes sent to a page that have not left yet: how far behind its connection is. */
+  backlog(caller: Caller): number {
+    return this.pageOf(caller)?.socket.bufferedAmount ?? 0
   }
 
   /** The device a page is open on, as Settings lists it: "iPhone · Safari". */

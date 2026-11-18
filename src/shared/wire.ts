@@ -164,7 +164,8 @@ export function applyPatch(state: AppState, patch: StatePatch): AppState {
 
 /**
  * A picture of a browser tab (main/remote/browser.ts), sent as a binary
- * message: the length of its header, the header as JSON, then the JPEG.
+ * message: the length of its header, the header as JSON, then the picture:
+ * a JPEG, or for a device that decodes video, H.264 (shared/video.ts).
  * Binary, as base64 in JSON would make every picture a third bigger.
  */
 export interface FrameHeader {
@@ -174,19 +175,21 @@ export interface FrameHeader {
   /** The page's viewport in CSS pixels, which the picture shows all of. */
   width: number
   height: number
+  /** H.264 rather than a JPEG: its codec, and whether a decoder can start at it. */
+  video?: { codec: string; key: boolean }
 }
 
-export function encodeFrame(header: FrameHeader, jpeg: Uint8Array): Uint8Array {
+export function encodeFrame(header: FrameHeader, data: Uint8Array): Uint8Array {
   const head = new TextEncoder().encode(JSON.stringify(header))
-  const message = new Uint8Array(4 + head.length + jpeg.length)
+  const message = new Uint8Array(4 + head.length + data.length)
   new DataView(message.buffer).setUint32(0, head.length)
   message.set(head, 4)
-  message.set(jpeg, 4 + head.length)
+  message.set(data, 4 + head.length)
   return message
 }
 
-export function decodeFrame(data: ArrayBuffer): { header: FrameHeader; jpeg: Uint8Array } {
-  const length = new DataView(data).getUint32(0)
-  const header = JSON.parse(new TextDecoder().decode(new Uint8Array(data, 4, length)))
-  return { header: header as FrameHeader, jpeg: new Uint8Array(data, 4 + length) }
+export function decodeFrame(message: ArrayBuffer): { header: FrameHeader; data: Uint8Array } {
+  const length = new DataView(message).getUint32(0)
+  const header = JSON.parse(new TextDecoder().decode(new Uint8Array(message, 4, length)))
+  return { header: header as FrameHeader, data: new Uint8Array(message, 4 + length) }
 }
