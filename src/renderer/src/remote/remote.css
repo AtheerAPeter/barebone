@@ -2020,6 +2020,41 @@ html.remote .settings-sheet .picker-button {
   font-size: 16px;
 }
 
+/*
+ * Drilling in: a setting's list (models, levels, agents, permissions,
+ * usage) opens in the sheet's place rather than as a sheet over it. While it
+ * is open the other rows step aside and the list fills the sheet under its
+ * head; tapping outside the list, the head included, steps back to them.
+ */
+html.remote .settings-sheet:has(.picker-menu) .settings-sheet-row:not(:has(.picker-menu)) {
+  display: none;
+}
+
+html.remote .settings-sheet-row:has(.picker-menu) {
+  display: block;
+  padding: 0;
+}
+
+html.remote .settings-sheet-row:has(.picker-menu) > .settings-sheet-name,
+html.remote .settings-sheet-row:has(.picker-menu) :is(.picker-button, .limits-meter) {
+  display: none;
+}
+
+html.remote .settings-sheet .picker-menu,
+html.remote .settings-sheet .picker-menu[data-side='below'] {
+  position: static;
+  width: auto;
+  height: auto;
+  max-height: none;
+  margin: 0;
+  background: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+  border-radius: 0;
+  animation: fade-in var(--move) var(--ease);
+}
+
 /* The ends of the row under the composer: New chat at its far end. */
 .composer-trailing-end {
   margin-left: auto;
