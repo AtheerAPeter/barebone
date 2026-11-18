@@ -2061,3 +2061,70 @@ html.remote .settings-sheet .picker-menu[data-side='below'] {
   display: inline-flex;
   align-items: center;
 }
+
+/*
+ * One motion for every sheet from the bottom on a phone: the chats, Chat
+ * settings, the pickers' lists, the ⋯ and gear menus, and New chat's
+ * projects. Each rises from the screen's bottom edge on one decelerating
+ * curve, iOS's own for its sheets, with nothing that scales or overshoots,
+ * and what dims the page behind fades in on the same timing. The chats sheet
+ * sinks back the same way; its rows do not fade as the desktop sidebar's do.
+ */
+@media (max-width: 700px) {
+  html.remote {
+    --sheet-time: 420ms;
+    --sheet-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  html.remote
+    :is(.picker-menu, .picker-menu[data-side='below'], .menu.sheet, .palette, .settings-sheet) {
+    animation: sheet-up var(--sheet-time) var(--sheet-ease);
+  }
+
+  /* A list opened inside Chat settings is already in its sheet: it fades in where the rows were. */
+  html.remote .settings-sheet .picker-menu,
+  html.remote .settings-sheet .picker-menu[data-side='below'] {
+    animation: fade-in var(--move) var(--ease);
+  }
+
+  html.remote :is(.drawer-scrim, .palette-backdrop) {
+    animation: fade-in var(--sheet-time) var(--sheet-ease);
+  }
+
+  html.remote .sidebar {
+    transition:
+      translate var(--sheet-time) var(--sheet-ease),
+      visibility 0s linear 0s;
+  }
+
+  html.remote .sidebar.closed {
+    transition:
+      translate var(--sheet-time) var(--sheet-ease),
+      visibility 0s linear var(--sheet-time);
+  }
+
+  html.remote .sidebar > *,
+  html.remote .sidebar.closed > * {
+    opacity: 1;
+    transition: none;
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+/* Asked for less motion: sheets appear and go without moving. */
+@media (max-width: 700px) and (prefers-reduced-motion: reduce) {
+  html.remote
+    :is(.picker-menu, .menu.sheet, .palette, .settings-sheet, .drawer-scrim, .palette-backdrop) {
+    animation: none;
+  }
+
+  html.remote .sidebar,
+  html.remote .sidebar.closed {
+    transition: none;
+  }
+}
