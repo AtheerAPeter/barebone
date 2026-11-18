@@ -1736,7 +1736,21 @@ html.remote .remote-browser.wide .rb-notice {
   }
 
   html.remote .nav-label {
+    top: auto;
+    bottom: calc(100% + 6px);
     font-size: 13px;
+  }
+
+  /* Search, New chat and the gear at the sheet's foot, where the thumb is; the chats above them. */
+  html.remote .side-nav {
+    order: 1;
+    padding: 6px 0 2px;
+    box-shadow: 0 -1px 0 var(--border);
+  }
+
+  html.remote .nav-new {
+    height: 48px;
+    font-size: 16px;
   }
 
   /*

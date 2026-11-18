@@ -420,9 +420,9 @@ function createWindow(): BuiltinBrowser {
   return browser
 }
 
-/** The window's color behind the page: its canvas (styles.css --canvas), black in dark. */
+/** The window's color behind the page: its canvas (styles.css --canvas). */
 function windowBackground(): string {
-  return nativeTheme.shouldUseDarkColors ? '#000000' : '#f9f9f9'
+  return nativeTheme.shouldUseDarkColors ? '#0d0d0d' : '#f9f9f9'
 }
 
 /**

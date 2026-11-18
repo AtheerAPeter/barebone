@@ -29,7 +29,6 @@ import {
   FolderIcon,
   FolderPlusIcon,
   GlobeIcon,
-  GridIcon,
   MoonIcon,
   PlusIcon,
   SearchIcon,
@@ -350,10 +349,11 @@ export function Sidebar({
         </div>
         {card && (
           <div className="card-meta">
-            {project && <ProjectIcon project={project} size={16} />}
+            {project && <ProjectIcon project={project} size={20} />}
             <span className="card-project">{project?.name}</span>
-            <AgentLogo agent={chat.agent} size={15} />
+            {/* The age or state, then the agent at the row's far end. */}
             <CardStatus chat={chat} working={working(chat)} now={now} />
+            <AgentLogo agent={chat.agent} size={15} />
           </div>
         )}
       </div>
@@ -679,6 +679,62 @@ export function Sidebar({
       </div>
       {/* The Settled sheet rises over everything between the top bar and the footer. */}
       <div className="sidebar-body">
+        {/*
+         * Above the chats: Search, New chat, and a gear for the rest
+         * (Skills, Files, Terminal, Browser, the theme, Settings).
+         */}
+        <div className="side-nav">
+          <button
+            className={`nav-row${query !== undefined ? ' on' : ''}`}
+            onClick={() => setQuery((current) => (current === undefined ? '' : undefined))}
+          >
+            <SearchIcon />
+            <span className="nav-label">Search chats</span>
+          </button>
+          <button className="nav-new" onClick={onNewChat}>
+            <PlusIcon />
+            New chat
+            <NavKey keys={shortcut('N')} />
+          </button>
+          <button
+            className={`nav-row${more || MORE_VIEWS.includes(view) ? ' on' : ''}`}
+            aria-haspopup="menu"
+            aria-expanded={Boolean(more)}
+            onClick={(e) => setMore(more ? undefined : { below: e.currentTarget, align: 'right' })}
+          >
+            <SettingsIcon />
+            <span className="nav-label">Settings and more</span>
+          </button>
+        </div>
+        {more && (
+          <PopupMenu
+            at={more}
+            onClose={() => setMore(undefined)}
+            entries={[
+              { name: 'Skills', icon: <BookIcon />, onSelect: () => onShow('skills') },
+              { name: 'Files', icon: <FolderIcon />, onSelect: () => onShow('files') },
+              { name: 'Terminal', icon: <TerminalIcon />, onSelect: () => onShow('terminal') },
+              { name: 'Browser', icon: <GlobeIcon />, onSelect: () => onShow('browser') },
+              // A project is a folder chosen with the Mac's folder picker.
+              ...(window.api.remote
+                ? []
+                : [
+                    {
+                      name: 'Open project',
+                      icon: <FolderPlusIcon />,
+                      onSelect: () => window.api.addProject()
+                    }
+                  ]),
+              null,
+              {
+                name: theme.dark ? 'Light mode' : 'Dark mode',
+                icon: theme.dark ? <SunIcon /> : <MoonIcon />,
+                onSelect: theme.toggle
+              },
+              { name: 'Settings', icon: <SettingsIcon />, onSelect: () => onShow('settings') }
+            ]}
+          />
+        )}
         {query !== undefined && (
           <label className="sidebar-search">
             <SearchIcon width={14} height={14} />
@@ -716,82 +772,17 @@ export function Sidebar({
         </div>
         {sheet && settledSheet()}
       </div>
-      {/*
-       * Under the chats, one row of icons, each label its tooltip: Search and
-       * More (Skills, Files, Terminal, Browser, the theme) at its start,
-       * Settings and New chat at its end.
-       */}
-      <div className="sidebar-footer">
-        {update && <UpdateButton version={update} />}
-        <div className="side-nav">
-          <button
-            className={`nav-row${query !== undefined ? ' on' : ''}`}
-            onClick={() => setQuery((current) => (current === undefined ? '' : undefined))}
-          >
-            <SearchIcon />
-            <span className="nav-label">Search chats</span>
-          </button>
-          <button
-            className={`nav-row${more || MORE_VIEWS.includes(view) ? ' on' : ''}`}
-            aria-haspopup="menu"
-            aria-expanded={Boolean(more)}
-            onClick={(e) => setMore(more ? undefined : { below: e.currentTarget })}
-          >
-            <GridIcon />
-            <span className="nav-label">More</span>
-          </button>
-          <span className="nav-spacer" />
-          <button
-            className={`nav-row${view === 'settings' ? ' on' : ''}`}
-            onClick={() => onShow('settings')}
-          >
-            <SettingsIcon />
-            <span className="nav-label">
-              Settings <NavKey keys={shortcut(',')} />
-            </span>
-          </button>
-          <button className="nav-row" onClick={onNewChat}>
-            <PlusIcon />
-            <span className="nav-label">
-              New chat <NavKey keys={shortcut('N')} />
-            </span>
-          </button>
+      {update && (
+        <div className="sidebar-footer">
+          <UpdateButton version={update} />
         </div>
-        {more && (
-          <PopupMenu
-            at={more}
-            onClose={() => setMore(undefined)}
-            entries={[
-              { name: 'Skills', icon: <BookIcon />, onSelect: () => onShow('skills') },
-              { name: 'Files', icon: <FolderIcon />, onSelect: () => onShow('files') },
-              { name: 'Terminal', icon: <TerminalIcon />, onSelect: () => onShow('terminal') },
-              { name: 'Browser', icon: <GlobeIcon />, onSelect: () => onShow('browser') },
-              // A project is a folder chosen with the Mac's folder picker.
-              ...(window.api.remote
-                ? []
-                : [
-                    {
-                      name: 'Open project',
-                      icon: <FolderPlusIcon />,
-                      onSelect: () => window.api.addProject()
-                    }
-                  ]),
-              null,
-              {
-                name: theme.dark ? 'Light mode' : 'Dark mode',
-                icon: theme.dark ? <SunIcon /> : <MoonIcon />,
-                onSelect: theme.toggle
-              }
-            ]}
-          />
-        )}
-      </div>
+      )}
     </nav>
   )
 }
 
-/** The views the More menu opens; its button shows as on while one of them is open. */
-const MORE_VIEWS: View[] = ['skills', 'files', 'terminal', 'browser']
+/** The views the gear's menu opens; its button shows as on while one of them is open. */
+const MORE_VIEWS: View[] = ['skills', 'files', 'terminal', 'browser', 'settings']
 
 /** A tab's shortcut in its tooltip, on the Mac, whose app menu gives it. */
 function NavKey({ keys }: { keys: string }): React.JSX.Element | null {

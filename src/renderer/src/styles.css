@@ -7,11 +7,11 @@
  * own values.
  *
  * Pitch: in dark, one true black for every pane, set apart by hairlines, with
- * near-white text. Everything is flat: fills and hairlines, no gradients or
- * lit edges. The user's messages are grey pills, the send key is white; blue
- * stays for dots and links. The composer is a pill, and what is open or
- * chosen (a chat, a view, a model, a project) takes its surface. What is
- * pressed sinks and springs back, and a row presses in.
+ * near-white text. Everything is flat, fills and hairlines, except the
+ * composer and what is open or chosen (a chat, a view, a model, a project),
+ * which keep the glass they had before: a veil lit along its top edge. The
+ * user's messages are grey pills, the send key is white; blue stays for dots
+ * and links. What is pressed sinks and springs back, and a row presses in.
  * Light is the same design in white.
  */
 
@@ -86,6 +86,12 @@
   --glass-rim: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08);
   /* A row pressed in: the shade along its inner top edge. */
   --press-in: rgba(0, 0, 0, 0.12);
+  /*
+   * Liquid Glass under a press: a faint, wide lift, a little stronger under
+   * the pointer, and the rim catching more light.
+   */
+  --press-light: rgba(255, 255, 255, 0.35);
+  --press-rim: rgba(255, 255, 255, 0.9);
   /* The send key: a flat disc, ink in light. */
   --key: #000000;
   --key-pressed: #262626;
@@ -118,10 +124,19 @@
   --menu-title: rgba(250, 250, 250, 0.94);
   --menu-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.15), 0 16px 40px -10px rgba(0, 0, 0, 0.25);
 
-  /* The composer, and what is open or chosen (a chat, a view, a model): a flat fill and a hairline. */
-  --composer: #ffffff;
-  --composer-edge: 0 0 0 1px var(--border);
-  --composer-focus: 0 0 0 1px var(--border-strong);
+  /*
+   * The composer: glass, as before Pitch, a veil lit along its top edge with a
+   * hairline and a soft shadow; writing adds an accent halo.
+   */
+  --composer: rgba(255, 255, 255, 0.72);
+  --composer-edge:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 0 0 0.5px rgba(0, 0, 0, 0.14),
+    0 8px 24px -8px rgba(0, 0, 0, 0.15);
+  --composer-focus: var(--composer-edge), 0 0 0 3px var(--focus-ring);
+  /* What is open or chosen (a chat, a view, a model, a project): the same glass, stronger. */
+  --selected-edge:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 0 0 0.5px rgba(0, 0, 0, 0.12),
+    0 1px 3px rgba(0, 0, 0, 0.08);
   /* The phone's sheets through the link (remote.css). */
   --sheet-bg: var(--panel-main);
   --strip: rgba(255, 255, 255, 0.55);
@@ -186,10 +201,14 @@
     --fill: rgba(255, 255, 255, 0.06);
     --fill-strong: rgba(255, 255, 255, 0.1);
     --hover: rgba(255, 255, 255, 0.05);
-    --selected: rgba(255, 255, 255, 0.08);
+    --selected: rgba(255, 255, 255, 0.12);
+    --selected-edge:
+      inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06),
+      0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.3);
     --menu-hover: rgba(255, 255, 255, 0.09);
 
-    --canvas: #000000;
+    /* The sidebar a step above the chat's black, as before Pitch. */
+    --canvas: #0d0d0d;
     --panel-main: #000000;
 
     --raised: var(--glass-strong);
@@ -205,6 +224,8 @@
     --glass: rgba(255, 255, 255, 0.05);
     --glass-strong: rgba(255, 255, 255, 0.1);
     --press-in: rgba(0, 0, 0, 0.55);
+    --press-light: rgba(255, 255, 255, 0.07);
+    --press-rim: rgba(255, 255, 255, 0.2);
     --glass-rim: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
     --raised-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
     --tint-rim: 0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 2px 6px -2px rgba(0, 0, 0, 0.5);
@@ -229,7 +250,10 @@
     --menu-title: #101010;
     --menu-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 24px 60px -12px rgba(0, 0, 0, 0.95);
 
-    --composer: #121212;
+    --composer: rgba(255, 255, 255, 0.07);
+    --composer-edge:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 8px 24px -8px rgba(0, 0, 0, 0.5);
     --sheet-bg: #0b0b0b;
     --strip: #0c0c0c;
     --strip-edge: 0 0 0 1px var(--border);
@@ -639,10 +663,9 @@ kbd {
 }
 
 /*
- * The sidebar's footer: one row of four 44px icons under the chats, Search
- * and More (Skills, Files, Terminal, Browser, the theme) at its start,
- * Settings and New chat at its end. Each label is its tooltip, shown above it
- * on hover and focus, and while pressed on a touch screen.
+ * Above the chats: Search, New chat, and a gear for the rest. The icons' labels
+ * are their tooltips, shown under them on hover and focus, and while pressed
+ * on a touch screen.
  */
 .side-nav {
   flex-shrink: 0;
@@ -677,14 +700,39 @@ kbd {
   color: var(--text);
 }
 
-.nav-spacer {
+/* New chat: the footer's one wide control, its label beside its icon. */
+.nav-new {
   flex: 1;
+  min-width: 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text);
+  font-weight: 500;
+  border-radius: var(--radius);
+}
+
+.nav-new > svg {
+  width: 18px;
+  height: 18px;
+}
+
+.nav-new kbd {
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+}
+
+.nav-new:hover {
+  background: var(--hover);
 }
 
 .nav-label {
   position: absolute;
   z-index: 30;
-  bottom: calc(100% + 6px);
+  top: calc(100% + 6px);
   left: 50%;
   translate: -50% 0;
   display: flex;
@@ -1020,11 +1068,11 @@ img.project-icon {
   background: var(--hover);
 }
 
-/* The open chat: the composer's surface, as everything open or chosen is. */
+/* The open chat, and the open view: the glass highlight, as everything open or chosen. */
 .chat-row.selected,
 .nav-row.on {
-  background: var(--composer);
-  box-shadow: var(--composer-edge);
+  background: var(--selected);
+  box-shadow: var(--selected-edge);
 }
 
 .chat-dot {
@@ -1159,7 +1207,7 @@ img.project-icon {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  height: 20px;
+  height: 22px;
   /* In line with the ⋮ menu above, so the status ends where the title's row does. */
   padding-right: 6px;
 }
@@ -2735,7 +2783,9 @@ img.project-icon {
   padding: 8px;
   background: var(--composer);
   box-shadow: var(--composer-edge);
-  transition: box-shadow 0.2s;
+  transition:
+    box-shadow 0.2s,
+    transform var(--flex) var(--spring);
   border-radius: var(--radius-xl);
 }
 
@@ -3750,9 +3800,9 @@ img.project-icon {
 }
 
 .model-source-item.active {
-  background: var(--composer);
+  background: var(--selected);
   color: var(--text);
-  box-shadow: var(--composer-edge);
+  box-shadow: var(--selected-edge);
 }
 
 .model-source-chevron {
@@ -3824,8 +3874,8 @@ img.project-icon {
 }
 
 .model-row.active {
-  background: var(--composer);
-  box-shadow: var(--composer-edge);
+  background: var(--selected);
+  box-shadow: var(--selected-edge);
 }
 
 .model-row > svg {
@@ -6624,7 +6674,10 @@ button,
   }
 }
 
-/* Positioned, for what sits on them: an agent's dot, a row's ⋮ menu, a tab's tooltip. */
+/*
+ * Positioned, for what sits on them (an agent's dot, a row's ⋮ menu, a tab's
+ * tooltip) and for the light a press spreads under their content.
+ */
 .btn,
 .icon-btn,
 .label-btn,
@@ -6634,6 +6687,7 @@ button,
 .segmented button,
 .composer,
 .nav-row,
+.nav-new,
 .chat-row,
 .skill-row,
 .palette-row,
@@ -6643,14 +6697,17 @@ button,
 .model-row,
 .model-source-item {
   position: relative;
+  isolation: isolate;
 }
 
 /*
  * A press, felt. A control sinks under the finger and springs back when let
- * go. A row presses in: it takes the composer's fill with a shade along its
- * inner top edge, as a key pushed into its surface. Rows in a list sink a
- * little too, except a chat row: it holds its ⋮ menu, fixed to the window,
- * which a transform would carry.
+ * go. A row in a list presses in: it takes the composer's fill with a shade
+ * along its inner top edge, and sinks a little. The composer, the sidebar's
+ * tabs and its chats keep Liquid Glass's press: the composer swells a little,
+ * a tab or chat lifts into glass (a chat does not move: it holds its ⋮ menu,
+ * fixed to the window, which a transform would carry), and all of them light
+ * up from under the finger.
  */
 .btn,
 .icon-btn,
@@ -6662,6 +6719,7 @@ button,
 .style-grid button,
 .lead-toggle,
 .nav-row,
+.nav-new,
 .turn-work-head,
 .skill-row,
 .palette-row,
@@ -6695,7 +6753,6 @@ button,
 }
 
 :is(
-  .nav-row,
   .turn-work-head,
   .skill-row,
   .palette-row,
@@ -6711,8 +6768,6 @@ button,
 }
 
 :is(
-  .chat-row,
-  .nav-row,
   .finder-place,
   .crumb-btn,
   .skill-row,
@@ -6728,6 +6783,92 @@ button,
   box-shadow:
     inset 0 2px 5px var(--press-in),
     0 0 0 1px var(--border);
+}
+
+.composer:active {
+  transform: scale(1.008);
+}
+
+.chat-row:active,
+.nav-row:active,
+.nav-new:active {
+  background: var(--glass-strong);
+  box-shadow: var(--selected-edge);
+}
+
+/*
+ * And it lights up: "starting right under your fingertips, the glow spreads
+ * throughout the element" (Apple, "Meet Liquid Glass"). The whole surface
+ * turns faintly milky and its rim brightens, with no hot spot under the
+ * finger. The light is a layer under the content, centered where the press
+ * landed (lib/glass-press.ts) and reaching well past its edges; let go, it
+ * fades where it reached.
+ */
+@property --glow {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
+}
+
+.btn::after,
+.icon-btn::after,
+.label-btn::after,
+.viewport-chip::after,
+.send-button::after,
+.panel-tab::after,
+.segmented button::after,
+.composer::after,
+.nav-row::after,
+.nav-new::after,
+.chat-row::after,
+.skill-row::after,
+.palette-row::after,
+.menu button::after,
+.slash-item::after,
+.picker-item::after,
+.model-row::after,
+.model-source-item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(
+    circle at var(--press-x, 50%) var(--press-y, 50%),
+    var(--press-light),
+    transparent var(--glow)
+  );
+  box-shadow: inset 0 0 0 1px var(--press-rim);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 600ms ease,
+    --glow 0s 600ms;
+  border-radius: inherit;
+}
+
+.btn:active::after,
+.icon-btn:active::after,
+.label-btn:active::after,
+.viewport-chip:active::after,
+.send-button:active::after,
+.panel-tab:active::after,
+.segmented button:active::after,
+.composer:active::after,
+.nav-row:active::after,
+.nav-new:active::after,
+.chat-row:active::after,
+.skill-row:active::after,
+.palette-row:active::after,
+.menu button:active::after,
+.slash-item:active::after,
+.picker-item:active::after,
+.model-row:active::after,
+.model-source-item:active::after {
+  --glow: 250%;
+  opacity: 1;
+  transition:
+    opacity 80ms ease,
+    --glow 500ms var(--ease);
 }
 
 .chevron {
@@ -7033,8 +7174,8 @@ button,
 }
 
 .palette-row.active {
-  background: var(--composer);
-  box-shadow: var(--composer-edge);
+  background: var(--selected);
+  box-shadow: var(--selected-edge);
 }
 
 .palette-text {
