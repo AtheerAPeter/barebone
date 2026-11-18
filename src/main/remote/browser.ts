@@ -54,6 +54,8 @@ interface View {
   encoding: boolean
   /** The newest picture taken meanwhile, encoded next; a newer one takes its place. */
   waitingFrame?: { tab: ChatPage; frame: ScreencastFrame }
+  /** Scrolling the device asked for that has not reached the page yet. */
+  scrolling?: Scrolling
   /** The page is being cast to the device. */
   casting: boolean
   /** The page's renderer crashed; the cast starts again once it is back. */
@@ -65,6 +67,16 @@ interface View {
   acks: (() => void)[]
   /** The page was loading, when the device was last told about it. */
   loading: boolean
+}
+
+/** Scrolling that waits to go to the page, while the turn before is still being handled there. */
+interface Scrolling {
+  tab: ChatPage
+  at: { x: number; y: number }
+  dx: number
+  dy: number
+  /** A wheel turn is on its way to the page. */
+  busy: boolean
 }
 
 /** The smallest and biggest page a device may ask for, in CSS pixels. */
@@ -176,7 +188,7 @@ export class RemoteBrowser {
     handleRemote(
       'remoteBrowser:scroll',
       (caller, x: unknown, y: unknown, dx: unknown, dy: unknown) =>
-        this.page(caller).driver.wheelAt(this.pointIn(caller, x, y), num(dy), num(dx))
+        this.scroll(caller, this.pointIn(caller, x, y), num(dx), num(dy))
     )
     handleRemote('remoteBrowser:type', (caller, text: unknown) =>
       this.page(caller).driver.typeText(str(text).slice(0, 1000))
@@ -533,6 +545,43 @@ export class RemoteBrowser {
   }
 
   /** The page the device shows, to act on; a page it does not show cannot be used. */
+  /**
+   * Scroll the page the device shows. Answered at once: Chromium counts a
+   * wheel turn as done only once the page has handled it, which a busy page
+   * does late, and the device, which sends its next scroll once this one is
+   * answered, could then send only a few a second. Scrolling that comes while
+   * a turn is still being handled waits, added up, and goes as one turn when
+   * the page is ready, so a slow page gets fewer, larger turns, not a queue.
+   */
+  private scroll(caller: Caller, at: { x: number; y: number }, dx: number, dy: number): void {
+    const view = this.use(caller)
+    const tab = this.page(caller)
+    const s =
+      view.scrolling?.tab === tab
+        ? view.scrolling
+        : (view.scrolling = { tab, at, dx: 0, dy: 0, busy: false })
+    s.at = at
+    s.dx += dx
+    s.dy += dy
+    if (!s.busy) this.turnWheel(view, s)
+  }
+
+  private turnWheel(view: View, s: Scrolling): void {
+    if (!s.dx && !s.dy) return
+    const { tab, at, dx, dy } = s
+    s.dx = 0
+    s.dy = 0
+    s.busy = true
+    tab.driver
+      .wheelAt(at, dy, dx)
+      .catch(() => undefined)
+      .finally(() => {
+        s.busy = false
+        if (view.scrolling === s && view.tab === tab && this.views.has(view))
+          this.turnWheel(view, s)
+      })
+  }
+
   /**
    * A point of the page the device shows, from its picture: in the size the
    * page is laid out at, an agent's or the device's. Checked here, so the page
