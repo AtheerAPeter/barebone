@@ -66,7 +66,6 @@ export class RemoteLink {
         chatId === OWN_BROWSER || this.host.state().chats.some((chat) => chat.id === chatId),
       sendTo: (caller, channel, args) => this.server?.sendTo(caller, channel, args) ?? false,
       sendBinary: (caller, data) => this.server?.sendBinary(caller, data) ?? false,
-      backlog: (caller) => this.server?.backlog(caller) ?? 0,
       deviceOf: (caller) => this.server?.deviceOf(caller)
     })
     // On a server, paired devices set the link up as Settings on the Mac do;

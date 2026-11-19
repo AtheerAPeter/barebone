@@ -1,17 +1,13 @@
 import type { BrowserTab, RemoteBrowserView } from '../../shared/types'
-import { encodeFrame, type FrameHeader } from '../../shared/wire'
+import { encodeFrame } from '../../shared/wire'
 import { normalizeUrl, type BuiltinBrowser, type ChatPage } from '../browser'
-import type { ScreencastFrame } from '../page-driver'
 import { loadConfig, saveConfig } from './config'
 import { handleRemote, listenRemote, onCallerGone, type Caller } from './registry'
-import { VideoEncoders } from './video-encoder'
 
 /**
  * A chat's browser tab on a device of the remote link: a live picture of the
  * page (Chrome's screencast, sent as binary messages), and the device's taps,
- * scrolls and keys sent back to it. A device that decodes video gets the page
- * as H.264 (shared/video.ts), a few kilobytes a picture, sent as fast as the
- * page changes; any other gets a JPEG at a time, the next once it shows one. It is the Mac's own tab, signed in to the
+ * scrolls and keys sent back to it. It is the Mac's own tab, signed in to the
  * user's accounts, so it is off until turned on in Settings on the Mac.
  *
  * A device shows one chat's tab at a time, and a chat's tab shows on one
@@ -42,18 +38,6 @@ interface View {
   tab?: ChatPage
   /** Stops listening to that tab. */
   untab?: () => void
-  /** The device decodes H.264, which it is sent rather than JPEGs. */
-  video: boolean
-  /** Its encoder, once a picture has gone to it. */
-  encoder?: number
-  /** The next picture must be one the device can start decoding from. */
-  needKey: boolean
-  /** Its connection is behind: pictures wait until it catches up. */
-  draining: boolean
-  /** A picture is being encoded for it. */
-  encoding: boolean
-  /** The newest picture taken meanwhile, encoded next; a newer one takes its place. */
-  waitingFrame?: { tab: ChatPage; frame: ScreencastFrame }
   /** Scrolling the device asked for that has not reached the page yet. */
   scrolling?: Scrolling
   /** The page is being cast to the device. */
@@ -84,16 +68,6 @@ const MIN_SIDE = 200
 const MAX_SIDE = 4000
 /** Pictures have at most this many pixels per CSS pixel: a phone's 3 would be 2.25 times the pixels. */
 const MAX_RATIO = 2
-/** JPEG quality of pictures for a device without video: smaller over sharper. */
-const JPEG_QUALITY = 70
-/**
- * Video waits while this much is still on its way to the device: then the
- * pictures it would have got are skipped, and it gets the page as it is once
- * the connection catches up, so the delay never grows.
- */
-const MAX_BACKLOG = 512 * 1024
-/** How often a connection that is behind is checked again. */
-const DRAIN_CHECK_MS = 25
 /** How long a device that lost its connection has to come back to the page as it left it. */
 const RECONNECT_MS = 60_000
 /** Changes to a chat's browser come in bursts (a page loading); the device hears of them once. */
@@ -114,8 +88,6 @@ export interface RemoteBrowserHost {
   chatExists(chatId: string): boolean
   sendTo(caller: Caller, channel: string, args: unknown[]): boolean
   sendBinary(caller: Caller, data: Uint8Array): boolean
-  /** Bytes still on their way to the device. */
-  backlog(caller: Caller): number
   deviceOf(caller: Caller): string | undefined
 }
 
@@ -124,7 +96,6 @@ export class RemoteBrowser {
   /** Chats whose browser changed, to tell their devices about shortly. */
   private dirty = new Set<string>()
   private dirtyTimer?: NodeJS.Timeout
-  private encoders = new VideoEncoders()
 
   constructor(
     private readonly browser: BuiltinBrowser,
@@ -157,8 +128,8 @@ export class RemoteBrowser {
 
   private register(): void {
     handleRemote('remoteBrowser:allowed', () => this.allowed)
-    handleRemote('remoteBrowser:open', (caller, chatId: unknown, size: unknown, video: unknown) =>
-      this.open(caller, chatId, size, video === true)
+    handleRemote('remoteBrowser:open', (caller, chatId: unknown, size: unknown) =>
+      this.open(caller, chatId, size)
     )
     handleRemote('remoteBrowser:resize', (caller, size: unknown) => {
       const view = this.use(caller)
@@ -173,13 +144,6 @@ export class RemoteBrowser {
       if (view) this.close(view)
     })
     listenRemote('remoteBrowser:ack', (caller) => this.viewOf(caller)?.acks.shift()?.())
-    // The device lost its place in the video (it came back, or could not decode).
-    listenRemote('remoteBrowser:keyframe', (caller) => {
-      const view = this.viewOf(caller)
-      if (!view?.video) return
-      view.needKey = true
-      view.tab?.driver.castNow()
-    })
 
     // Input goes to the page only, as an agent's does (page-driver.ts).
     handleRemote('remoteBrowser:tap', (caller, x: unknown, y: unknown) =>
@@ -223,7 +187,7 @@ export class RemoteBrowser {
   }
 
   /** Show a chat's tab on a device; another device showing it stops. */
-  private open(caller: Caller, chatId: unknown, size: unknown, video: boolean): RemoteBrowserView {
+  private open(caller: Caller, chatId: unknown, size: unknown): RemoteBrowserView {
     this.checkAllowed()
     if (typeof chatId !== 'string' || !this.host.chatExists(chatId)) {
       throw new Error('There is no such chat.')
@@ -239,10 +203,6 @@ export class RemoteBrowser {
       size: sizeFrom(size),
       device: (this.host.deviceOf(caller) ?? 'Remote link').split(' · ')[0],
       release: this.browser.keepOpen(chatId),
-      video,
-      needKey: true,
-      draining: false,
-      encoding: false,
       casting: false,
       crashed: false,
       acks: [],
@@ -260,7 +220,6 @@ export class RemoteBrowser {
    */
   private close(view: View, reason?: 'elsewhere' | 'off', keepFor?: number): void {
     if (!this.views.delete(view)) return
-    if (view.encoder !== undefined) this.encoders.remove(view.encoder)
     const tab = view.tab
     this.unfollow(view, keepFor !== undefined)
     if (reason) this.host.sendTo(view.caller, 'remoteBrowser:closed', [view.chatId, reason])
@@ -279,7 +238,7 @@ export class RemoteBrowser {
     if (!tab) return
     view.tab = tab
     view.loading = tab.contents.isLoading()
-    this.browser.viewRemotely(tab, true)
+    tab.viewedRemotely = true
     const dialogChanged = (): void => this.sendState(view)
     const crashed = (): void => {
       view.crashed = true
@@ -305,12 +264,10 @@ export class RemoteBrowser {
     view.untab = undefined
     view.tab = undefined
     view.acks = []
-    // Another tab's pictures start afresh.
-    view.needKey = true
     if (view.casting) tab.driver.stopScreencast()
     view.casting = false
     view.crashed = false
-    this.browser.viewRemotely(tab, false)
+    tab.viewedRemotely = false
     if (!keepSize) this.unfit(view.chatId, tab)
   }
 
@@ -359,7 +316,6 @@ export class RemoteBrowser {
         if (view.tab !== tab || !this.views.has(view)) return
         // A page that went to a file shows nothing of it, also in a picture made as it went.
         if (!webPage(tab.contents.getURL())) return
-        if (view.video) return this.sendVideo(view, tab, frame, ack)
         view.acks.push(ack)
         const header = {
           chatId: view.chatId,
@@ -367,94 +323,11 @@ export class RemoteBrowser {
           width: frame.width,
           height: frame.height
         }
-        const jpeg = frame.image.toJPEG(JPEG_QUALITY)
-        if (!this.host.sendBinary(view.caller, encodeFrame(header, jpeg))) this.close(view)
+        if (!this.host.sendBinary(view.caller, encodeFrame(header, frame.jpeg))) this.close(view)
       })
       .catch(() => {
         if (view.tab === tab) view.casting = false
       })
-  }
-
-  /**
-   * Send a picture as video. The next is taken while this one is encoded, and
-   * comes without waiting for the device to show it: pictures go as fast as the
-   * slowest of taking and encoding them, not both in turn. Only the newest
-   * picture waits to be encoded; one it replaces was never encoded, so the
-   * video stays whole. While the connection is behind, pictures wait, and the
-   * page is pictured anew once it catches up.
-   */
-  private sendVideo(view: View, tab: ChatPage, frame: ScreencastFrame, ack: () => void): void {
-    if (this.host.backlog(view.caller) > MAX_BACKLOG) return this.afterDrain(view, tab, ack)
-    ack()
-    if (view.encoding) {
-      view.waitingFrame = { tab, frame }
-      return
-    }
-    this.encodeVideo(view, tab, frame)
-  }
-
-  private encodeVideo(view: View, tab: ChatPage, frame: ScreencastFrame): void {
-    view.encoding = true
-    view.encoder ??= this.encoders.add()
-    const key = view.needKey
-    view.needKey = false
-    this.encoders
-      .encode(view.encoder, frame.image, key)
-      .then(
-        ({ codec, chunks }) => {
-          if (view.tab !== tab || !this.views.has(view)) return
-          for (const chunk of chunks) {
-            const header: FrameHeader = {
-              chatId: view.chatId,
-              tab: tab.id,
-              width: frame.width,
-              height: frame.height,
-              video: { codec, key: chunk.key }
-            }
-            if (!this.host.sendBinary(view.caller, encodeFrame(header, chunk.data))) {
-              return this.close(view)
-            }
-          }
-        },
-        (error: Error) => {
-          // This device gets JPEGs from here on; it shows either.
-          console.error(`The browser's video stopped, JPEGs instead: ${error.message}`)
-          if (view.encoder !== undefined) this.encoders.remove(view.encoder)
-          view.encoder = undefined
-          view.video = false
-          if (this.views.has(view) && view.tab === tab) tab.driver.castNow()
-        }
-      )
-      .finally(() => {
-        view.encoding = false
-        const waiting = view.waitingFrame
-        view.waitingFrame = undefined
-        if (!waiting || !view.video || !this.views.has(view) || view.tab !== waiting.tab) return
-        if (this.host.backlog(view.caller) > MAX_BACKLOG) {
-          return this.afterDrain(view, waiting.tab, () => undefined)
-        }
-        this.encodeVideo(view, waiting.tab, waiting.frame)
-      })
-  }
-
-  /** Once the device's connection has caught up, picture the page as it is then. */
-  private afterDrain(view: View, tab: ChatPage, ack: () => void): void {
-    if (view.draining) return ack()
-    view.draining = true
-    const check = (): void => {
-      if (!this.views.has(view) || view.tab !== tab) {
-        view.draining = false
-        return ack()
-      }
-      if (this.host.backlog(view.caller) > MAX_BACKLOG / 2) {
-        setTimeout(check, DRAIN_CHECK_MS)
-        return
-      }
-      view.draining = false
-      ack()
-      tab.driver.castNow()
-    }
-    setTimeout(check, DRAIN_CHECK_MS)
   }
 
   /** Cast again, at the device's new size. */
@@ -462,7 +335,6 @@ export class RemoteBrowser {
     if (view.casting) view.tab?.driver.stopScreencast()
     view.casting = false
     view.acks = []
-    view.needKey = true
     this.cast(view)
   }
 

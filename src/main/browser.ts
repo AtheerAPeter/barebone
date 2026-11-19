@@ -14,7 +14,6 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { extname, basename, join } from 'node:path'
 import type { BrowserState, PageViewport, Rect, SavedTabs } from '../shared/types'
 import { PageDriver } from './page-driver'
-import { HEADLESS } from './remote/config'
 
 /**
  * `persist:` partitions are stored on disk, so cookies, localStorage and
@@ -147,8 +146,6 @@ export class ChatPage extends EventEmitter {
   dialog?: PageDialog
   /** The message box showing the dialog to the user, while it is on screen. */
   box?: AbortController
-  /** In the window, where Chromium draws it: in the panel, or on a server shown remotely. */
-  inWindow = false
   /** In the panel, as opposed to parked out of sight. */
   shown = false
   /** The window is starting to capture it, to record it as a video (recording.ts). */
@@ -195,7 +192,7 @@ export class ChatPage extends EventEmitter {
         if (native) this.openDialog({ ...native, site: siteOf(this.contents.getURL()) })
         else if (this.dialog && !this.dialog.answer) this.closeDialog()
       },
-      () => this.inWindow
+      () => this.shown
     )
   }
 
@@ -740,10 +737,7 @@ export class BuiltinBrowser {
 
   /**
    * Put the selected chat's active tab in the panel and park every other tab,
-   * each page at the size it has there. On a server, where no one sees the
-   * window, a page a device of the remote link shows stays in it too: parked
-   * out of the window, Chromium stops drawing it, and it is drawn only when it
-   * is pictured, so a scroll on the device showed late and in jumps.
+   * each page at the size it has there.
    */
   private layout(): void {
     for (const [chatId, browser] of this.chats) {
@@ -754,8 +748,7 @@ export class BuiltinBrowser {
           chatId === this.activeChat &&
           tab === browser.active &&
           !this.panelHidden
-        tab.inWindow = tab.shown || (HEADLESS && tab.viewedRemotely)
-        tab.view.setBounds(tab.inWindow ? bounds : parked(bounds))
+        tab.view.setBounds(tab.shown ? bounds : parked(bounds))
         // A page at a set size is scaled anew as the panel changes size.
         if (tab.viewport && scale !== tab.scale) tab.driver.emulate(tab.viewport, scale)
         tab.scale = scale
@@ -763,12 +756,6 @@ export class BuiltinBrowser {
     }
     this.showDialog()
     this.onPageArea?.(this.panelHidden ? undefined : this.panelBounds)
-  }
-
-  /** A device of the remote link starts or stops showing the page (remote/browser.ts). */
-  viewRemotely(tab: ChatPage, on: boolean): void {
-    tab.viewedRemotely = on
-    this.layout()
   }
 
   /**

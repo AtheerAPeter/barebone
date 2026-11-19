@@ -116,8 +116,8 @@ export function remoteApi(): {
     ws.onmessage = (event) => {
       if (socket !== ws) return
       if (event.data instanceof ArrayBuffer) {
-        const { header, data } = decodeFrame(event.data)
-        emit('remoteBrowser:frame', header, data)
+        const { header, jpeg } = decodeFrame(event.data)
+        emit('remoteBrowser:frame', header, jpeg)
       } else receive(decode<ServerMessage>(String(event.data)))
     }
     ws.onclose = async (event) => {

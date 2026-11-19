@@ -10,12 +10,5 @@ cp -rn /etc/skel/. "$HOME/"
 
 # The browser's passwords are kept in a file of Barebone's (--password-store),
 # as there is no keyring.
-#
-# Pages are drawn at 1.5 pixels per point, so the browser a phone sees
-# through the link is sharp: at Xvfb's 1, a phone showed each pixel three times
-# over. Not 2, as on a Mac's Retina screen: drawn without a GPU, every picture
-# costs by its pixels, and on an 8-thread laptop 2 took twice as long as 1.5
-# for each picture of a scrolling page, where 1.5 took little more than 1. The
-# screen is 1.5 times the size in pixels, so in points it is still 1920 by 1080.
-exec xvfb-run --auto-servernum --server-args='-screen 0 2880x1620x24 -nolisten tcp' \
-  /opt/barebone/barebone --password-store=basic --force-device-scale-factor=1.5 "$@"
+exec xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24 -nolisten tcp' \
+  /opt/barebone/barebone --password-store=basic "$@"

@@ -31,6 +31,8 @@ const WORLD = 'barebone'
 const INJECTED = '__bareboneInjected'
 /** DevTools commands answer in milliseconds; a page that takes this long is stuck. */
 const COMMAND_TIMEOUT = 10_000
+/** JPEG quality of screencast pictures, which go over the remote link: smaller over sharper. */
+const SCREENCAST_QUALITY = 70
 /** Chromium's own screencast frames, of which only when they come is used, are this small. */
 const SIGNAL_SIZE = 64
 /** A picture that could not be taken is tried again this much later. */
@@ -611,8 +613,8 @@ function consoleArg(arg: ConsoleArg): string {
 
 /** A picture of the page from its screencast (Page.screencastFrame). */
 export interface ScreencastFrame {
-  /** The picture, at most the size the screencast was started with. */
-  image: Electron.NativeImage
+  /** JPEG. */
+  jpeg: Buffer
   /** The page's viewport in CSS pixels, which the picture shows all of. */
   width: number
   height: number
@@ -783,7 +785,7 @@ export class PageDriver {
               quality: 'good'
             })
           : image
-      casting.onFrame({ image: scaled, width, height }, ack)
+      casting.onFrame({ jpeg: scaled.toJPEG(SCREENCAST_QUALITY), width, height }, ack)
     } catch {
       ack()
       // A page changing as it was taken, or one with nothing drawn yet (a view that has never

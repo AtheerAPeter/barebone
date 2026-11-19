@@ -176,18 +176,13 @@ html.remote .remote-browser.wide .rb-notice {
   background: var(--well);
 }
 
-.rb-page > img,
-.rb-page > canvas {
+.rb-page > img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
   object-position: top center;
   pointer-events: none;
-}
-
-.rb-page > canvas[hidden] {
-  display: none;
 }
 
 .rb-message {

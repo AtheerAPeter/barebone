@@ -14,7 +14,6 @@ import {
 import { TabIcon } from '../components/BrowserPanel'
 import { dragDivider } from '../lib/side-panel'
 import { PHONE, useKeyboardArea, useMedia } from '../lib/touch'
-import { decodesVideo, VideoPlayer } from './video-player'
 
 /**
  * A chat's browser tab from the Mac, live, through the remote link
@@ -70,8 +69,7 @@ const NAMED_KEYS = new Set([
 ])
 
 interface Frame {
-  /** A JPEG's object URL; none for video, which is drawn on the canvas. */
-  url?: string
+  url: string
   /** The page's viewport in CSS pixels. */
   width: number
   height: number
@@ -88,9 +86,6 @@ export function BrowserSheet({
   onClose
 }: Props): React.JSX.Element {
   const pageRef = useRef<HTMLDivElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  /** What the tab list shows of the tab shown, taken as it opens. */
-  const [preview, setPreview] = useState<string>()
   const keysRef = useRef<HTMLInputElement>(null)
   const addressRef = useRef<HTMLInputElement>(null)
   const [view, setView] = useState<RemoteBrowserView>()
@@ -114,8 +109,8 @@ export function BrowserSheet({
     let current = true
     setProblem(undefined)
     setElsewhere(false)
-    decodesVideo()
-      .then((video) => api().open(chatId, sizeOf(el), video))
+    api()
+      .open(chatId, sizeOf(el))
       .then(
         (opened) => current && setView(opened),
         (error: Error) => current && setProblem(error.message)
@@ -133,24 +128,10 @@ export function BrowserSheet({
     const offState = api().onState((next) => {
       if (next.chatId === chatId) setView(next)
     })
-    // Video is drawn as it is decoded; a JPEG is shown, then acknowledged for the next.
-    const player = new VideoPlayer(
-      () => canvasRef.current,
-      ({ width, height }) => {
-        if (!current) return
-        setFrame((shown) =>
-          shown && !shown.url && shown.width === width && shown.height === height
-            ? shown
-            : { width, height }
-        )
-      },
-      () => api().keyframe()
-    )
-    const offFrame = api().onFrame((header, data) => {
+    const offFrame = api().onFrame((header, jpeg) => {
       if (header.chatId !== chatId) return
-      if (header.video) return player.push(header, data)
       const url = URL.createObjectURL(
-        new Blob([data as Uint8Array<ArrayBuffer>], { type: 'image/jpeg' })
+        new Blob([jpeg as Uint8Array<ArrayBuffer>], { type: 'image/jpeg' })
       )
       // Shown once decoded: Safari draws a picture swapped in before then as nothing
       // for a moment, so the page flickered with each picture while scrolling.
@@ -174,7 +155,6 @@ export function BrowserSheet({
     const offReconnected = api().onReconnected(() => setOpening((n) => n + 1))
     return () => {
       current = false
-      player.close()
       offState()
       offFrame()
       offClosed()
@@ -196,20 +176,6 @@ export function BrowserSheet({
     // The Mac sends the next picture once this one shows.
     api().ack()
   }
-
-  // Video has no picture to hand the tab list: the canvas is taken as the list opens.
-  useEffect(
-    () => () => {
-      if (preview) URL.revokeObjectURL(preview)
-    },
-    [preview]
-  )
-  const takePreview = (): void => {
-    const canvas = canvasRef.current
-    if (frame?.url || !canvas?.width) return
-    canvas.toBlob((blob) => blob && setPreview(URL.createObjectURL(blob)), 'image/jpeg', 0.6)
-  }
-  const jpegUrl = frame?.url
 
   // The page is laid out at the area's size, anew when it changes (a turned phone, the keyboard).
   const opened = view !== undefined
@@ -476,18 +442,16 @@ export function BrowserSheet({
         onPointerCancel={() => (gesture.current = undefined)}
         onWheel={showing ? onWheel : undefined}
       >
-        {showing && jpegUrl && (
+        {showing && frame && (
           <img
-            key={jpegUrl}
-            src={jpegUrl}
+            key={frame.url}
+            src={frame.url}
             alt=""
             draggable={false}
-            onLoad={() => pictureShown(jpegUrl)}
-            onError={() => pictureShown(jpegUrl)}
+            onLoad={() => pictureShown(frame.url)}
+            onError={() => pictureShown(frame.url)}
           />
         )}
-        {/* Always there, so the first picture of a video has somewhere to be drawn. */}
-        <canvas ref={canvasRef} hidden={!showing || !frame || frame.url !== undefined} />
         {problem ? (
           <p className="rb-message">{problem}</p>
         ) : elsewhere ? (
@@ -530,7 +494,7 @@ export function BrowserSheet({
           <TabGrid
             tabs={view.tabs}
             activeTab={view.activeTab}
-            preview={frame?.url ?? preview}
+            frame={frame}
             onPick={(tabId) => {
               setMode('page')
               api().selectTab(tabId).catch(fail)
@@ -599,10 +563,7 @@ export function BrowserSheet({
               className="icon-btn rb-tabs"
               title="Tabs"
               disabled={!usable}
-              onClick={() => {
-                takePreview()
-                setMode('tabs')
-              }}
+              onClick={() => setMode('tabs')}
             >
               <span>{view?.tabs.length ?? ''}</span>
             </button>
@@ -760,14 +721,13 @@ function WideBar({
 function TabGrid({
   tabs,
   activeTab,
-  preview,
+  frame,
   onPick,
   onClose
 }: {
   tabs: BrowserTab[]
   activeTab?: string
-  /** A picture of the tab shown. */
-  preview?: string
+  frame?: Frame
   onPick: (tabId: string) => void
   onClose: (tabId: string) => void
 }): React.JSX.Element {
@@ -798,8 +758,8 @@ function TabGrid({
             </button>
           </div>
           <div className="rb-tab-preview">
-            {tab.id === activeTab && preview ? (
-              <img src={preview} alt="" draggable={false} />
+            {tab.id === activeTab && frame ? (
+              <img src={frame.url} alt="" draggable={false} />
             ) : (
               <span>{hostOf(tab.url) || 'New tab'}</span>
             )}
