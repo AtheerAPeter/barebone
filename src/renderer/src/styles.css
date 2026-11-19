@@ -785,6 +785,48 @@ kbd {
   }
 }
 
+/*
+ * Files, Terminal and Browser: plain rows under the actions, an icon and a
+ * word each, set off from the chats by a hairline.
+ */
+.side-places {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0 6px;
+}
+
+.side-places::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 1px;
+  background: var(--border);
+}
+
+.side-place {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  padding: 0 10px;
+  color: var(--text-soft);
+  text-align: left;
+  border-radius: var(--radius);
+}
+
+.side-place:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.side-place.on {
+  color: var(--text);
+}
+
 /* Every chat, in one list under the actions. It scrolls without a scrollbar. */
 .sidebar-scroll {
   flex: 1;
@@ -1075,7 +1117,8 @@ img.project-icon {
 
 /* The open chat, and the open view: the glass highlight, as everything open or chosen. */
 .chat-row.selected,
-.nav-row.on {
+.nav-row.on,
+.side-place.on {
   background: var(--selected);
   box-shadow: var(--selected-edge);
 }
@@ -6720,6 +6763,7 @@ button,
 .nav-row,
 .nav-new,
 .chat-row,
+.side-place,
 .skill-row,
 .palette-row,
 .menu button,
@@ -6752,6 +6796,7 @@ button,
 .nav-row,
 .nav-new,
 .turn-work-head,
+.side-place,
 .skill-row,
 .palette-row,
 .menu button,
@@ -6785,6 +6830,7 @@ button,
 
 :is(
   .turn-work-head,
+  .side-place,
   .skill-row,
   .palette-row,
   .menu button,
@@ -6801,6 +6847,7 @@ button,
 :is(
   .finder-place,
   .crumb-btn,
+  .side-place,
   .skill-row,
   .palette-row,
   .settled-bar,

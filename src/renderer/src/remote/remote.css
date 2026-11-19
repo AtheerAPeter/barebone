@@ -691,6 +691,18 @@ html.remote .remote-browser.wide .rb-notice {
     font-size: 13.5px;
   }
 
+  html.remote .side-place {
+    height: 44px;
+    gap: 12px;
+    padding: 0 12px;
+    font-size: 16px;
+  }
+
+  html.remote .side-place svg {
+    width: 20px;
+    height: 20px;
+  }
+
   html.remote .chat-row {
     min-height: 48px;
     padding: 0 6px 0 8px;

@@ -30,6 +30,7 @@ import {
   FolderIcon,
   FolderPlusIcon,
   GlobeIcon,
+  ListIcon,
   MoonIcon,
   PlusIcon,
   SearchIcon,
@@ -37,7 +38,8 @@ import {
   PhoneIcon,
   SettingsIcon,
   SidebarIcon,
-  TerminalIcon
+  TerminalIcon,
+  TreeIcon
 } from './icons'
 
 /** Settled chats listed before "Show more", and how many each click adds. */
@@ -664,14 +666,6 @@ export function Sidebar({
       {/* The window buttons sit at its left; it drags the window. */}
       <div className="sidebar-top">
         <button
-          className={`icon-btn${byProject ? ' on' : ''}`}
-          title={byProject ? 'Group chats by status' : 'Group chats by project'}
-          aria-pressed={byProject}
-          onClick={() => setGrouping(byProject ? 'status' : 'project')}
-        >
-          <FolderIcon />
-        </button>
-        <button
           className="icon-btn"
           title={asSheet ? 'Close' : `Hide sidebar (${shortcut('B')})`}
           onClick={onHide}
@@ -683,7 +677,7 @@ export function Sidebar({
       <div className="sidebar-body">
         {/*
          * Above the chats: Search, New chat, and a gear for the rest
-         * (Skills, Files, Terminal, Browser, the theme, Settings).
+         * (Skills, Open project, the grouping, the theme, Settings).
          */}
         <div className="side-nav">
           <button
@@ -715,9 +709,6 @@ export function Sidebar({
             onClose={() => setMore(undefined)}
             entries={[
               { name: 'Skills', icon: <BookIcon />, onSelect: () => onShow('skills') },
-              { name: 'Files', icon: <FolderIcon />, onSelect: () => onShow('files') },
-              { name: 'Terminal', icon: <TerminalIcon />, onSelect: () => onShow('terminal') },
-              { name: 'Browser', icon: <GlobeIcon />, onSelect: () => onShow('browser') },
               // A project is a folder chosen with the Mac's folder picker.
               ...(window.api.remote
                 ? []
@@ -730,6 +721,11 @@ export function Sidebar({
                   ]),
               null,
               {
+                name: byProject ? 'Group by status' : 'Group by project',
+                icon: byProject ? <ListIcon /> : <TreeIcon />,
+                onSelect: () => setGrouping(byProject ? 'status' : 'project')
+              },
+              {
                 name: theme.dark ? 'Light mode' : 'Dark mode',
                 icon: theme.dark ? <SunIcon /> : <MoonIcon />,
                 onSelect: theme.toggle
@@ -738,6 +734,20 @@ export function Sidebar({
             ]}
           />
         )}
+        {/* The views used most, as plain rows under the actions, as in ChatGPT's sidebar. */}
+        <div className="side-places">
+          {PLACES.map((place) => (
+            <button
+              key={place.view}
+              className={`side-place${view === place.view ? ' on' : ''}`}
+              aria-pressed={view === place.view}
+              onClick={() => onShow(place.view)}
+            >
+              {place.icon}
+              {place.name}
+            </button>
+          ))}
+        </div>
         {query !== undefined && (
           <label className="sidebar-search">
             <SearchIcon width={14} height={14} />
@@ -785,7 +795,14 @@ export function Sidebar({
 }
 
 /** The views the gear's menu opens; its button shows as on while one of them is open. */
-const MORE_VIEWS: View[] = ['skills', 'files', 'terminal', 'browser', 'settings']
+const MORE_VIEWS: View[] = ['skills', 'settings']
+
+/** The views used most often, as rows above the chats rather than in the gear's menu. */
+const PLACES: { view: Exclude<View, 'chat'>; name: string; icon: React.JSX.Element }[] = [
+  { view: 'files', name: 'Files', icon: <FolderIcon /> },
+  { view: 'terminal', name: 'Terminal', icon: <TerminalIcon /> },
+  { view: 'browser', name: 'Browser', icon: <GlobeIcon /> }
+]
 
 /** A tab's shortcut in its tooltip, on the Mac, whose app menu gives it. */
 function NavKey({ keys }: { keys: string }): React.JSX.Element | null {
