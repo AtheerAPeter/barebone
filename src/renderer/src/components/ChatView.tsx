@@ -32,6 +32,7 @@ import { renderMarkdown } from '../lib/markdown'
 import { BotCard } from './BotPane'
 import { BotAvatar } from './BotAvatar'
 import { BotsContext } from '../lib/bots'
+import { elapsed } from '../lib/time'
 import type { VoiceState } from '../lib/voice'
 import { Composer } from './Composer'
 import { Collapse } from './Collapse'
@@ -234,6 +235,16 @@ export function ChatView({
     const el = scrollRef.current
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight
   }, [items, chat.running])
+  // Likewise when the view gets shorter, as a strip docks on the composer: the end stays in sight.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const follow = new ResizeObserver(() => {
+      if (stickToBottom.current) el.scrollTop = el.scrollHeight
+    })
+    follow.observe(el)
+    return () => follow.disconnect()
+  }, [])
 
   return (
     // An empty chat centers its greeting and the composer, as ChatGPT does.
@@ -628,6 +639,7 @@ const Item = memo(function Item({
                 ))}
             </div>
           )}
+          {item.steered && <div className="user-steered">Steered mid-turn</div>}
           {(item.text || item.from) && (
             <div className="bubble">
               {item.from && (
@@ -1742,16 +1754,6 @@ function spoken(text: string): string {
   if (plain.length <= ORB_TEXT) return plain
   const end = plain.slice(-ORB_TEXT)
   return `…${end.slice(end.indexOf(' ') + 1)}`
-}
-
-/** "12s", then "1m 05s", then "1h 02m 05s", like Codex's status line. */
-function elapsed(seconds: number): string {
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = String(seconds % 60).padStart(2, '0')
-  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m ${s}s`
-  if (m > 0) return `${m}m ${s}s`
-  return `${seconds}s`
 }
 
 function Working(): React.JSX.Element {

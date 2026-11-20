@@ -326,8 +326,13 @@ export function makeApi(t: Transport) {
     getMessages: (chatId: string): Promise<ChatItem[]> => invoke('chat:messages', chatId),
     setAgent: (chatId: string, agent: AgentId, settings: Record<string, string>): Promise<void> =>
       invoke('chat:setAgent', chatId, agent, settings),
-    send: (chatId: string, text: string, attachments: Attachment[] = []): Promise<void> =>
-      invoke('chat:send', chatId, text, attachments),
+    /** `queued`: to a working chat, wait for its turn to end instead of steering it. */
+    send: (
+      chatId: string,
+      text: string,
+      attachments: Attachment[] = [],
+      queued = false
+    ): Promise<void> => invoke('chat:send', chatId, text, attachments, queued),
     /** Choose files to attach with the system file picker. */
     pickFiles: (): Promise<Attachment[]> => invoke('files:pick'),
     /** A small preview of an image file, as a data URL; null when it cannot be read. */
@@ -341,6 +346,12 @@ export function makeApi(t: Transport) {
       id: string
     ): Promise<{ text: string; attachments: Attachment[] } | undefined> =>
       invoke('chat:takeWaiting', chatId, id),
+    /** Put a waiting message into the running turn now, ending the turn for agents that cannot take it. */
+    steerWaiting: (chatId: string, id: string): Promise<void> =>
+      invoke('chat:steerWaiting', chatId, id),
+    /** Move a waiting message a place earlier (-1) or later (1). */
+    moveWaiting: (chatId: string, id: string, by: -1 | 1): Promise<void> =>
+      invoke('chat:moveWaiting', chatId, id, by),
     /** Stop one of the chat's background commands; it does not wake the chat. */
     stopCommand: (chatId: string, pid: number): Promise<void> =>
       invoke('chat:stopCommand', chatId, pid),

@@ -23,7 +23,8 @@ import type {
   FormAnswers,
   Project,
   ToolStatus,
-  UsageLimits
+  UsageLimits,
+  WaitingMessage
 } from '../shared/types'
 import { claudeLimits, codexLimits, type LimitsAccount } from './limits'
 import {
@@ -468,9 +469,13 @@ const UNLISTED_COMMANDS: Record<AcpAgent, AgentCommand[]> = {
 /** A prompt asking to compact the conversation. */
 const COMPACT = /^\/compact(\s|$)/
 
-/** Added to the user's message that steers a running turn, so the agent keeps at its work. */
+/**
+ * Added to the user's message that steers a running turn. It is their latest
+ * word: the agent changes course when it says so, rather than finishing the
+ * work it was on first.
+ */
 const STEER_NOTE =
-  '(The user sent this while you were still working. Unless it tells you to stop, to change course or to do it first, do not drop what you were doing: take it into account where it bears on that work, finish the work, then do what this message asks.)'
+  '(The user sent this while you were working, and it is their latest word. If it changes what they want, drop the old plan and act on this now, without finishing what you were doing first. If it only adds to the work, take it in and carry on.)'
 
 const HARNESS_NO_COMPACTION = `The app's own agents compact the conversation on their own when it reaches ${formatTokens(COMPACT_AT)} tokens. They have no command to do it now.`
 
@@ -2093,12 +2098,18 @@ async function savedImage(chatId: string, attachment: Attachment): Promise<strin
   return attachment.path ? saveImageFile(chatId, mimeType, attachment.path) : undefined
 }
 
-/** A message waiting for a busy chat: the user's own, or with `from` another chat's. */
+/**
+ * A message waiting for a busy chat: the user's own, or with `from` another
+ * chat's. The user's `queued` ones wait for the turn to end; the rest steer it.
+ */
 interface Waiting {
   id: string
   text: string
   attachments: Attachment[]
   from?: ChatSender
+  queued?: boolean
+  /** When the user's message began to wait, or to steer when it was queued first. */
+  at?: number
 }
 
 /** run_in_background asks the user with these, as for a shell command. */
@@ -2567,6 +2578,8 @@ export class AgentManager implements ChatsApi {
    * when it ends a turn early to steer it (see steerAfterStep). `id` is the
    * ID its item gets, whenever it joins a turn, so the sender can follow it
    * (the Telegram bot marks the user's message with how it is going).
+   * `queued`: sent to a working chat, it waits for the turn to end instead of
+   * steering it.
    */
   async send(
     chatId: string,
@@ -2574,7 +2587,8 @@ export class AgentManager implements ChatsApi {
     attachments: Attachment[] = [],
     from?: ChatSender,
     steers = false,
-    id?: string
+    id?: string,
+    queued = false
   ): Promise<void> {
     // Once the app quits, nothing starts a turn: a background command, a timer
     // or a chat that ended would otherwise start an agent as the app stops them.
@@ -2585,7 +2599,7 @@ export class AgentManager implements ChatsApi {
     const chat = store.getChat(chatId)
     if (chat.running) {
       if (from) throw new Error('This chat is already running.')
-      this.wait(chatId, text, attachments, id)
+      this.wait(chatId, text, attachments, id, queued)
       return
     }
     const compact = !from && COMPACT.test(text.trim())
@@ -2611,7 +2625,9 @@ export class AgentManager implements ChatsApi {
     const userItem: UserItem = {
       ...(await newUserItem(chatId, text, attachments, id)),
       sentAt,
-      ...(from ? { from } : {})
+      ...(from ? { from } : {}),
+      // It cut the last turn short to steer it (see steerAfterStep).
+      ...(steers && !from ? { steered: true } : {})
     }
     this.events.item(chatId, store.upsertItem(chatId, userItem))
     store.updateChat(chatId, { preview: chatPreview(store.getMessages(chatId)) })
@@ -2819,19 +2835,70 @@ export class AgentManager implements ChatsApi {
   }
 
   /**
-   * Keep the user's message to a working chat for the turn's next step (see
-   * steer and steerAfterStep). It shows above the composer until then, and
-   * joins the chat where the agent reads it.
+   * Keep the user's message to a working chat until the agent takes it (see
+   * steer and steerAfterStep): an agent that takes messages into its turn
+   * gets it at once, others when the step they are on ends. A `queued` one
+   * waits for the turn to end instead. It shows above the composer until
+   * then, and joins the chat where the agent reads it.
    */
   private wait(
     chatId: string,
     text: string,
     attachments: Attachment[],
-    id: string = crypto.randomUUID()
+    id: string = crypto.randomUUID(),
+    queued = false
   ): void {
-    const message = { id, text, attachments }
+    const message: Waiting = {
+      id,
+      text,
+      attachments,
+      at: Date.now(),
+      ...(queued ? { queued } : {})
+    }
     this.inbox.set(chatId, [...(this.inbox.get(chatId) ?? []), message])
     this.showWaiting(chatId)
+    if (!queued && this.injects(chatId)) this.steerAfterStep(chatId)
+  }
+
+  /**
+   * The user wants a waiting message in now: a queued one steers instead, and
+   * goes first. An agent that takes messages into its turn gets it at once;
+   * for the others the turn is ended here, without waiting for its step to
+   * end, and the message starts the next one. The app's own agents take it
+   * at their next step.
+   */
+  steerWaiting(chatId: string, id: string): void {
+    const queued = this.inbox.get(chatId) ?? []
+    const message = queued.find((m) => m.id === id && !m.from)
+    if (!message) return
+    const steering: Waiting = { ...message, queued: undefined, at: Date.now() }
+    this.inbox.set(chatId, [steering, ...queued.filter((m) => m !== message)])
+    this.showWaiting(chatId)
+    const chat = store.getChat(chatId)
+    if (!chat.running || isHarnessAgent(chat.agent)) return
+    if (this.injects(chatId)) return this.steerAfterStep(chatId)
+    if (this.steering.has(chatId)) return
+    this.steering.add(chatId)
+    void this.processFor(chatId).cancel(chatId)
+  }
+
+  /** Move one of the user's waiting messages a place earlier (-1) or later (1) among theirs. */
+  moveWaiting(chatId: string, id: string, by: -1 | 1): void {
+    const queued = [...(this.inbox.get(chatId) ?? [])]
+    const own = queued.flatMap((m, index) => (m.from ? [] : [index]))
+    const at = own.findIndex((index) => queued[index].id === id)
+    const to = own[at + by]
+    if (at === -1 || to === undefined) return
+    const from = own[at]
+    ;[queued[from], queued[to]] = [queued[to], queued[from]]
+    this.inbox.set(chatId, queued)
+    this.showWaiting(chatId)
+  }
+
+  /** Whether the chat's agent takes messages into its running turn (see steerAfterStep). */
+  private injects(chatId: string): boolean {
+    const agentProcess = this.processFor(chatId)
+    return Boolean(agentProcess.steersTurns?.() && agentProcess.steerTurn)
   }
 
   /**
@@ -2851,9 +2918,15 @@ export class AgentManager implements ChatsApi {
 
   /** The user's waiting messages, for the composer. */
   private showWaiting(chatId: string): void {
-    const waiting = (this.inbox.get(chatId) ?? [])
-      .filter((m) => !m.from)
-      .map(({ id, text }) => ({ id, text }))
+    const own = (this.inbox.get(chatId) ?? []).filter((m) => !m.from)
+    const joins = own.length > 0 && this.injects(chatId) ? 'now' : 'step'
+    const waiting = own.map(({ id, text, queued, at }): WaitingMessage => ({
+      id,
+      text,
+      joins,
+      at: at ?? Date.now(),
+      ...(queued ? { queued } : {})
+    }))
     store.updateChat(chatId, { waitingMessages: waiting.length > 0 ? waiting : undefined })
     this.events.stateChanged()
   }
@@ -3497,9 +3570,9 @@ export class AgentManager implements ChatsApi {
    * Take the messages waiting for a running chat, to join its turn, as the
    * agent reads them: at the next step of the app's own agents, or of an ACP
    * agent that takes them into its turn (see steerAfterStep), or at the start
-   * of a new turn. A compaction command waits for the turn to end, and so
-   * does what came after it. `steers` is false when they join a new turn:
-   * they are follow-ups then.
+   * of a new turn. The user's queued messages wait for the turn to end, and
+   * a compaction command too, with what came after it. `steers` is false
+   * when they join a new turn: they are follow-ups then.
    *
    * `inject` hands them to an ACP agent's running turn. They are taken only
    * once it has them: when its turn ended first, they keep waiting for the
@@ -3510,10 +3583,10 @@ export class AgentManager implements ChatsApi {
     steers = true,
     inject?: (prompt: acp.ContentBlock[]) => Promise<boolean>
   ): Promise<{ prompt: string; blocks: acp.ContentBlock[]; notes: string[] }[]> {
-    const queued = this.inbox.get(chatId)
-    if (!queued) return []
-    const compact = queued.findIndex((m) => !m.from && COMPACT.test(m.text.trim()))
-    const now = compact === -1 ? queued : queued.slice(0, compact)
+    const steering = this.inbox.get(chatId)?.filter((m) => !m.queued)
+    if (!steering) return []
+    const compact = steering.findIndex((m) => !m.from && COMPACT.test(m.text.trim()))
+    const now = compact === -1 ? steering : steering.slice(0, compact)
     if (now.length === 0) return []
     const messages = this.deliverable(chatId, now)
     // Those that may no longer be delivered are dropped at once.
@@ -3543,7 +3616,8 @@ export class AgentManager implements ChatsApi {
         store.upsertItem(chatId, {
           ...(await newUserItem(chatId, text, attachments, id)),
           sentAt: Date.now(),
-          ...(from ? { from } : {})
+          ...(from ? { from } : {}),
+          ...(steers && !from ? { steered: true } : {})
         })
       )
     }
@@ -3582,7 +3656,9 @@ export class AgentManager implements ChatsApi {
         })
       )
     }
-    const [next, ...rest] = this.deliverable(chatId, queued)
+    // A message that was to steer the turn goes before those queued for after it.
+    const ordered = [...queued.filter((m) => !m.queued), ...queued.filter((m) => m.queued)]
+    const [next, ...rest] = this.deliverable(chatId, ordered)
     if (rest.length > 0) this.inbox.set(chatId, rest)
     this.showWaiting(chatId)
     if (next) {
@@ -3602,28 +3678,37 @@ export class AgentManager implements ChatsApi {
   }
 
   /**
-   * Steer an ACP agent's turn when a step of it ends (a tool call finished,
-   * none other running) while messages wait. An agent that advertises
-   * `_session/steering` (Claude Code) takes them into its turn, which goes
-   * on. Others have no way to add to a running turn, so the turn is ended
-   * there (session/cancel), and deliverNext sends them at once as the next
-   * one. Either way, steering after a finished call loses no work: Claude
-   * Code would move a command still running to the background, and its answer
-   * is not cut off midway. A compaction command first in line waits for the
-   * turn's own end.
+   * Steer an ACP agent's turn with the messages waiting to steer it. An agent
+   * that advertises `_session/steering` (Claude Code) takes them into its
+   * turn, which goes on: this runs as soon as the user sends one (see wait),
+   * and again when a step ends for those its turn was not open for yet. It
+   * cuts the agent's answer short and moves a command still running to the
+   * background, so the turn turns to the message at once. Others have no way
+   * to add to a running turn, so when a step of it ends (a tool call
+   * finished, none other running) the turn is ended there (session/cancel),
+   * and deliverNext sends them at once as the next one; that loses no work.
+   * Queued messages wait for the turn's end, and so does a compaction command
+   * first in line.
    */
   private steerAfterStep(chatId: string): void {
-    const queued = this.inbox.get(chatId)
-    if (!queued?.length || this.steering.has(chatId) || this.joining.has(chatId)) return
-    if (!queued[0].from && COMPACT.test(queued[0].text.trim())) return
+    const steering = this.inbox.get(chatId)?.filter((m) => !m.queued)
+    if (!steering?.length || this.steering.has(chatId) || this.joining.has(chatId)) return
+    if (!steering[0].from && COMPACT.test(steering[0].text.trim())) return
     if (!store.getChat(chatId).running) return
     const agentProcess = this.processFor(chatId)
     if (agentProcess.steersTurns?.() && agentProcess.steerTurn) {
       const steerTurn = agentProcess.steerTurn.bind(agentProcess)
       this.joining.add(chatId)
-      void this.steer(chatId, true, (prompt) => steerTurn(chatId, prompt)).finally(() =>
-        this.joining.delete(chatId)
-      )
+      void this.steer(chatId, true, (prompt) => steerTurn(chatId, prompt))
+        .then(
+          (parts) => parts.length > 0,
+          () => false
+        )
+        .then((joined) => {
+          this.joining.delete(chatId)
+          // Those the user sent while these were handed over go too.
+          if (joined) this.steerAfterStep(chatId)
+        })
       return
     }
     this.steering.add(chatId)

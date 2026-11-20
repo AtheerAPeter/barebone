@@ -8,6 +8,8 @@ import { MoreIcon } from './icons'
 export interface RowMenuItem {
   name: string
   danger?: boolean
+  /** A key that does the same elsewhere, shown at the item's end. */
+  shortcut?: string
   onSelect: () => void
 }
 
@@ -104,6 +106,7 @@ export function RowMenu({
                 }}
               >
                 {item.name}
+                {item.shortcut && !menusAsSheets() && <kbd>{item.shortcut}</kbd>}
               </button>
             ))}
           </div>,

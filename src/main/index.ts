@@ -997,9 +997,12 @@ function registerIpc(browser: BuiltinBrowser): void {
   handle('chat:open', (chatId: string) => agents.open(chatId))
 
   // Fire and forget: progress arrives through chat:item and state:changed events.
-  handle('chat:send', (chatId: string, text: string, attachments?: Attachment[]) => {
-    void agents.send(chatId, text, attachments)
-  })
+  handle(
+    'chat:send',
+    (chatId: string, text: string, attachments?: Attachment[], queued?: boolean) => {
+      void agents.send(chatId, text, attachments, undefined, false, undefined, queued === true)
+    }
+  )
   handle(
     'files:pick',
     async (): Promise<Attachment[]> => {
@@ -1017,6 +1020,10 @@ function registerIpc(browser: BuiltinBrowser): void {
   )
   handle('chat:cancel', (chatId: string) => cancelChat(chatId))
   handle('chat:takeWaiting', (chatId: string, id: string) => agents.takeWaiting(chatId, id))
+  handle('chat:steerWaiting', (chatId: string, id: string) => agents.steerWaiting(chatId, id))
+  handle('chat:moveWaiting', (chatId: string, id: string, by: number) =>
+    agents.moveWaiting(chatId, id, by < 0 ? -1 : 1)
+  )
   handle('chat:stopCommand', (chatId: string, pid: number) => agents.stopCommand(chatId, pid))
   handle('chat:stopSubagent', (chatId: string, id: string) => agents.stopSubagent(chatId, id))
   handle('chat:clearTimer', (chatId: string) => {

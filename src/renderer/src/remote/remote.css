@@ -975,8 +975,16 @@ html.remote .remote-browser.wide .rb-notice {
   }
 
   html.remote .todo-strip,
-  html.remote .background-strip {
+  html.remote .background-strip,
+  html.remote .waiting-strip {
     font-size: 15px;
+  }
+
+  /* Thumb-sized ends on a waiting message's row. */
+  html.remote .waiting-action {
+    height: 36px;
+    padding: 0 14px;
+    font-size: 14px;
   }
 
   /* The composer: a 17px field in a taller pill, with 42–44px ends. */

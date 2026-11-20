@@ -31,14 +31,13 @@ import {
   CloseIcon,
   FileIcon,
   MicIcon,
-  PencilIcon,
   PersonaIcon,
   PlusIcon,
   SendIcon,
   ShieldIcon,
-  StopIcon,
-  TrashIcon
+  StopIcon
 } from './icons'
+import { WaitingStrip } from './WaitingStrip'
 
 interface ComposerProps {
   chat: Chat
@@ -365,9 +364,10 @@ export function Composer({
     addAttachments(added)
   }
 
-  function submit(): void {
+  /** Send what is written. `queued`: to a working chat, it follows the turn instead of steering it. */
+  function submit(queued = false): void {
     if (!canSend) return
-    window.api.send(chat.id, text.trim(), attachments)
+    window.api.send(chat.id, text.trim(), attachments, queued)
     setHistory((current) => addPrompt(current, text))
     setText('')
     setAttachments([])
@@ -522,6 +522,9 @@ export function Composer({
 
   return (
     <>
+      {chat.waitingMessages && (
+        <WaitingStrip chat={chat} messages={chat.waitingMessages} onEdit={editWaiting} />
+      )}
       <div
         className={`composer${expanded ? ' expanded' : ''}${dragging ? ' dragging' : ''}${voice.state !== 'idle' ? ' listening' : ''}`}
         onDragOver={(e) => {
@@ -537,55 +540,25 @@ export function Composer({
           attachFiles(e.dataTransfer.files)
         }}
       >
-        {(attachments.length > 0 || chat.waitingMessages) && (
+        {attachments.length > 0 && (
           <div className="composer-header">
-            {attachments.length > 0 && (
-              <div className="attachments">
-                {attachments.map((a, index) => (
-                  <span className="attachment" key={`${a.path ?? a.name}-${index}`} title={a.path}>
-                    <AttachmentPicture attachment={a} />
-                    <span className="attachment-name">{a.name}</span>
-                    <button
-                      type="button"
-                      title="Remove"
-                      onClick={() =>
-                        setAttachments((current) => current.filter((_, i) => i !== index))
-                      }
-                    >
-                      <CloseIcon width={11} height={11} />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-            {chat.waitingMessages && (
-              <div className="waiting-messages">
-                <div className="waiting-label">Joins the turn at its next step</div>
-                {chat.waitingMessages.map((message) => (
-                  <div className="waiting-message" key={message.id}>
-                    <span className="waiting-text" title={message.text}>
-                      {message.text}
-                    </span>
-                    <button
-                      type="button"
-                      className="label-btn"
-                      onClick={() => editWaiting(message.id)}
-                    >
-                      <PencilIcon width={12} height={12} />
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      className="label-btn danger"
-                      onClick={() => window.api.takeWaiting(chat.id, message.id)}
-                    >
-                      <TrashIcon width={12} height={12} />
-                      Delete
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className="attachments">
+              {attachments.map((a, index) => (
+                <span className="attachment" key={`${a.path ?? a.name}-${index}`} title={a.path}>
+                  <AttachmentPicture attachment={a} />
+                  <span className="attachment-name">{a.name}</span>
+                  <button
+                    type="button"
+                    title="Remove"
+                    onClick={() =>
+                      setAttachments((current) => current.filter((_, i) => i !== index))
+                    }
+                  >
+                    <CloseIcon width={11} height={11} />
+                  </button>
+                </span>
+              ))}
+            </div>
           </div>
         )}
         {menuOpen && (
@@ -644,7 +617,9 @@ export function Composer({
             chat.waiting
               ? 'Waiting for your answer above'
               : chat.running
-                ? 'Working… send a message to steer it'
+                ? touchScreen
+                  ? 'Send a message to steer it'
+                  : 'Steer, or Tab to queue'
                 : `Ask ${addressee}…`
           }
           onChange={(e) => {
@@ -696,6 +671,20 @@ export function Composer({
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault()
               submit()
+              return
+            }
+            const plain = !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey
+            // While the agent works, Tab queues the message for after its turn.
+            if (plain && e.key === 'Tab' && chat.running && canSend) {
+              e.preventDefault()
+              submit(true)
+              return
+            }
+            // ↑ in an empty composer takes the last waiting message back to edit it.
+            const lastWaiting = chat.waitingMessages?.at(-1)
+            if (plain && e.key === 'ArrowUp' && !text && lastWaiting) {
+              e.preventDefault()
+              void editWaiting(lastWaiting.id)
             }
           }}
         />
@@ -742,7 +731,7 @@ export function Composer({
               className="send-button"
               title="Send (Enter)"
               disabled={!canSend}
-              onClick={submit}
+              onClick={() => submit()}
             >
               <SendIcon width={18} height={18} />
             </button>

@@ -243,6 +243,21 @@ export interface TerminalInfo {
   title: string
 }
 
+/**
+ * One of the user's messages sent while the chat works. `queued` ones follow
+ * the turn, each as a turn of its own; the others steer it: `joins` says
+ * whether the agent takes them into its turn at once ('now', Claude Code), or
+ * when the step it is on ends ('step').
+ */
+export interface WaitingMessage {
+  id: string
+  text: string
+  queued?: boolean
+  joins: 'now' | 'step'
+  /** Since when it waits to steer, or to follow the turn when queued, in ms since the epoch. */
+  at: number
+}
+
 export interface Chat {
   id: string
   projectId: string
@@ -292,7 +307,7 @@ export interface Chat {
   /** Set when the chat's last turn failed, until another turn ends; a bot looks worried. */
   lastTurnFailed?: boolean
   /** The user's messages sent while the chat works, waiting to join its turn or follow it. */
-  waitingMessages?: { id: string; text: string }[]
+  waitingMessages?: WaitingMessage[]
   /**
    * What the chat has going in the background, each of which wakes it when
    * it ends or goes off (see chats-mcp.ts), so a chat between turns is not
@@ -745,6 +760,8 @@ export type ChatItem =
       workedMs?: number
       /** Sent by another chat's agent or a background command (see chats-mcp.ts), not by the user. */
       from?: ChatSender
+      /** The user sent it while the agent worked, and it steered that work. */
+      steered?: boolean
     }
   | {
       kind: 'text'
