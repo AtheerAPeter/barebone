@@ -47,6 +47,7 @@ import type {
   WalkControl,
   Walkthrough
 } from './types'
+import type { RtcCandidate, RtcSignal } from './rtc'
 import type { FrameHeader } from './wire'
 import type { MenuCommand } from '../main/menu'
 
@@ -243,11 +244,16 @@ export function makeApi(t: Transport) {
     remoteBrowser: {
       allowed: (): Promise<boolean> => invoke('remoteBrowser:allowed'),
       onAllowed: (listener: (on: boolean) => void) => on('remoteBrowser:allowed', listener),
-      /** Show a chat's tab here, the page laid out at this size; another device showing it stops. */
+      /**
+       * Show a chat's tab here, the page laid out at this size; another device
+       * showing it stops. `rtc`: this browser plays WebRTC, and gets the page as
+       * live video rather than pictures (shared/rtc.ts).
+       */
       open: (
         chatId: string,
-        size: { width: number; height: number; ratio: number }
-      ): Promise<RemoteBrowserView> => invoke('remoteBrowser:open', chatId, size),
+        size: { width: number; height: number; ratio: number },
+        rtc = false
+      ): Promise<RemoteBrowserView> => invoke('remoteBrowser:open', chatId, size, rtc),
       resize: (size: { width: number; height: number; ratio: number }): Promise<void> =>
         invoke('remoteBrowser:resize', size),
       close: (): Promise<void> => invoke('remoteBrowser:close'),
@@ -256,6 +262,18 @@ export function makeApi(t: Transport) {
       onFrame: (listener: (header: FrameHeader, jpeg: Uint8Array) => void) =>
         on('remoteBrowser:frame', listener),
       ack: (): void => send('remoteBrowser:ack'),
+      /** The video's offer and candidates from the Mac, or that it stopped (then pictures come). */
+      onRtc: (listener: (chatId: string, signal: RtcSignal) => void) =>
+        on('remoteBrowser:rtc', listener),
+      /** What the video shows of the page, in CSS pixels, to place taps on it. */
+      onRtcFrame: (
+        listener: (frame: { chatId: string; tab: string; width: number; height: number }) => void
+      ) => on('remoteBrowser:rtcFrame', listener),
+      rtcAnswer: (sdp: string): Promise<void> => invoke('remoteBrowser:rtcAnswer', sdp),
+      rtcCandidate: (candidate: RtcCandidate): void =>
+        send('remoteBrowser:rtcCandidate', candidate),
+      /** This browser could not play the video: pictures instead. */
+      rtcFailed: (): void => send('remoteBrowser:rtcFailed'),
       /** It stopped showing here: another device opened it, or the Mac turned it off. */
       onClosed: (listener: (chatId: string, reason: 'elsewhere' | 'off') => void) =>
         on('remoteBrowser:closed', listener),

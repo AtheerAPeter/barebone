@@ -165,6 +165,8 @@ export class ChatPage extends EventEmitter {
    * there is done far from the Mac, where no one may be to answer a dialog.
    */
   viewedRemotely = false
+  /** The page's video is being captured for a device of the remote link (remote/rtc.ts). */
+  streamedRemotely = false
   /**
    * A reopened tab that has not loaded its page yet. Every page is a renderer
    * process, so saved tabs load when they are first used, not all at once.
@@ -325,13 +327,18 @@ export class BuiltinBrowser {
     // (for voice input), so any page an agent opens could listen without asking.
     // The window capturing a tab to record it (recording.ts) is asked here too,
     // as that tab: with no device, from the window's own origin (a page asking
-    // itself has the page's), while the recording starts. It is let through.
+    // itself has the page's), while the recording starts. It is let through, as
+    // is the app's own streaming page capturing a tab a device of the remote link
+    // is shown (remote/rtc.ts), from the same origin, while it streams.
     browserSession.setPermissionRequestHandler((contents, permission, callback, details) => {
       if (permission !== 'media') return callback(true)
       if (!('mediaTypes' in details)) return callback(false)
       const noDevice = !details.mediaTypes?.length
       const fromWindow = sameOrigin(details.securityOrigin, this.window.webContents.getURL())
-      callback(noDevice && fromWindow && this.pageOf(contents)?.[1].capturing === true)
+      const page = this.pageOf(contents)?.[1]
+      callback(
+        noDevice && fromWindow && (page?.capturing === true || page?.streamedRemotely === true)
+      )
     })
     // Routes alert() and confirm() to the app (see onPageDialog). Registered on
     // the session, so it also runs in windows that pages open as tabs.

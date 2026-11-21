@@ -53,7 +53,9 @@ export default defineConfig({
           // preload cannot load other files.
           page: resolve('src/preload/page.ts'),
           // The agent orb's page, sandboxed too.
-          orb: resolve('src/preload/orb.ts')
+          orb: resolve('src/preload/orb.ts'),
+          // The hidden page that streams the browser as video to the remote link's devices.
+          rtc: resolve('src/preload/rtc.ts')
         },
         // Browser pages are sandboxed, and a sandboxed preload must be a plain
         // CommonJS script. `.cjs` because package.json declares "type": "module".
@@ -78,7 +80,9 @@ export default defineConfig({
           orb: resolve('src/renderer/orb.html'),
           // The app in a browser through the remote link, and its pairing page (main/remote).
           web: resolve('src/renderer/web.html'),
-          pair: resolve('src/renderer/pair.html')
+          pair: resolve('src/renderer/pair.html'),
+          // The hidden page that streams the browser as video to the remote link's devices (main/remote).
+          rtc: resolve('src/renderer/rtc.html')
         }
       },
       // Fonts stay files: the page's CSP allows fonts from 'self', not data: URLs.

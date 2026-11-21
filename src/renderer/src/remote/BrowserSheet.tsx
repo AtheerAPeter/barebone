@@ -14,6 +14,7 @@ import {
 import { TabIcon } from '../components/BrowserPanel'
 import { dragDivider } from '../lib/side-panel'
 import { PHONE, useKeyboardArea, useMedia } from '../lib/touch'
+import { playsRtc, RtcPlayer } from './rtc-player'
 
 /**
  * A chat's browser tab from the Mac, live, through the remote link
@@ -69,7 +70,8 @@ const NAMED_KEYS = new Set([
 ])
 
 interface Frame {
-  url: string
+  /** A picture's object URL; none while the page plays as video. */
+  url?: string
   /** The page's viewport in CSS pixels. */
   width: number
   height: number
@@ -86,6 +88,10 @@ export function BrowserSheet({
   onClose
 }: Props): React.JSX.Element {
   const pageRef = useRef<HTMLDivElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const playerRef = useRef<RtcPlayer>(undefined)
+  /** What the tab list shows of the tab shown, taken from the video as it opens. */
+  const [preview, setPreview] = useState<string>()
   const keysRef = useRef<HTMLInputElement>(null)
   const addressRef = useRef<HTMLInputElement>(null)
   const [view, setView] = useState<RemoteBrowserView>()
@@ -110,7 +116,7 @@ export function BrowserSheet({
     setProblem(undefined)
     setElsewhere(false)
     api()
-      .open(chatId, sizeOf(el))
+      .open(chatId, sizeOf(el), playsRtc())
       .then(
         (opened) => current && setView(opened),
         (error: Error) => current && setProblem(error.message)
@@ -125,6 +131,20 @@ export function BrowserSheet({
 
   useEffect(() => {
     let current = true
+    // The page as live video, when this browser plays it; pictures otherwise.
+    const player = new RtcPlayer({
+      video: () => videoRef.current,
+      answer: (sdp) => api().rtcAnswer(sdp),
+      candidate: (candidate) => api().rtcCandidate(candidate),
+      failed: () => api().rtcFailed()
+    })
+    playerRef.current = player
+    const offRtc = api().onRtc((forChat, signal) => {
+      if (forChat === chatId) void player.signal(signal)
+    })
+    const offRtcFrame = api().onRtcFrame(({ chatId: forChat, width, height }) => {
+      if (forChat === chatId && current) setFrame({ width, height })
+    })
     const offState = api().onState((next) => {
       if (next.chatId === chatId) setView(next)
     })
@@ -155,6 +175,10 @@ export function BrowserSheet({
     const offReconnected = api().onReconnected(() => setOpening((n) => n + 1))
     return () => {
       current = false
+      player.close()
+      playerRef.current = undefined
+      offRtc()
+      offRtcFrame()
       offState()
       offFrame()
       offClosed()
@@ -176,6 +200,24 @@ export function BrowserSheet({
     // The Mac sends the next picture once this one shows.
     api().ack()
   }
+
+  // Video has no picture to hand the tab list: the video is taken as the list opens.
+  useEffect(
+    () => () => {
+      if (preview) URL.revokeObjectURL(preview)
+    },
+    [preview]
+  )
+  const takePreview = (): void => {
+    const video = videoRef.current
+    if (frame?.url || !video?.videoWidth) return
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    canvas.getContext('2d')?.drawImage(video, 0, 0)
+    canvas.toBlob((blob) => blob && setPreview(URL.createObjectURL(blob)), 'image/jpeg', 0.6)
+  }
+  const jpegUrl = frame?.url
 
   // The page is laid out at the area's size, anew when it changes (a turned phone, the keyboard).
   const opened = view !== undefined
@@ -442,16 +484,25 @@ export function BrowserSheet({
         onPointerCancel={() => (gesture.current = undefined)}
         onWheel={showing ? onWheel : undefined}
       >
-        {showing && frame && (
+        {showing && jpegUrl && (
           <img
-            key={frame.url}
-            src={frame.url}
+            key={jpegUrl}
+            src={jpegUrl}
             alt=""
             draggable={false}
-            onLoad={() => pictureShown(frame.url)}
-            onError={() => pictureShown(frame.url)}
+            onLoad={() => pictureShown(jpegUrl)}
+            onError={() => pictureShown(jpegUrl)}
           />
         )}
+        {/* Always there, so the video has somewhere to play as soon as it comes. */}
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          hidden={!showing || !frame || jpegUrl !== undefined}
+          onPlaying={() => playerRef.current?.playing()}
+        />
         {problem ? (
           <p className="rb-message">{problem}</p>
         ) : elsewhere ? (
@@ -494,7 +545,7 @@ export function BrowserSheet({
           <TabGrid
             tabs={view.tabs}
             activeTab={view.activeTab}
-            frame={frame}
+            preview={jpegUrl ?? preview}
             onPick={(tabId) => {
               setMode('page')
               api().selectTab(tabId).catch(fail)
@@ -563,7 +614,10 @@ export function BrowserSheet({
               className="icon-btn rb-tabs"
               title="Tabs"
               disabled={!usable}
-              onClick={() => setMode('tabs')}
+              onClick={() => {
+                takePreview()
+                setMode('tabs')
+              }}
             >
               <span>{view?.tabs.length ?? ''}</span>
             </button>
@@ -721,13 +775,14 @@ function WideBar({
 function TabGrid({
   tabs,
   activeTab,
-  frame,
+  preview,
   onPick,
   onClose
 }: {
   tabs: BrowserTab[]
   activeTab?: string
-  frame?: Frame
+  /** A picture of the tab shown. */
+  preview?: string
   onPick: (tabId: string) => void
   onClose: (tabId: string) => void
 }): React.JSX.Element {
@@ -758,8 +813,8 @@ function TabGrid({
             </button>
           </div>
           <div className="rb-tab-preview">
-            {tab.id === activeTab && frame ? (
-              <img src={frame.url} alt="" draggable={false} />
+            {tab.id === activeTab && preview ? (
+              <img src={preview} alt="" draggable={false} />
             ) : (
               <span>{hostOf(tab.url) || 'New tab'}</span>
             )}
