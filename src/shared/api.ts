@@ -41,6 +41,7 @@ import type {
   TelegramStatus,
   TerminalInfo,
   Theme,
+  Look,
   UsageLimits,
   VoiceModelId,
   WalkAt,
@@ -91,6 +92,15 @@ export function makeApi(t: Transport) {
     /** Open a chat: the user clicked a bot's notification. */
     onOpenChat: (listener: (chatId: string) => void) => on('window:openChat', listener),
     setTheme: (theme: Theme): Promise<void> => invoke('theme:set', theme),
+    /** The user's own look (main/look.ts), and each change to it as its files are saved. */
+    look: {
+      get: (): Promise<Look> => invoke('look:get'),
+      onChange: (listener: (look: Look) => void) => on('look:changed', listener),
+      /** Turn it off or on again; the files stay as they are. */
+      setOn: (on: boolean): Promise<void> => invoke('look:setOn', on),
+      /** Back to the app's own look: look.css and look.json go to the Trash. */
+      reset: (): Promise<void> => invoke('look:reset')
+    },
     /** Name this Barebone; empty goes back to "Barebone". */
     setName: (name: string): Promise<void> => invoke('name:set', name),
     /** Save the instructions the app's own agent gets in new chats; empty removes them. */

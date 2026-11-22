@@ -13,12 +13,14 @@ import { errorMessage } from '../lib/errors'
 import { isMac, TALK_KEY } from '../lib/platform'
 import { useRemoteStatus } from '../lib/remote'
 import { useTelegramStatus } from '../lib/telegram'
+import { useLook } from '../lib/look'
 import { useUpdateInstall } from '../lib/update'
 import {
   CloseIcon,
   DownloadIcon,
   MusicIcon,
   GlobeIcon,
+  PaletteIcon,
   MicIcon,
   PencilIcon,
   PhoneIcon,
@@ -120,6 +122,7 @@ export function SettingsView({
   const [errors, setErrors] = useState<Record<string, string | undefined>>({})
   const telegram = useTelegramStatus()
   const remote = useRemoteStatus()
+  const look = useLook()
   /** A browser through the remote link: it signs itself out, it cannot link this Mac. */
   const remoteClient = Boolean(window.api.remote)
 
@@ -540,6 +543,47 @@ export function SettingsView({
             with.
           </p>
           <NameForm saved={name ?? ''} />
+        </>
+      )
+    },
+    {
+      id: 'look',
+      group: 'App',
+      name: 'Custom look',
+      summary: 'Ask a chat to restyle Barebone: colors, layout, messages, tool calls, icons.',
+      keywords: 'look theme css style colors fonts layout appearance icons reset custom',
+      state: look?.files ? (look.on ? 'on' : 'off') : undefined,
+      icon: <PaletteIcon />,
+      tone: 'purple',
+      pill: !look ? undefined : !look.files ? 'None' : look.on ? 'On' : 'Off',
+      pillTone: look?.files && look.on ? 'on' : 'off',
+      action:
+        look?.files && onOff('look', 'Custom look', look.on, (on) => window.api.look.setOn(on)),
+      detail: (
+        <>
+          <p>
+            Ask any chat to change how Barebone looks: its colors and fonts, where things sit, the
+            messages, tool calls and icons, the window&apos;s buttons. The chat writes a stylesheet,{' '}
+            <code>look.css</code>, and <code>look.json</code>, and the window changes as each is
+            saved. The remote link&apos;s pages get the same look. The switch turns it off and on
+            again; so does View → Custom Look in the menu bar, for when a look hides this page.
+          </p>
+          {look?.files && (
+            <div className="settings-row">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  if (!confirm("Go back to Barebone's own look? The look's files go to the Trash."))
+                    return
+                  void run('look', () => window.api.look.reset())
+                }}
+              >
+                Reset to Barebone&apos;s look
+              </button>
+            </div>
+          )}
+          {errors.look && <div className="msg-error">{errors.look}</div>}
         </>
       )
     },

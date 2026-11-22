@@ -36,6 +36,7 @@ import {
   IconMicrophone,
   IconMinus,
   IconMoon,
+  IconPalette,
   IconPencil,
   IconPlayerPause,
   IconPlayerPlay,
@@ -191,6 +192,8 @@ export const MoveIcon = fromTabler(IconArrowMoveRight)
 export const GridIcon = fromTabler(IconLayoutGrid)
 export const DotsIcon = fromTabler(IconDots)
 export const PhoneIcon = fromTabler(IconDeviceMobile)
+/** The user's own look (Settings → Custom look). */
+export const PaletteIcon = fromTabler(IconPalette)
 /** Telegram's paper plane, on the Control from Telegram settings. */
 export const TelegramIcon = fromTabler(IconBrandTelegram)
 /** The persona the agent's main conversation runs as (Claude Code's custom agents). */

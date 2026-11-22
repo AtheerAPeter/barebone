@@ -230,6 +230,12 @@ export function setMobile(on: boolean): void {
   scheduleFlush()
 }
 
+/** Turn the user's custom look (main/look.ts) on or off; the files stay as they are. */
+export function setCustomLook(on: boolean): void {
+  state.customLookOff = on ? undefined : true
+  scheduleFlush()
+}
+
 /** Speech is on unless the user turned it off. */
 export function setSpeech(on: boolean): void {
   state.speech = on ? undefined : false

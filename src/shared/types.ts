@@ -502,6 +502,21 @@ export const REMOTE_BOTS = '/bot'
 
 export type Theme = 'system' | 'light' | 'dark'
 
+/**
+ * The user's own look for Barebone (main/look.ts), as the window and the
+ * remote link's pages draw it: a stylesheet put after the app's own.
+ */
+export interface Look {
+  /** look.css; empty when there is none or the user turned the custom look off. */
+  css: string
+  /** look.json hides the Mac window's buttons, so the page leaves no room for them. */
+  hideWindowButtons: boolean
+  /** Whether look.css or look.json is there, so there is a look to turn off or reset. */
+  files: boolean
+  /** False while the user has it turned off (Settings, or View → Custom Look). */
+  on: boolean
+}
+
 /** The longest name a Barebone takes (AppState.name); a Home Screen label shows far fewer. */
 export const NAME_MAX = 40
 
@@ -545,6 +560,8 @@ export interface AppState {
   mobile?: boolean
   /** The tabs of the user's own browser (Browser in the sidebar), kept across restarts. */
   browserTabs?: SavedTabs
+  /** True when the user turned their custom look off (View → Custom Look); on when missing. */
+  customLookOff?: boolean
 }
 
 /**

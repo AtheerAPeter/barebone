@@ -70,6 +70,8 @@ const BROADCAST = new Set([
   'telegram:status',
   'remoteBrowser:allowed',
   'bots:changed',
+  // The user's look.css: the pages draw it as the Mac's window does.
+  'look:changed',
   // On a server its paired devices set the link up (remote/index.ts); a Mac's are not told.
   ...(HEADLESS ? ['remote:status'] : [])
 ])

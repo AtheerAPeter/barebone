@@ -279,7 +279,8 @@
 
 /*
  * No window buttons to leave room for: the remote link's browser page
- * (web.html) and the app's window off the Mac (main.tsx).
+ * (web.html), the app's window off the Mac, and a window whose look.json
+ * hides them (main.tsx).
  */
 html.no-window-buttons .sidebar-hidden .topbar {
   padding-left: 12px;
@@ -621,7 +622,7 @@ kbd {
   opacity: 1;
 }
 
-/* The window buttons sit at its left (trafficLightPosition in index.ts). */
+/* The window buttons sit at its left (WINDOW_BUTTONS in main/look.ts). */
 .sidebar-top {
   height: 48px;
   flex-shrink: 0;

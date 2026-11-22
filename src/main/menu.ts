@@ -13,7 +13,9 @@ export type MenuCommand =
 export function installMenu(
   run: (command: MenuCommand) => void,
   theme: Theme,
-  setTheme: (theme: Theme) => void
+  setTheme: (theme: Theme) => void,
+  /** The user's look.css and look.json (look.ts): whether there are any, and whether they are on. */
+  look: { exists: boolean; on: boolean; set: (on: boolean) => void }
 ): void {
   const appearance = (label: string, value: Theme): MenuItemConstructorOptions => ({
     label,
@@ -84,6 +86,14 @@ export function installMenu(
             appearance('Light', 'light'),
             appearance('Dark', 'dark')
           ]
+        },
+        // Here, outside the page, it works even when a look hides what the page would undo it with.
+        {
+          label: 'Custom Look',
+          type: 'checkbox',
+          checked: look.exists && look.on,
+          enabled: look.exists,
+          click: (item) => look.set(item.checked)
         },
         { type: 'separator' },
         { role: 'resetZoom' },

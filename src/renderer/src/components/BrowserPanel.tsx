@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { BrowserState, BrowserTab } from '../../../shared/types'
+import { onLookApplied } from '../lib/look'
 import { onOverlays, overlaysCover } from '../lib/overlays'
 import { shortcut } from '../lib/platform'
 import { dragDivider } from '../lib/side-panel'
@@ -74,9 +75,12 @@ export function BrowserPanel({
     const observer = new ResizeObserver(report)
     observer.observe(el)
     window.addEventListener('resize', report)
+    // The user's look can move the panel without resizing it.
+    const offLook = onLookApplied(report)
     return () => {
       observer.disconnect()
       window.removeEventListener('resize', report)
+      offLook()
       window.api.browser.setBounds(null)
     }
   }, [])

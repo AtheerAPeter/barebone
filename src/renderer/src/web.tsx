@@ -8,6 +8,7 @@ import { trackGlassPresses } from './lib/glass-press'
 import { ConnectionBar } from './remote/ConnectionBar'
 import { remoteApi } from './remote/socket'
 import { applyPageTheme } from './remote/theme'
+import { followLook } from './lib/look'
 
 /**
  * The app's UI in a browser, through the remote link (main/remote): the same
@@ -26,6 +27,8 @@ trackGlassPresses()
 // The theme this browser was set to; stylesheets still loading get it once they have.
 applyPageTheme()
 window.addEventListener('load', applyPageTheme)
+// The user's look.css, as the Mac's window draws it; each new copy gets the theme too.
+followLook(applyPageTheme)
 
 // After window.api is set: the app reads it as it loads.
 void import('./App').then(({ default: App }) => {

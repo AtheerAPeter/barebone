@@ -47,6 +47,7 @@ import {
 import {
   SERVER_NAME as CHATS_SERVER,
   provideBots,
+  provideLook,
   providePhone,
   provideRoutines
 } from './chats-mcp'
@@ -64,6 +65,7 @@ import {
   saveCustomProvider
 } from './harness/custom'
 import { installMenu } from './menu'
+import { CustomLook, WINDOW_BUTTONS } from './look'
 import { AgentOrb } from './orb'
 import { PageRecorder } from './recording'
 import { MAX_MUSIC_SECONDS, Speech } from './speech'
@@ -151,6 +153,9 @@ const terminals = new Terminals({
   },
   toPage: (caller, channel, args) => remote.sendTo(caller, channel, args)
 })
+
+/** The user's own look.css and look.json (look.ts), which chats write for them. */
+const look = new CustomLook(() => lookChanged())
 
 /** What is downloaded, and what is downloading: the voices, the music model and ffmpeg. */
 function downloads(): Downloads {
@@ -284,10 +289,12 @@ function createWindow(): BuiltinBrowser {
           minWidth: 1024,
           minHeight: 560,
           titleBarStyle: 'hiddenInset' as const,
-          trafficLightPosition: { x: 16, y: 17 },
-          backgroundColor: windowBackground()
+          trafficLightPosition: WINDOW_BUTTONS,
+          // See-through only for a look with a vibrancy (look.ts windowOptions).
+          ...look.windowOptions(),
+          backgroundColor: look.background()
         }
-      : { backgroundColor: windowBackground(), autoHideMenuBar: true, icon: appIcon }),
+      : { backgroundColor: look.background(), autoHideMenuBar: true, icon: appIcon }),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       sandbox: false,
@@ -349,8 +356,10 @@ function createWindow(): BuiltinBrowser {
   })
   // The window's color follows the theme, so a resize or a reload shows no flash of the other one.
   nativeTheme.on('updated', () => {
-    if (!mainWindow.isDestroyed()) mainWindow.setBackgroundColor(windowBackground())
+    if (!mainWindow.isDestroyed()) mainWindow.setBackgroundColor(look.background())
   })
+  // The user's look.json: where the window's buttons sit, and what is behind the window.
+  look.applyTo(mainWindow)
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
@@ -420,11 +429,6 @@ function createWindow(): BuiltinBrowser {
   return browser
 }
 
-/** The window's color behind the page: its canvas (styles.css --canvas). */
-function windowBackground(): string {
-  return nativeTheme.shouldUseDarkColors ? '#0d0d0d' : '#f9f9f9'
-}
-
 /**
  * nativeTheme drives prefers-color-scheme in the app and in browser pages, and
  * the window background, so one setting switches everything.
@@ -432,8 +436,31 @@ function windowBackground(): string {
 function setTheme(theme: Theme): void {
   nativeTheme.themeSource = theme
   store.setTheme(theme)
-  installMenu((command) => send('menu', command), theme, setTheme)
+  refreshMenu()
   stateChanged()
+}
+
+/** The menu bar, made again when what its checkmarks show changes. */
+function refreshMenu(): void {
+  installMenu((command) => send('menu', command), nativeTheme.themeSource, setTheme, {
+    exists: look.exists(),
+    on: !store.getState().customLookOff,
+    set: setLookOn
+  })
+}
+
+/** Turn the user's look off or on again, from the menu bar or Settings; the files stay. */
+function setLookOn(on: boolean): void {
+  store.setCustomLook(on)
+  lookChanged()
+  stateChanged()
+}
+
+/** The user's look changed, on disk or in View → Custom Look: the window and the link's pages show it. */
+function lookChanged(): void {
+  send('look:changed', look.look())
+  if (mainWindow && !mainWindow.isDestroyed()) look.applyTo(mainWindow)
+  refreshMenu()
 }
 
 /**
@@ -814,6 +841,16 @@ function registerIpc(browser: BuiltinBrowser): void {
     MAC_ONLY
   )
   handle('theme:set', (theme: Theme) => setTheme(theme))
+  // The window and the remote link's pages draw the same look.
+  handle('look:get', () => look.look())
+  handle('look:setOn', (on: boolean) => setLookOn(on))
+  // A look made later starts on, so the reset clears the off switch too.
+  handle('look:reset', async () => {
+    await look.reset()
+    setLookOn(true)
+  })
+  // Chats see the window to check the look they made.
+  provideLook({ see: (part, tokens) => look.see(mainWindow, part, tokens) })
   // Paired devices may rename it too: on a server, they are the only way to.
   handle('name:set', (name: string) => {
     store.setName(name)
@@ -1127,7 +1164,9 @@ app.whenReady().then(async () => {
   handleBotRequests()
   // Set before the window exists so it opens in the right appearance.
   nativeTheme.themeSource = store.getState().theme ?? 'system'
-  installMenu((command) => send('menu', command), nativeTheme.themeSource, setTheme)
+  // Read before the window exists, so it opens with the user's look.
+  look.start()
+  refreshMenu()
   const announce = (): void => void send('downloads:status', downloads())
   speech = new Speech(
     app.getPath('userData'),

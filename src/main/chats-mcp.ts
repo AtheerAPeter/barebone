@@ -26,6 +26,7 @@ import type { Finished, Running } from './background'
 import type { BotRestyle, NewBot } from './bots'
 import type { Routines } from './routines'
 import type { Delivery, Spoken } from './speech'
+import { CUSTOMIZE_LOOK_SKILL } from './skills'
 import { LANGUAGES, type Language } from './speech/supertonic'
 import * as store from './store'
 
@@ -73,7 +74,9 @@ export const CHATS_GUIDANCE =
   'command (a download, a long build or test run, a dev server) and wakes this chat with its ' +
   'result when it ends; run one that ends within a couple of minutes with your own shell tool ' +
   'instead. list_background, read_background and stop_background check on it and stop it. ' +
-  'set_timer wakes this chat later, to check on something nothing else tells you about.'
+  'set_timer wakes this chat later, to check on something nothing else tells you about. ' +
+  'When the user asks to change how Barebone itself looks or is laid out, read the customize-look skill first and follow it: ' +
+  `${CUSTOMIZE_LOOK_SKILL}. see_app shows you Barebone's window.`
 
 /** "45s", "3m 12s", "1h 5m". */
 export function formatDuration(ms: number): string {
@@ -213,6 +216,19 @@ let bots: BotsApi | undefined
 
 export function provideBots(api: BotsApi): void {
   bots = api
+}
+
+/** The user's own look for Barebone (main/look.ts), which chats check with see_app. */
+export interface LookApi {
+  /** A picture of the window and an outline of its parts, or of one part (a CSS selector). */
+  see(part: string | undefined, tokens: boolean): Promise<{ image?: string; text: string }>
+}
+
+/** How the chat servers see the window; given once, when the app starts. */
+let look: LookApi | undefined
+
+export function provideLook(api: LookApi): void {
+  look = api
 }
 
 /** Bots' routines (main/routines.ts), for the caller's bot. */
@@ -1044,6 +1060,40 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
           .join('\n')
       )
   )
+
+  if (look) {
+    const window = look
+    server.registerTool(
+      'see_app',
+      {
+        description: `See Barebone's own window as it is now: a picture of it, and an outline of its parts (tags, ids, classes, titles and sizes), to change and check how Barebone looks with look.css and look.json. Give a CSS selector to see one part in depth with its computed styles, and tokens to list the design tokens (CSS variables) with their values. Read the customize-look skill before changing the look: ${CUSTOMIZE_LOOK_SKILL}`,
+        inputSchema: {
+          part: z
+            .string()
+            .optional()
+            .describe('A CSS selector: that part of the window in depth, with its styles'),
+          tokens: z
+            .boolean()
+            .optional()
+            .describe('List the design tokens on :root with their values in the current theme'),
+          ...chatArg
+        },
+        annotations: { readOnlyHint: true }
+      },
+      async ({ part, tokens, chat }) => {
+        chatForKey(chat)
+        const seen = await window.see(part, tokens === true)
+        return {
+          content: [
+            ...(seen.image
+              ? [{ type: 'image' as const, data: seen.image, mimeType: 'image/png' }]
+              : []),
+            { type: 'text' as const, text: seen.text }
+          ]
+        }
+      }
+    )
+  }
 
   if (speech && speechOffered()) {
     const voice = speech

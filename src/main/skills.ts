@@ -13,6 +13,7 @@ import { basename, dirname, join, relative, isAbsolute } from 'node:path'
 import { parse } from 'yaml'
 import browserTutorialSkill from '../../resources/skills/browser-tutorial/SKILL.md?asset&asarUnpack'
 import remoteSkill from '../../resources/skills/remote/SKILL.md?asset&asarUnpack'
+import customizeLookSkill from '../../resources/skills/customize-look/SKILL.md?asset&asarUnpack'
 import type { AgentId, Skill, SkillScope } from '../shared/types'
 import { HARNESS_AGENTS } from './harness/provider'
 import { getState } from './store'
@@ -53,6 +54,8 @@ const PROJECT_DIRS: { dir: string; agents: AgentId[] }[] = [
 export const BROWSER_TUTORIAL_SKILL = browserTutorialSkill
 /** How to work for a user on their phone, for messages sent from Telegram (see agents.ts). */
 export const REMOTE_SKILL = remoteSkill
+/** How to change Barebone's own look and layout (main/look.ts), pointed to by the chat tools' guidance. */
+export const CUSTOMIZE_LOOK_SKILL = customizeLookSkill
 const BUILTIN: { path: string; on: () => boolean }[] = [
   { path: BROWSER_TUTORIAL_SKILL, on: () => getState().annotations === true }
 ]
