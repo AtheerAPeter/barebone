@@ -168,6 +168,11 @@ export interface ChatsApi {
   setTimer(caller: string, seconds: number, note: string): void
   /** Clear the caller's timer; false when it had none. */
   cancelTimer(caller: string): boolean
+  /**
+   * Ask the user before the caller sees Barebone's window (see_app); throws
+   * when they say no.
+   */
+  allowSeeingWindow(caller: string): Promise<void>
   /** Rename the caller, as the user does in the sidebar. */
   renameChat(caller: string, title: string): void
   /**
@@ -1066,7 +1071,7 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
     server.registerTool(
       'see_app',
       {
-        description: `See Barebone's own window as it is now: a picture of it, and an outline of its parts (tags, ids, classes, titles and sizes), to change and check how Barebone looks with look.css and look.json. Give a CSS selector to see one part in depth with its computed styles, and tokens to list the design tokens (CSS variables) with their values. Read the customize-look skill before changing the look: ${CUSTOMIZE_LOOK_SKILL}`,
+        description: `See Barebone's own window as it is now: a picture of it, and an outline of its parts (tags, ids, classes, titles and sizes), to change and check how Barebone looks with look.css and look.json. Use it only for that: the window can show the user's other chats, so the user is asked before you see it. Give a CSS selector to see one part in depth with its computed styles, and tokens to list the design tokens (CSS variables) with their values. Read the customize-look skill before changing the look: ${CUSTOMIZE_LOOK_SKILL}`,
         inputSchema: {
           part: z
             .string()
@@ -1077,11 +1082,13 @@ export async function buildChatsServer(chats: ChatsApi): Promise<McpServer> {
             .optional()
             .describe('List the design tokens on :root with their values in the current theme'),
           ...chatArg
-        },
-        annotations: { readOnlyHint: true }
+        }
+        // Not read-only: the window can show other projects' chats, so the
+        // app's own agents ask about it as about any tool, and the user is
+        // asked for the others (allowSeeingWindow).
       },
       async ({ part, tokens, chat }) => {
-        chatForKey(chat)
+        await chats.allowSeeingWindow(chatForKey(chat))
         const seen = await window.see(part, tokens === true)
         return {
           content: [

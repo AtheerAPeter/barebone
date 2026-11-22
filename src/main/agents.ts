@@ -2118,6 +2118,13 @@ const BACKGROUND_OPTIONS: acp.PermissionOption[] = [
   { optionId: 'reject', name: 'Reject', kind: 'reject_once' }
 ]
 
+/** see_app's question (AgentManager.allowSeeingWindow). */
+const SEE_WINDOW_OPTIONS: acp.PermissionOption[] = [
+  { optionId: 'allow', name: 'Allow', kind: 'allow_once' },
+  { optionId: 'always', name: 'Allow for this chat', kind: 'allow_always' },
+  { optionId: 'reject', name: 'Reject', kind: 'reject_once' }
+]
+
 /** What a chat is told when a command it ran in the background ends. */
 function finishedMessage(f: Finished): string {
   const how =
@@ -3283,6 +3290,36 @@ export class AgentManager implements ChatsApi {
     const option = response.outcome.outcome === 'selected' ? response.outcome.optionId : undefined
     if (option !== 'allow') throw new Error('Not started: the user did not allow the command.')
   }
+
+  /**
+   * Ask the user before see_app shows a chat Barebone's window, which can show
+   * other projects' chats and the conversation open in it. As with
+   * allowCommand, the app's own agents asked about the call already, and
+   * bypass approves; "Allow for this chat" spares asking again before and
+   * after each change to the look.
+   */
+  async allowSeeingWindow(caller: string): Promise<void> {
+    const chat = this.caller(caller)
+    if (isHarnessAgent(chat.agent) || this.seesWindow.has(chat.id)) return
+    const response = await requestPermission(
+      this.events,
+      this.permissions,
+      chat.id,
+      {
+        toolCallId: crypto.randomUUID(),
+        title: "See Barebone's window: a picture of it and an outline of what it shows",
+        kind: 'read',
+        rawInput: {}
+      },
+      SEE_WINDOW_OPTIONS
+    )
+    const option = response.outcome.outcome === 'selected' ? response.outcome.optionId : undefined
+    if (option === 'always') this.seesWindow.add(chat.id)
+    else if (option !== 'allow') throw new Error('Not shown: the user did not allow it.')
+  }
+
+  /** Chats the user let see the window for as long as Barebone runs (allowSeeingWindow). */
+  private readonly seesWindow = new Set<string>()
 
   listBackground(caller: string): { commands: Running[]; timer?: Timer } {
     const chat = this.caller(caller)
