@@ -587,7 +587,9 @@ kbd {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  padding: 0 6px 6px;
+  padding: 0 8px 8px;
+  /* A pane of glass: a sheen along its top edge, over the app's own shade. */
+  background: linear-gradient(180deg, var(--press-light), transparent 160px), var(--panel);
   box-shadow: inset -1px 0 0 var(--border);
 }
 
@@ -634,22 +636,50 @@ kbd {
   -webkit-app-region: no-drag;
 }
 
-.sidebar-search {
+/*
+ * The top of the sidebar, as T3 Code's: one glass field to search the chats,
+ * and beside it the two glyphs that begin something, a new chat and a new
+ * project. Each glyph's tooltip names it.
+ */
+.side-tools {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 36px;
-  margin-bottom: 6px;
-  padding: 0 12px;
-  background: var(--glass);
-  color: var(--text-muted);
-  border-radius: var(--radius-pill);
-  box-shadow: var(--glass-rim);
+  gap: 4px;
+  padding: 2px 0 10px;
 }
 
-.sidebar-search:focus-within {
+.sidebar-search {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  background: var(--glass);
+  color: var(--text-muted);
+  border-radius: var(--radius);
+  /* Glass: a hairline edge, and the light catching along its top edge. */
   box-shadow:
+    inset 0 1px 0 var(--press-light),
+    var(--glass-rim);
+  transition:
+    background-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
+}
+
+.sidebar-search:hover {
+  color: var(--text-soft);
+}
+
+/* Made of glass, it brightens under the cursor, as a lens would. */
+.sidebar-search:focus-within {
+  background: var(--glass-strong);
+  color: var(--text);
+  box-shadow:
+    inset 0 1px 0 var(--press-light),
     var(--glass-rim),
     0 0 0 3px var(--focus-ring);
 }
@@ -661,170 +691,63 @@ kbd {
   outline: none;
   background: none;
   color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
 }
 
 .sidebar-search input::placeholder {
   color: var(--text-muted);
 }
 
-/*
- * Above the chats: Search, New chat, and a gear for the rest. The icons' labels
- * are their tooltips, shown under them on hover and focus, and while pressed
- * on a touch screen.
- */
-.side-nav {
+.search-clear {
   flex-shrink: 0;
-  display: flex;
-  gap: 2px;
-  padding: 2px 0;
-}
-
-.nav-row {
-  position: relative;
-  flex: 0 0 44px;
-  height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-soft);
-  border-radius: var(--radius);
-}
-
-.nav-row > svg {
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-}
-
-.nav-row:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.nav-row.on {
-  color: var(--text);
-}
-
-/* New chat: the footer's one wide control, its label beside its icon. */
-.nav-new {
-  flex: 1;
-  min-width: 0;
-  height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: var(--text);
-  font-weight: 500;
-  border-radius: var(--radius);
-}
-
-.nav-new > svg {
+  display: inline-grid;
+  place-items: center;
   width: 18px;
   height: 18px;
-}
-
-.nav-new kbd {
   color: var(--text-muted);
-  font: inherit;
-  font-size: 12px;
+  border-radius: 50%;
 }
 
-.nav-new:hover {
-  background: var(--hover);
-}
-
-.nav-label {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 6px);
-  left: 50%;
-  translate: -50% 0;
-  display: flex;
-  gap: 6px;
-  padding: 4px 9px;
-  border-radius: 8px;
-  background: var(--menu);
-  box-shadow: var(--menu-shadow);
+.search-clear:hover {
+  background: var(--fill-strong);
   color: var(--text);
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease;
 }
 
-.nav-label kbd {
-  color: var(--text-muted);
-  font: inherit;
-}
-
-/* The row's ends keep their tooltips inside the sidebar. */
-.nav-row:first-child .nav-label {
-  left: 0;
-  translate: none;
-}
-
-.nav-row:last-child .nav-label {
-  left: auto;
-  right: 0;
-  translate: none;
-}
-
-@media (hover: hover) {
-  .nav-row:is(:hover, :focus-visible) .nav-label {
-    opacity: 1;
-    transition-delay: 300ms;
-  }
-}
-
-@media (hover: none) {
-  .nav-row:active .nav-label {
-    opacity: 1;
-  }
-}
-
-/*
- * Files, Terminal and Browser: plain rows under the actions, an icon and a
- * word each, set off from the chats by a hairline.
- */
-.side-places {
-  position: relative;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 2px 0 6px;
-}
-
-.side-places::after {
-  content: '';
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 0;
-  height: 1px;
-  background: var(--border);
-}
-
-.side-place {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+/* A glyph beside the search field, and at the sidebar's foot: bare, as a Mac's toolbar draws them. */
+.side-tool {
+  width: 32px;
   height: 32px;
-  padding: 0 10px;
-  color: var(--text-soft);
-  text-align: left;
   border-radius: var(--radius);
 }
 
-.side-place:hover {
-  background: var(--hover);
+/* On the Mac New chat sits by the search; the foot's copy is for a phone (remote.css). */
+.side-compose.foot {
+  display: none;
+}
+
+/* The foot's glyphs: a touch smaller than the toolbar's, as a Mac's footer. */
+.side-foot .side-tool {
+  width: 30px;
+  height: 30px;
+}
+
+/* Open, or the view the window shows: the glass highlight, as in a macOS toolbar. */
+.side-tool.on {
+  background: var(--selected);
+  box-shadow: var(--selected-edge);
   color: var(--text);
 }
 
-.side-place.on {
-  color: var(--text);
+/* Settings and more, then Files, Terminal and Browser: glyphs along the foot. */
+/* The glyphs run from the foot's left edge, as a Mac's toolbar does. */
+.side-foot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  padding: 2px 0;
 }
 
 /* Every chat, in one list under the actions. It scrolls without a scrollbar. */
@@ -833,8 +756,8 @@ kbd {
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
-  margin: 0 -6px;
-  padding: 0 6px 12px;
+  margin: 0 -8px;
+  padding: 0 8px 12px;
 }
 
 /* Between the top bar and the footer: the actions and the chats, under which the Settled sheet rises. */
@@ -846,39 +769,40 @@ kbd {
   flex-direction: column;
   /* Clipped, not scrollable: the lowered sheet waits below, out of sight. */
   overflow: clip;
-  margin: 0 -6px;
-  padding: 0 6px;
+  margin: 0 -8px;
+  padding: 0 8px;
 }
 
-/* The settled chats' bar at the bottom of the list; it raises their sheet. */
+/* The settled chats' bar at the bottom of the list; it raises their sheet, as T3 Code's. */
 .settled-bar {
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 6px;
   width: 100%;
-  height: 36px;
+  height: 32px;
   padding: 0 10px;
-  color: var(--text-soft);
+  color: var(--text-muted);
   font-size: 12.5px;
-  font-weight: 600;
-  letter-spacing: 0.006em;
+  font-weight: 500;
   text-align: left;
-  border-top: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 
 .settled-bar b {
   color: var(--text-muted);
-  font-weight: 600;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
 .settled-bar .chevron {
   margin-left: auto;
   transform: rotate(-90deg);
+  opacity: 0.7;
 }
 
 .settled-bar:hover {
+  background: var(--hover);
   color: var(--text);
 }
 
@@ -889,7 +813,7 @@ kbd {
   z-index: 2;
   display: flex;
   flex-direction: column;
-  padding: 0 6px;
+  padding: 0 8px;
   /* Frosted like the menus: the sidebar itself is the window's clear glass. */
   background: var(--menu);
   backdrop-filter: var(--glass-blur);
@@ -923,8 +847,8 @@ kbd {
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
-  margin: 0 -6px;
-  padding: 0 6px 12px;
+  margin: 0 -8px;
+  padding: 0 8px 12px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -934,29 +858,37 @@ kbd {
   }
 }
 
-/* A section's name, quiet as in ChatGPT, and how many chats it holds. */
+/* A section's name, in small caps as a Mac's sidebar groups them, and how many it holds. */
 .side-label {
   display: flex;
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 16px 10px 6px;
-  color: var(--text-soft);
-  font-size: 12.5px;
+  padding: 14px 9px 4px;
+  color: var(--text-muted);
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.006em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   text-align: left;
 }
 
 .side-label b {
+  margin-left: auto;
   color: var(--text-muted);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  opacity: 0.8;
+}
+
+.side-label.waiting {
+  color: var(--accent-text);
 }
 
 .side-label.waiting b {
   color: var(--accent-text);
-  font-weight: 500;
+  opacity: 1;
 }
 
 .side-empty {
@@ -965,13 +897,13 @@ kbd {
   text-align: center;
 }
 
+/* The foot of the sidebar: the gear and the views, below the list. */
 .sidebar-footer {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding-top: 6px;
-  border-top: 1px solid var(--border);
+  gap: 4px;
+  padding-top: 4px;
 }
 
 /* A newer release, as a row above the footer like ChatGPT's "Upgrade plan". */
@@ -1117,10 +1049,14 @@ img.project-icon {
 
 /* The open chat, and the open view: the glass highlight, as everything open or chosen. */
 .chat-row.selected,
-.nav-row.on,
-.side-place.on {
+.side-tool.on {
   background: var(--selected);
   box-shadow: var(--selected-edge);
+}
+
+/* The open chat keeps its light under the pointer, as a lens would. */
+.chat-row.selected:hover {
+  background: var(--selected);
 }
 
 .chat-dot {
@@ -1250,6 +1186,13 @@ img.project-icon {
   letter-spacing: -0.01em;
 }
 
+/* A card's ⋮ rests over its title's end rather than taking a column of it, so the title has the width. */
+.chat-row.card .row-menu {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+
 .card-meta {
   display: flex;
   align-items: center;
@@ -1297,7 +1240,7 @@ img.project-icon {
   opacity: 0;
 }
 
-.chat-row:is(:hover, :focus-within, .selected) .row-menu,
+.chat-row:is(:hover, :focus-within) .row-menu,
 .chat-row .row-menu.open {
   opacity: 1;
 }
@@ -6842,10 +6785,7 @@ button,
 .panel-tab,
 .segmented button,
 .composer,
-.nav-row,
-.nav-new,
 .chat-row,
-.side-place,
 .skill-row,
 .palette-row,
 .menu button,
@@ -6875,10 +6815,7 @@ button,
 .picker-button,
 .style-grid button,
 .lead-toggle,
-.nav-row,
-.nav-new,
 .turn-work-head,
-.side-place,
 .skill-row,
 .palette-row,
 .menu button,
@@ -6912,7 +6849,6 @@ button,
 
 :is(
   .turn-work-head,
-  .side-place,
   .skill-row,
   .palette-row,
   .menu button,
@@ -6929,7 +6865,6 @@ button,
 :is(
   .finder-place,
   .crumb-btn,
-  .side-place,
   .skill-row,
   .palette-row,
   .settled-bar,
@@ -6949,9 +6884,7 @@ button,
   transform: scale(1.008);
 }
 
-.chat-row:active,
-.nav-row:active,
-.nav-new:active {
+.chat-row:active {
   background: var(--glass-strong);
   box-shadow: var(--selected-edge);
 }
@@ -6978,8 +6911,6 @@ button,
 .panel-tab::after,
 .segmented button::after,
 .composer::after,
-.nav-row::after,
-.nav-new::after,
 .chat-row::after,
 .skill-row::after,
 .palette-row::after,
@@ -7014,8 +6945,6 @@ button,
 .panel-tab:active::after,
 .segmented button:active::after,
 .composer:active::after,
-.nav-row:active::after,
-.nav-new:active::after,
 .chat-row:active::after,
 .skill-row:active::after,
 .palette-row:active::after,

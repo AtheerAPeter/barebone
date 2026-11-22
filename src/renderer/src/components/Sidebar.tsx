@@ -32,7 +32,6 @@ import {
   GlobeIcon,
   ListIcon,
   MoonIcon,
-  PlusIcon,
   SearchIcon,
   SunIcon,
   PhoneIcon,
@@ -131,8 +130,8 @@ export function Sidebar({
   const [renaming, setRenaming] = useState<string>()
   /** Once paired, a chat the user started can be linked to the Telegram bot. */
   const telegram = useTelegramStatus()
-  /** The search text; undefined while the search field is closed. */
-  const [query, setQuery] = useState<string>()
+  /** The search text; the field is always there, under the toolbar. */
+  const [query, setQuery] = useState('')
   /** Where the More menu (Skills, Files, Terminal, Browser…) is open, while it is. */
   const [more, setMore] = useState<MenuAt>()
   const moreMenu = useLeaving(more)
@@ -189,7 +188,7 @@ export function Sidebar({
       live = false
     }
   }, [revealedChatId])
-  const q = query?.trim().toLowerCase() ?? ''
+  const q = query.trim().toLowerCase()
   const matches = (chat: Chat): boolean =>
     !q ||
     chat.title.toLowerCase().includes(q) ||
@@ -676,96 +675,55 @@ export function Sidebar({
       {/* The Settled sheet rises over everything between the top bar and the footer. */}
       <div className="sidebar-body">
         {/*
-         * Above the chats: Search, New chat, and a gear for the rest
-         * (Skills, Open project, the grouping, the theme, Settings).
+         * As in T3 Code: one glass field to search the chats, and beside it
+         * the two ways to begin something, a new chat and a new project.
          */}
-        <div className="side-nav">
-          <button
-            className={`nav-row${query !== undefined ? ' on' : ''}`}
-            onClick={() => setQuery((current) => (current === undefined ? '' : undefined))}
-          >
-            <SearchIcon />
-            <span className="nav-label">Search chats</span>
-          </button>
-          <button className="nav-new" onClick={onNewChat}>
-            <PlusIcon />
-            New chat
-            <NavKey keys={shortcut('N')} />
-          </button>
-          <button
-            className={`nav-row${more || MORE_VIEWS.includes(view) ? ' on' : ''}`}
-            aria-haspopup="menu"
-            aria-expanded={Boolean(more)}
-            onClick={(e) => setMore(more ? undefined : { below: e.currentTarget, align: 'right' })}
-          >
-            <SettingsIcon />
-            <span className="nav-label">Settings and more</span>
-          </button>
-        </div>
-        {moreMenu.shown && (
-          <PopupMenu
-            at={moreMenu.shown}
-            leaving={moreMenu.leaving}
-            onClose={() => setMore(undefined)}
-            entries={[
-              { name: 'Skills', icon: <BookIcon />, onSelect: () => onShow('skills') },
-              // A project is a folder chosen with the Mac's folder picker.
-              ...(window.api.remote
-                ? []
-                : [
-                    {
-                      name: 'Open project',
-                      icon: <FolderPlusIcon />,
-                      onSelect: () => window.api.addProject()
-                    }
-                  ]),
-              null,
-              {
-                name: byProject ? 'Group by status' : 'Group by project',
-                icon: byProject ? <ListIcon /> : <TreeIcon />,
-                onSelect: () => setGrouping(byProject ? 'status' : 'project')
-              },
-              {
-                name: theme.dark ? 'Light mode' : 'Dark mode',
-                icon: theme.dark ? <SunIcon /> : <MoonIcon />,
-                onSelect: theme.toggle
-              },
-              { name: 'Settings', icon: <SettingsIcon />, onSelect: () => onShow('settings') }
-            ]}
-          />
-        )}
-        {/* The views used most, as plain rows under the actions, as in ChatGPT's sidebar. */}
-        <div className="side-places">
-          {PLACES.map((place) => (
-            <button
-              key={place.view}
-              className={`side-place${view === place.view ? ' on' : ''}`}
-              aria-pressed={view === place.view}
-              onClick={() => onShow(place.view)}
-            >
-              {place.icon}
-              {place.name}
-            </button>
-          ))}
-        </div>
-        {query !== undefined && (
-          <label className="sidebar-search">
-            <SearchIcon width={14} height={14} />
+        <div className="side-tools">
+          <label className={`sidebar-search${q ? ' on' : ''}`}>
+            <SearchIcon width={15} height={15} />
             <input
-              autoFocus
+              aria-label="Search chats"
               placeholder="Search chats"
               value={query}
               spellCheck={false}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key !== 'Escape') return
-                // Handled: closing the search must not also stop the agent.
+                // Handled: clearing the search must not also stop the agent.
                 e.preventDefault()
-                setQuery(undefined)
+                setQuery('')
+                e.currentTarget.blur()
               }}
             />
+            {q && (
+              <button
+                className="search-clear"
+                title="Clear the search"
+                onClick={() => setQuery('')}
+              >
+                <CloseIcon width={12} height={12} />
+              </button>
+            )}
           </label>
-        )}
+          {/* A project is a folder chosen with the Mac's folder picker. */}
+          {!window.api.remote && (
+            <button
+              className="icon-btn side-tool"
+              title="Open project"
+              onClick={() => window.api.addProject()}
+            >
+              <FolderPlusIcon width={17} height={17} />
+            </button>
+          )}
+          {/* Beside the search on the Mac; on a phone it moves to the sheet's bottom right. */}
+          <button
+            className="icon-btn side-tool side-compose top"
+            title={`New chat (${shortcut('N')})`}
+            onClick={onNewChat}
+          >
+            <ComposeIcon width={17} height={17} />
+          </button>
+        </div>
         <div className="sidebar-scroll">
           {bots.length > 0 && (
             <>
@@ -785,11 +743,65 @@ export function Sidebar({
         </div>
         {sheet && settledSheet()}
       </div>
-      {update && (
-        <div className="sidebar-footer">
-          <UpdateButton version={update} />
-        </div>
+      {moreMenu.shown && (
+        <PopupMenu
+          at={moreMenu.shown}
+          leaving={moreMenu.leaving}
+          onClose={() => setMore(undefined)}
+          entries={[
+            { name: 'Skills', icon: <BookIcon />, onSelect: () => onShow('skills') },
+            null,
+            {
+              name: byProject ? 'Group by status' : 'Group by project',
+              icon: byProject ? <ListIcon /> : <TreeIcon />,
+              onSelect: () => setGrouping(byProject ? 'status' : 'project')
+            },
+            {
+              name: theme.dark ? 'Light mode' : 'Dark mode',
+              icon: theme.dark ? <SunIcon /> : <MoonIcon />,
+              onSelect: theme.toggle
+            },
+            { name: 'Settings', icon: <SettingsIcon />, onSelect: () => onShow('settings') }
+          ]}
+        />
       )}
+      {/*
+       * The foot of the sidebar, as T3 Code's: the settings gear and the views
+       * used most, as glyphs, and above them the settled chats a newer release.
+       */}
+      <div className="sidebar-footer">
+        {update && <UpdateButton version={update} />}
+        <div className="side-foot">
+          <button
+            className={`icon-btn side-tool${more || MORE_VIEWS.includes(view) ? ' on' : ''}`}
+            title="Settings and more"
+            aria-haspopup="menu"
+            aria-expanded={Boolean(more)}
+            onClick={(e) => setMore(more ? undefined : { below: e.currentTarget, align: 'left' })}
+          >
+            <SettingsIcon width={17} height={17} />
+          </button>
+          {PLACES.map((place) => (
+            <button
+              key={place.view}
+              className={`icon-btn side-tool${view === place.view ? ' on' : ''}`}
+              title={place.name}
+              aria-pressed={view === place.view}
+              onClick={() => onShow(place.view)}
+            >
+              {place.icon}
+            </button>
+          ))}
+          {/* A phone's New chat, at the foot's far end, where the thumb is. */}
+          <button
+            className="icon-btn side-tool side-compose foot"
+            title={`New chat (${shortcut('N')})`}
+            onClick={onNewChat}
+          >
+            <ComposeIcon width={17} height={17} />
+          </button>
+        </div>
+      </div>
     </nav>
   )
 }
@@ -797,17 +809,12 @@ export function Sidebar({
 /** The views the gear's menu opens; its button shows as on while one of them is open. */
 const MORE_VIEWS: View[] = ['skills', 'settings']
 
-/** The views used most often, as rows above the chats rather than in the gear's menu. */
+/** The views used most often, as glyphs at the sidebar's foot, as in T3 Code. */
 const PLACES: { view: Exclude<View, 'chat'>; name: string; icon: React.JSX.Element }[] = [
-  { view: 'files', name: 'Files', icon: <FolderIcon /> },
-  { view: 'terminal', name: 'Terminal', icon: <TerminalIcon /> },
-  { view: 'browser', name: 'Browser', icon: <GlobeIcon /> }
+  { view: 'files', name: 'Files', icon: <FolderIcon width={17} height={17} /> },
+  { view: 'terminal', name: 'Terminal', icon: <TerminalIcon width={17} height={17} /> },
+  { view: 'browser', name: 'Browser', icon: <GlobeIcon width={17} height={17} /> }
 ]
-
-/** A tab's shortcut in its tooltip, on the Mac, whose app menu gives it. */
-function NavKey({ keys }: { keys: string }): React.JSX.Element | null {
-  return window.api.remote ? null : <kbd>{keys}</kbd>
-}
 
 /** Above the footer once a newer release is out. Installing it quits and reopens the app. */
 function UpdateButton({ version }: { version: string }): React.JSX.Element {
