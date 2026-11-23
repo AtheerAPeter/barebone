@@ -15,6 +15,11 @@ const files = [
   '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}',
   '!{.env,.env.*,.npmrc,pnpm-lock.yaml}',
   '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}',
+  // What is for working on the app, not running it: design previews (untracked
+  // ones too, which would be published with a release), the server image's
+  // setup, build scripts, stray files at the top, and type-check caches.
+  '!{design-preview,deploy,scripts}/**',
+  '!{index.html,*.tsbuildinfo}',
   // The Codex and Claude Code adapters run the user's own CLI (main/agents.ts),
   // so the copies their packages bring, 600 MB of them, stay out.
   '!node_modules/@openai/codex{,-*}/**',
