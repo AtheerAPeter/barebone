@@ -31,8 +31,8 @@ import {
   SERVER_NAME as DEVICES_SERVER,
   type DevicesRouting
 } from './devices-mcp'
-import { withTimeout, type Modifier } from './page-driver'
-import { COLORS, type Color, type Shape, type Target } from './page-overlay'
+import { MAX_EVALUATE_SECONDS, withTimeout, type Modifier } from './page-driver'
+import { COLORS, type Shape, type ShapeStyle, type Target } from './page-overlay'
 import type { PageRecorder } from './recording'
 import { BROWSER_TUTORIAL_SKILL } from './skills'
 import { getState } from './store'
@@ -368,7 +368,10 @@ const markArgs = {
     .describe('Without ref: pixels from the top edge of the latest screenshot')
 }
 
-const colorArg = z.enum(COLORS).optional().describe('red if left out')
+const colorArg = z
+  .union([z.enum(COLORS), z.string().regex(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i)])
+  .optional()
+  .describe('A color name, or any hex color like #1e90ff; red if left out')
 
 /**
  * The longest one wait for the user's click lasts. MCP clients give up on a
@@ -440,11 +443,18 @@ export function thumbnailsOffered(): boolean {
 
 /** A box or an arrow to draw, as annotate and show_step take it. */
 const shapeArg = z.object({
-  type: z.enum(['box', 'arrow']).describe('box: a frame around it. arrow: points at it.'),
+  type: z
+    .enum(['box', 'circle', 'highlight', 'underline', 'arrow', 'note', 'svg'])
+    .describe(
+      "box: a frame around it. circle: an ellipse around it. highlight: a marker's tint over it. underline: a line under it. arrow: points at it. note: just its text, at the spot. svg: your own drawing, anything you can draw in SVG."
+    ),
   ...markArgs,
-  width: z.number().optional().describe('A box at x and y: its width in pixels'),
-  height: z.number().optional().describe('A box at x and y: its height in pixels'),
-  text: z.string().optional().describe('A short label: above a box, at the tail of an arrow'),
+  width: z.number().optional().describe('A shape at x and y: its width in pixels'),
+  height: z.number().optional().describe('A shape at x and y: its height in pixels'),
+  text: z
+    .string()
+    .optional()
+    .describe('A label: above a shape, at the tail of an arrow; what a note says'),
   from_ref: z
     .string()
     .optional()
@@ -453,7 +463,35 @@ const shapeArg = z.object({
     ),
   from_x: z.number().optional().describe('Arrow: where it starts, in screenshot pixels'),
   from_y: z.number().optional().describe('Arrow: where it starts, in screenshot pixels'),
-  color: colorArg
+  color: colorArg,
+  // Every style is optional: left out, the shape has its usual look.
+  stroke: z.number().min(1).max(16).optional().describe('Line width in pixels; 3 if left out'),
+  dashed: z.boolean().optional().describe('A dashed line'),
+  fill: z
+    .number()
+    .min(0)
+    .max(1)
+    .optional()
+    .describe('How strongly the inside is tinted, 0 to 1; light if left out'),
+  padding: z.number().min(-20).max(80).optional().describe('Room around the target, in pixels'),
+  radius: z.number().min(0).max(200).optional().describe("A box's corner radius, in pixels"),
+  label_side: z
+    .enum(['top', 'bottom', 'left', 'right', 'inside'])
+    .optional()
+    .describe('Where a label goes by its shape; top if left out (bottom when no room)'),
+  head: z.boolean().optional().describe('Arrow: false for a plain line without a head'),
+  svg: z
+    .string()
+    .max(20_000)
+    .optional()
+    .describe(
+      "svg: the drawing's markup, an <svg> element with any shapes, paths, gradients, text and styles. With a viewBox it stretches over the element or the area; at a point it keeps its own width and height. Scripts, event attributes and outside links are taken out."
+    ),
+  label_style: z
+    .string()
+    .max(1_000)
+    .optional()
+    .describe('CSS for the label, like "font-size: 18px; border-radius: 0; background: #111"')
 })
 
 /** Shapes as the overlay draws them; throws what is wrong with one. */
@@ -461,18 +499,33 @@ function toShapes(shapes: z.infer<typeof shapeArg>[]): Shape[] {
   return shapes.map((shape, n): Shape => {
     const what = `Shape ${n + 1} (${shape.type})`
     const target = markTarget(shape, what)
-    const color: Color = shape.color ?? 'red'
-    if (shape.type === 'box') {
-      if (!('ref' in target) && !(target.width && target.height)) {
-        throw new Error(`${what}: a box at x and y needs a width and height.`)
-      }
-      return { kind: 'box', target, label: shape.text, color }
+    const style: ShapeStyle = {
+      color: shape.color ?? 'red',
+      stroke: shape.stroke,
+      dashed: shape.dashed,
+      fill: shape.fill,
+      padding: shape.padding,
+      radius: shape.radius,
+      labelSide: shape.label_side,
+      labelStyle: shape.label_style
     }
-    const from =
-      shape.from_ref || shape.from_x !== undefined || shape.from_y !== undefined
-        ? markTarget({ ref: shape.from_ref, x: shape.from_x, y: shape.from_y }, `${what} start`)
-        : undefined
-    return { kind: 'arrow', target, from, label: shape.text, color }
+    if (shape.type === 'arrow') {
+      const from =
+        shape.from_ref || shape.from_x !== undefined || shape.from_y !== undefined
+          ? markTarget({ ref: shape.from_ref, x: shape.from_x, y: shape.from_y }, `${what} start`)
+          : undefined
+      return { ...style, kind: 'arrow', target, from, label: shape.text, head: shape.head }
+    }
+    if (shape.type === 'svg') {
+      if (!shape.svg?.trim()) throw new Error(`${what}: an svg shape needs its svg markup.`)
+      return { ...style, kind: 'svg', target, markup: shape.svg, label: shape.text }
+    }
+    if (shape.type === 'note') {
+      if (!shape.text?.trim()) throw new Error(`${what}: a note needs its text.`)
+    } else if (!('ref' in target) && !(target.width && target.height)) {
+      throw new Error(`${what}: a ${shape.type} at x and y needs a width and height.`)
+    }
+    return { ...style, kind: shape.type, target, label: shape.text }
   })
 }
 
@@ -1051,7 +1104,7 @@ async function buildServer(
     'set_viewport',
     {
       description:
-        "Lay the page out at a set size in CSS pixels, to see and test it as on a phone, a tablet or another screen, or to record a video of it at that size: like 390×844 with mobile for a phone, 820×1180 with mobile for a tablet, 1280×720 or 1920×1080 for a desktop video. The page keeps that size whatever the panel's size; the panel shows it in the middle, scaled down when it is bigger. mobile makes it a phone's browser as well: a touch screen, a phone's user agent, and the page's viewport tag applied; the page reloads to take them up. Screenshots and points stay in the page's CSS pixels. The size stays until you call this again; call it without width and height to fill the panel again. For a video, set it before start_recording.",
+        "Lay the page out at a set size in CSS pixels, to see and test it as on a phone, a tablet or another screen, or to record a video of it at that size: like 390×844 with mobile for a phone, 820×1180 with mobile for a tablet, 1280×720 or 1920×1080 for a desktop video. The page keeps that size whatever the panel's size; the panel shows it in the middle, scaled down when it is bigger. mobile makes it a phone's browser as well: a touch screen, a phone's user agent, and the page's viewport tag applied; the page reloads to take them up. Screenshots and points stay in the page's CSS pixels. The size stays until you call this again; call it without width and height to go back to the size the user picked in the panel (filling the panel unless they picked another). For a video, set it before start_recording.",
       inputSchema: {
         width: z
           .number()
@@ -1059,14 +1112,14 @@ async function buildServer(
           .min(100)
           .max(10000)
           .optional()
-          .describe('Width in CSS pixels; leave out with height to fill the panel again'),
+          .describe("Width in CSS pixels; leave out with height to go back to the user's size"),
         height: z
           .number()
           .int()
           .min(100)
           .max(10000)
           .optional()
-          .describe('Height in CSS pixels; leave out with width to fill the panel again'),
+          .describe("Height in CSS pixels; leave out with width to go back to the user's size"),
         mobile: z.boolean().optional().describe('A phone or tablet; false if left out'),
         ...pageArgs
       }
@@ -1074,7 +1127,7 @@ async function buildServer(
     ({ width, height, mobile, browser: id, tab }) =>
       act(id, tab, async (page) => {
         if ((width === undefined) !== (height === undefined)) {
-          throw new Error('Pass both width and height, or neither to fill the panel again.')
+          throw new Error("Pass both width and height, or neither to go back to the user's size.")
         }
         const viewport =
           width !== undefined && height !== undefined
@@ -1082,7 +1135,7 @@ async function buildServer(
             : undefined
         const before = page.contents.getURL()
         await browser.setViewport(chatFor(id), page, viewport)
-        if (!viewport) return acted(page, 'The page fills the panel again.', before)
+        if (!viewport) return acted(page, "The page has the user's size again.", before)
         const shown =
           page.scale < 1
             ? ` The panel shows it at ${Math.round(page.scale * 100)}%, as it is bigger; a video of it has the pixels it shows at, so a bigger panel records it sharper.`
@@ -1136,9 +1189,18 @@ async function buildServer(
     'evaluate',
     {
       description:
-        'Run a JavaScript expression in the page, or in one of its iframes, and return its JSON-serialized result. It is stopped after 10 seconds.',
+        'Run a JavaScript expression in the page, or in one of its iframes, and return its JSON-serialized result. A promise is awaited. It is stopped after 10 seconds unless you give it a longer timeout, for a script that waits or polls for something on purpose.',
       inputSchema: {
         expression: z.string(),
+        timeout: z
+          .number()
+          .int()
+          .min(1)
+          .max(MAX_EVALUATE_SECONDS)
+          .optional()
+          .describe(
+            `Seconds it may run, waits included; 10 if left out, at most ${MAX_EVALUATE_SECONDS}`
+          ),
         iframe: z
           .string()
           .optional()
@@ -1148,9 +1210,11 @@ async function buildServer(
         ...pageArgs
       }
     },
-    ({ expression, iframe, browser: id, tab }) =>
+    ({ expression, iframe, timeout, browser: id, tab }) =>
       act(id, tab, async (page) => {
-        const result = await untilDialog(page, () => page.driver.evaluate(expression, iframe))
+        const result = await untilDialog(page, () =>
+          page.driver.evaluate(expression, iframe, timeout && timeout * 1000)
+        )
         if ('dialog' in result) return text(dialogNote(result.dialog))
         return text(JSON.stringify(result.value, null, 2) ?? 'undefined')
       })
@@ -1181,9 +1245,9 @@ async function buildServer(
     server.registerTool(
       'annotate',
       {
-        description: `Draw on the page for the user to see, to teach or explain: a box around an element or area, or an arrow pointing at one, each with an optional label. Drawings take no clicks, are not in snapshots, and stay until clear_annotations or the page navigates. The result says whether anything is in the way (a hidden target, the caption or a label covering one), so there is no need to check with a screenshot. For a tutorial step, show_step does the caption, the pointer and the shapes in one call. Before a tutorial, walkthrough or explanation of a page, read the browser-tutorial skill: ${BROWSER_TUTORIAL_SKILL}`,
+        description: `Draw on the page for the user to see, to teach or explain: boxes, circles, highlights and underlines on elements or areas, arrows pointing at them, and notes, each with an optional label. For anything else, draw it yourself as an svg shape. Colors, line widths, dashes, fills, padding, where labels go and how they look are all yours to pick; left out, each shape has its usual look. Drawings take no clicks, are not in snapshots, and stay until clear_annotations or the page navigates. The result says whether anything is in the way (a hidden target, the caption or a label covering one), so there is no need to check with a screenshot. For a tutorial step, show_step does the caption, the pointer and the shapes in one call. Before a tutorial, walkthrough or explanation of a page, read the browser-tutorial skill: ${BROWSER_TUTORIAL_SKILL}`,
         inputSchema: {
-          shapes: z.array(shapeArg).min(1).max(12),
+          shapes: z.array(shapeArg).min(1).max(30),
           clear: z.boolean().optional().describe('Remove the shapes drawn before first'),
           ...pageArgs
         }
@@ -1230,10 +1294,10 @@ async function buildServer(
             .describe('Where the pointer goes; without it, the pointer goes away'),
           shapes: z
             .array(shapeArg)
-            .max(6)
+            .max(20)
             .optional()
             .describe(
-              'At most two or three: a box around the area that matters, an arrow to something small'
+              'What matters on the page: usually a few, such as a box around an area or an arrow to something small'
             ),
           // Only while the voice is offered, as the speak tool is.
           ...(speechOffered() ? { say: offeredSpeech()?.natural() ? sayWithMoodArg : sayArg } : {}),

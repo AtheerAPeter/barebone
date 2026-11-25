@@ -76,6 +76,7 @@ import * as skills from './skills'
 import { listProjectFiles } from './files'
 import { folderAt, folderSuggestions } from './folders'
 import * as git from './git'
+import { chatWorkspaces } from './workspaces'
 import { WalkPlayer } from './walkthrough'
 import { chooseProjectIcon, projectIcon } from './project-icon'
 import { handleImageRequests, imageScheme, thumbnail } from './images'
@@ -390,6 +391,9 @@ function createWindow(): BuiltinBrowser {
       }
     }
   )
+
+  browser.setSize(store.getState().browserSize ?? 'panel')
+  browser.onSizePicked = (size) => store.setBrowserSize(size)
 
   // The folded chat's orb, over the browser's page.
   const orb = new AgentOrb(mainWindow, () => send('orb:unfold'))
@@ -1099,11 +1103,16 @@ function registerIpc(browser: BuiltinBrowser): void {
   handle('browser:selectTab', (tabId: string) => browser.selectActiveChatTab(tabId), MAC_ONLY)
   handle('browser:closeTab', (tabId: string) => browser.closeActiveChatTab(tabId), MAC_ONLY)
   handle('browser:newTab', () => browser.newActiveChatTab(), MAC_ONLY)
-  handle('browser:fillPanel', () => browser.fillPanel(), MAC_ONLY)
+  handle('browser:resetViewport', () => browser.resetViewport(), MAC_ONLY)
   listen('browser:menu', (x: number, y: number) => browser.showMenu(x, y), MAC_ONLY)
+  listen('browser:sizeMenu', (x: number, y: number) => browser.showSizeMenu(x, y), MAC_ONLY)
   handle('browser:state', () => browser.state(), MAC_ONLY)
 
   handle('files:list', (projectPath: string) => listProjectFiles(projectPath))
+  handle('chat:workspaces', (chatId: string) => {
+    const path = projectPathOf(chatId)
+    return path ? chatWorkspaces(path, store.getMessages(chatId)) : []
+  })
   handle('prompts:history', (projectId: string) => store.promptHistory(projectId))
   handle('skills:list', (projectPath?: string) => skills.listSkills(projectPath))
   handle('skills:read', (path: string, projectPath?: string) => skills.readSkill(path, projectPath))
@@ -1139,8 +1148,23 @@ app.on('activate', () => {
 // talking); never which keys are typed.
 const TALK_KEY = process.platform === 'darwin' ? 'MetaRight' : 'ControlRight'
 app.on('web-contents-created', (_event, contents) => {
-  contents.on('before-input-event', (_e, input) => {
+  contents.on('before-input-event', (event, input) => {
     if (!mainWindow || (input.type !== 'keyDown' && input.type !== 'keyUp')) return
+    // Ctrl+Tab switches chats (renderer/src/lib/chat-switch.ts), also from a browser page:
+    // the window takes the keyboard, so it sees Ctrl let go and the keys after.
+    if (
+      contents !== mainWindow.webContents &&
+      input.type === 'keyDown' &&
+      input.key === 'Tab' &&
+      input.control &&
+      !input.meta &&
+      !input.alt
+    ) {
+      event.preventDefault()
+      mainWindow.webContents.focus()
+      send('switcher:step', input.shift ? -1 : 1)
+      return
+    }
     const held = process.platform === 'darwin' ? input.meta : input.control
     if (input.code === TALK_KEY) send('voice:key', input.type, input.isAutoRepeat)
     else if (input.type === 'keyDown' && held) send('voice:key', 'combo', false)

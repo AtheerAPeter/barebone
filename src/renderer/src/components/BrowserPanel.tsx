@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { BrowserState, BrowserTab } from '../../../shared/types'
+import type { BrowserSize, BrowserState, BrowserTab } from '../../../shared/types'
 import { onLookApplied } from '../lib/look'
 import { onOverlays, overlaysCover } from '../lib/overlays'
 import { shortcut } from '../lib/platform'
@@ -7,6 +7,8 @@ import { dragDivider } from '../lib/side-panel'
 import {
   BackIcon,
   CloseIcon,
+  DesktopIcon,
+  FitIcon,
   ForwardIcon,
   GlobeIcon,
   MoreIcon,
@@ -204,7 +206,8 @@ export function BrowserPanel({
             placeholder="Search or enter address"
           />
         </form>
-        {state?.viewport && <ViewportChip viewport={state.viewport} />}
+        {state?.viewport && <ViewportChip viewport={state.viewport} size={state.size} />}
+        {state?.size && <SizeButton size={state.size} />}
         <button
           className="icon-btn"
           title="More"
@@ -250,14 +253,41 @@ export function BrowserPanel({
   )
 }
 
+const SIZE_NAMES: Record<BrowserSize, string> = {
+  desktop: 'Desktop',
+  phone: 'Phone',
+  panel: 'Fit to panel'
+}
+
+/** The size pages are laid out at, and the menu to pick another. */
+function SizeButton({ size }: { size: BrowserSize }): React.JSX.Element {
+  const Icon = size === 'desktop' ? DesktopIcon : size === 'phone' ? PhoneIcon : FitIcon
+  return (
+    <button
+      className="icon-btn"
+      title={`Page size: ${SIZE_NAMES[size]}`}
+      aria-haspopup="menu"
+      onClick={(e) => {
+        // A native menu, as the page would cover an HTML one.
+        const r = e.currentTarget.getBoundingClientRect()
+        window.api.browser.showSizeMenu(r.left, r.bottom + 4)
+      }}
+    >
+      <Icon />
+    </button>
+  )
+}
+
 /**
  * The size an agent laid the page out at (set_viewport), shown while it has
- * one; clicking it lays the page out at the panel's size again.
+ * one; clicking it lays the page out at the user's size again.
  */
 function ViewportChip({
-  viewport
+  viewport,
+  size
 }: {
   viewport: NonNullable<BrowserState['viewport']>
+  size?: BrowserSize
 }): React.JSX.Element {
   const { width, height, mobile, scale, by } = viewport
   const percent = Math.round(scale * 100)
@@ -270,8 +300,8 @@ function ViewportChip({
   return (
     <button
       className="viewport-chip"
-      title={`The page is laid out at ${width} × ${height}${why}${scale < 1 ? `, shown at ${percent}%` : ''}. Click to fill the panel again.`}
-      onClick={() => window.api.browser.fillPanel()}
+      title={`The page is laid out at ${width} × ${height}${why}${scale < 1 ? `, shown at ${percent}%` : ''}. Click to go back to ${size ? SIZE_NAMES[size].toLowerCase() : 'filling the panel'}.`}
+      onClick={() => window.api.browser.resetViewport()}
     >
       {by && <PhoneIcon width={11} height={11} />}
       {by && <span>On {by} ·</span>}

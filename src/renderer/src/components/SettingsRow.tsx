@@ -1,85 +1,182 @@
-import { useId, type ReactNode } from 'react'
-import { ChevronDownIcon } from './icons'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { useOverlay } from '../lib/overlays'
+import { CloseIcon, InfoIcon } from './icons'
 
-/** The color of an icon tile, as System Settings gives each pane its own. */
-export type SettingsTone =
-  'indigo' | 'orange' | 'pink' | 'red' | 'purple' | 'blue' | 'green' | 'teal' | 'gray'
+/** Space kept between a popover and the window's edge. */
+const EDGE = 8
 
 /**
- * One line of Settings: an icon tile, the setting's name and what it does in a
- * line, its state, its control, and a chevron that opens the full explanation
- * and fields under the line. The line itself opens them too; controls do not.
+ * One line of Settings: its icon, the setting's name, what it is now and its
+ * controls. What it does opens over the page from the info button by its name.
  */
 export function SettingsRow({
   icon,
-  tone,
   name,
-  summary,
-  pill,
-  pillTone = 'on',
+  info,
+  status,
+  warn = false,
   action,
-  open,
-  onToggle,
-  children
+  error
 }: {
   icon: ReactNode
-  tone: SettingsTone
   name: string
-  summary: string
-  /** What the setting is now, such as "On" or "Key saved". */
-  pill?: string
-  pillTone?: 'on' | 'off' | 'warn'
-  /** The switch, or a button that opens the row, as Manage does. */
+  /** What the setting does, shown in the info button's popover. */
+  info: ReactNode
+  /** What the setting is now, in words, such as "Key saved"; a switch says it itself. */
+  status?: string
+  /** The setting is missing something it needs to work. */
+  warn?: boolean
+  /** The switch, and a button that opens the setting's fields. */
   action?: ReactNode
-  open: boolean
-  onToggle: () => void
-  children: ReactNode
+  /** What went wrong saving it. */
+  error?: string
 }): React.JSX.Element {
-  const id = useId()
   return (
-    <section className={`setting${open ? ' open' : ''}`}>
-      <div
-        className="setting-line"
-        onClick={(e) => {
-          // The controls keep their own clicks; the rest of the line opens the row.
-          if ((e.target as HTMLElement).closest('button, input, textarea, select, a')) return
-          onToggle()
-        }}
-      >
-        <span className={`settings-icon tone-${tone}`}>{icon}</span>
-        <span className="setting-text">
-          <span className="setting-name">{name}</span>
-          <span className="setting-summary" title={summary}>
-            {summary}
-          </span>
-        </span>
-        {(pill || action) && (
+    <section className="setting">
+      <div className="setting-line">
+        <span className="setting-icon">{icon}</span>
+        <span className="setting-name">{name}</span>
+        <InfoButton name={name}>{info}</InfoButton>
+        {(status || action) && (
           <span className="setting-ctl">
-            {pill && (
-              <span
-                className={`setting-pill${pillTone === 'on' ? ' on' : pillTone === 'warn' ? ' warn' : ''}`}
-              >
-                {pill}
-              </span>
-            )}
+            {status && <span className={`setting-status${warn ? ' warn' : ''}`}>{status}</span>}
             {action}
           </span>
         )}
-        <button
-          type="button"
-          className="setting-more"
-          aria-expanded={open}
-          aria-controls={id}
-          aria-label={open ? `Hide what ${name} does` : `What ${name} does`}
-          onClick={onToggle}
-        >
-          <ChevronDownIcon />
-        </button>
       </div>
-      <div className="setting-detail" id={id} hidden={!open}>
-        {children}
-      </div>
+      {error && <div className="msg-error setting-error">{error}</div>}
     </section>
+  )
+}
+
+/** The info button by a setting's name, and the popover it opens with what the setting does. */
+function InfoButton({ name, children }: { name: string; children: ReactNode }): React.JSX.Element {
+  /** The button, while its popover is open. */
+  const [anchor, setAnchor] = useState<HTMLElement>()
+  return (
+    <>
+      <button
+        type="button"
+        className="setting-info"
+        aria-label={`About ${name}`}
+        aria-expanded={anchor !== undefined}
+        onClick={(e) => setAnchor(anchor ? undefined : e.currentTarget)}
+      >
+        <InfoIcon />
+      </button>
+      {anchor && (
+        <Popover anchor={anchor} onClose={() => setAnchor(undefined)}>
+          {children}
+        </Popover>
+      )}
+    </>
+  )
+}
+
+/** A card over everything under its button, kept in the window; a click elsewhere or Escape closes it. */
+function Popover({
+  anchor,
+  onClose,
+  children
+}: {
+  anchor: HTMLElement
+  onClose: () => void
+  children: ReactNode
+}): React.JSX.Element {
+  const ref = useRef<HTMLDivElement>(null)
+  const [style, setStyle] = useState<React.CSSProperties>({ visibility: 'hidden' })
+  useOverlay(ref, true)
+
+  useLayoutEffect(() => {
+    const card = ref.current
+    if (!card) return
+    const rect = anchor.getBoundingClientRect()
+    const x = Math.min(Math.max(EDGE, rect.left - 12), window.innerWidth - card.offsetWidth - EDGE)
+    let y = rect.bottom + 6
+    if (y + card.offsetHeight > window.innerHeight - EDGE) {
+      y = Math.max(EDGE, rect.top - 6 - card.offsetHeight)
+    }
+    setStyle({ left: x, top: y })
+  }, [anchor])
+
+  useEffect(() => {
+    const onPointer = (event: PointerEvent): void => {
+      const target = event.target as Node
+      // The button that opened it toggles it shut itself.
+      if (ref.current?.contains(target) || anchor.contains(target)) return
+      onClose()
+    }
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      onClose()
+    }
+    // Scrolled away from its button, it would float over the wrong setting.
+    const onScroll = (event: Event): void => {
+      if (!ref.current?.contains(event.target as Node)) onClose()
+    }
+    document.addEventListener('pointerdown', onPointer, true)
+    window.addEventListener('keydown', onKey, true)
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('blur', onClose)
+    return () => {
+      document.removeEventListener('pointerdown', onPointer, true)
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('blur', onClose)
+    }
+  }, [anchor, onClose])
+
+  return createPortal(
+    <div className="setting-popover" role="dialog" style={style} ref={ref}>
+      {children}
+    </div>,
+    document.body
+  )
+}
+
+/** A setting's fields, in a dialog over Settings; a click outside it or Escape closes it. */
+export function SettingsDialog({
+  title,
+  onClose,
+  children
+}: {
+  title: string
+  onClose: () => void
+  children: ReactNode
+}): React.JSX.Element {
+  const ref = useRef<HTMLDivElement>(null)
+  useOverlay(ref, true)
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      onClose()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [onClose])
+
+  return createPortal(
+    <div
+      className="palette-backdrop settings-dialog-backdrop"
+      onPointerDown={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="settings-dialog" role="dialog" aria-label={title} ref={ref}>
+        <div className="settings-dialog-head">
+          <h3>{title}</h3>
+          <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
+            <CloseIcon />
+          </button>
+        </div>
+        <div className="settings-dialog-body">{children}</div>
+      </div>
+    </div>,
+    document.body
   )
 }
 

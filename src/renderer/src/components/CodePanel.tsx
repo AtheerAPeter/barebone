@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLeaving } from '../lib/leaving'
 import { createPortal } from 'react-dom'
 import type {
+  ChatWorkspace,
   CodeDoc,
   GitBranch,
   GitChange,
@@ -23,6 +24,7 @@ import type { MenuAt, MenuEntries } from '../lib/menus'
 import { PopupMenu } from './PopupMenu'
 import { SourceControl, type Repo, type Run } from './SourceControl'
 import { WalkthroughView } from './Walkthrough'
+import { WorkspaceList } from './Workspaces'
 import {
   BranchIcon,
   CheckIcon,
@@ -38,6 +40,8 @@ import {
 interface CodePanelProps {
   chatId: string
   project: Project
+  /** Where the chat works (lib/workspaces.ts), listed over its changes. */
+  workspaces: ChatWorkspace[]
   width: number
   onResize: (width: number) => void
   onClose: () => void
@@ -70,6 +74,7 @@ const WALK_WIDTH = 760
 export function CodePanel({
   chatId,
   project,
+  workspaces,
   width,
   onResize,
   onClose,
@@ -362,6 +367,7 @@ export function CodePanel({
 
       {tab === 'changes' && (
         <>
+          <WorkspaceList workspaces={workspaces} />
           <div className="panel-toolbar code-toolbar">
             {repo && (
               <BranchMenu

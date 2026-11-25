@@ -1,7 +1,8 @@
 /**
  * Drawings an agent puts on a page for the user to see, to teach or explain:
- * boxes and arrows with labels, a pointer that glides to what it shows, and a
- * caption card. PageDriver.overlay runs OVERLAY in the page's isolated world,
+ * boxes, circles, highlights, underlines, arrows, notes and drawings of the
+ * agent's own (SVG) with labels, a pointer that glides to what it shows, and
+ * a caption card. PageDriver.overlay runs OVERLAY in the page's isolated world,
  * where page scripts cannot reach its state.
  *
  * The drawings sit in the page's top layer (a manual popover), so they show
@@ -15,7 +16,8 @@
  */
 
 export const COLORS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple'] as const
-export type Color = (typeof COLORS)[number]
+/** One of COLORS, or a hex color such as #1e90ff. */
+export type Color = string
 
 /**
  * What a drawing marks: an element by ref, or a point or area of the viewport
@@ -23,10 +25,47 @@ export type Color = (typeof COLORS)[number]
  */
 export type Target = { ref: string } | { x: number; y: number; width?: number; height?: number }
 
-export type Shape =
-  | { kind: 'box'; target: Target; label?: string; color: Color }
-  /** Points at the target, from `from`, or from a spot up and to the side of it. */
-  | { kind: 'arrow'; target: Target; from?: Target; label?: string; color: Color }
+/** Where a shape's label goes; by default above it, or below when there is no room above. */
+export type LabelSide = 'top' | 'bottom' | 'left' | 'right' | 'inside'
+
+/** How a shape is drawn; whatever is left out has the shape's usual look. */
+export interface ShapeStyle {
+  color: Color
+  /** Line width in pixels. */
+  stroke?: number
+  dashed?: boolean
+  /** How strongly the inside is tinted, 0 to 1. */
+  fill?: number
+  /** Room between the target and the shape, in pixels. */
+  padding?: number
+  /** A box's corner radius, in pixels. */
+  radius?: number
+  labelSide?: LabelSide
+  /** CSS declarations for the label, such as "font-size: 18px; border-radius: 0". */
+  labelStyle?: string
+}
+
+export type Shape = ShapeStyle &
+  (
+    | {
+        /**
+         * box: a frame around the target. circle: an ellipse around it.
+         * highlight: a marker's tint over it. underline: a line under it.
+         * note: only its label, at the target.
+         */
+        kind: 'box' | 'circle' | 'highlight' | 'underline' | 'note'
+        target: Target
+        label?: string
+      }
+    /** Points at the target, from `from`, or from a spot up and to the side of it. */
+    | { kind: 'arrow'; target: Target; from?: Target; label?: string; head?: boolean }
+    /**
+     * The agent's own drawing, SVG markup, over the target: stretched to an
+     * element or an area, at its own size at a point. Scripts, event
+     * attributes and links out of it are taken out before it is drawn.
+     */
+    | { kind: 'svg'; target: Target; markup: string; label?: string }
+  )
 
 /**
  * Where the caption card goes: `auto` is the bottom, or the top when at the
@@ -83,6 +122,15 @@ export function overlayFunction(injected: string): string {
     blue: ['#0090ff', '#fff'],
     purple: ['#8e4ec6', '#fff']
   };
+
+  /** A color's paint and the ink that reads on it: a named one, or a hex color with dark or white ink. */
+  function paint(color) {
+    if (COLORS[color]) return COLORS[color];
+    const hex = color.slice(1);
+    const full = hex.length === 3 ? [...hex].map((c) => c + c).join('') : hex;
+    const [r, g, b] = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16));
+    return [color, 0.299 * r + 0.587 * g + 0.114 * b > 160 ? '#1c1c1c' : '#fff'];
+  }
 
   // Every ref is resolved before anything changes, so a stale one draws nothing.
   const targets = [];
@@ -188,6 +236,7 @@ export function overlayFunction(injected: string): string {
     sheet.replaceSync(\`
       * { box-sizing: border-box; }
       .shapes { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+      .drawing { position: absolute; left: 0; top: 0; overflow: visible; }
       .text {
         position: absolute; left: 0; top: 0;
         font: 500 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
@@ -216,18 +265,122 @@ export function overlayFunction(injected: string): string {
     return { host, root, shapes, items: [], pointer: null, caption: null, frame: 0 };
   }
 
-  function makeBox(shape) {
-    const [fill, ink] = COLORS[shape.color];
-    const place = placed.get(shape.target);
-    const rect = svg('rect', { rx: 6, fill, 'fill-opacity': 0.08, stroke: fill, 'stroke-width': 3 });
-    overlay.shapes.append(rect);
-    const label = shape.label ? element('div', 'text label', shape.label) : null;
-    if (label) {
-      label.style.background = fill;
-      label.style.color = ink;
-      overlay.root.append(label);
+  /** A label for a shape, in its color and the agent's style, or null without text. */
+  function makeLabel(shape, fill, ink) {
+    if (!shape.label) return null;
+    const label = element('div', 'text label', shape.label);
+    label.style.background = fill;
+    label.style.color = ink;
+    if (shape.labelStyle) label.style.cssText += ';' + shape.labelStyle;
+    overlay.root.append(label);
+    return label;
+  }
+
+  /** Tags of an agent's SVG that could run code, load something, or hold a page of their own. */
+  const UNSAFE = new Set(['script', 'foreignobject', 'iframe', 'object', 'embed', 'image', 'audio', 'video', 'animation', 'handler', 'listener']);
+
+  /**
+   * The agent's SVG as nodes of this page, or null when it is not SVG. What
+   * could run or load anything goes: unsafe tags, on* attributes, and links
+   * other than to the drawing's own parts.
+   */
+  function drawing(markup) {
+    // As HTML, which puts <svg> in SVG's namespace with or without xmlns; nothing in it runs.
+    const root = new DOMParser().parseFromString(markup, 'text/html').body.firstElementChild;
+    if (root?.localName !== 'svg') return null;
+    for (const node of [root, ...root.querySelectorAll('*')]) {
+      if (UNSAFE.has(node.localName.toLowerCase())) {
+        node.remove();
+        continue;
+      }
+      for (const { name, value } of [...node.attributes]) {
+        const lower = name.toLowerCase();
+        const link = lower === 'href' || lower.endsWith(':href');
+        if (lower.startsWith('on') || (link && !value.trim().startsWith('#')) || /url\\(\\s*['"]?\\s*(?!#)/i.test(value)) {
+          node.removeAttribute(name);
+        }
+      }
     }
-    const nodes = label ? [rect, label] : [rect];
+    return document.importNode(root, true);
+  }
+
+  /** The agent's own drawing over its target, with its label. */
+  function makeDrawing(shape) {
+    const [fill, ink] = paint(shape.color);
+    const place = placed.get(shape.target);
+    let art = null;
+    try {
+      art = drawing(shape.markup);
+    } catch {
+      // A page whose rules forbid parsing markup: the label alone shows, and the result says so.
+    }
+    if (art) {
+      art.classList.add('drawing');
+      overlay.shapes.after(art);
+    }
+    const label = makeLabel(shape, fill, ink);
+    const nodes = [art, label].filter(Boolean);
+    const pad = shape.padding ?? 0;
+    return {
+      nodes,
+      place,
+      label,
+      failed: art ? undefined : 'The SVG of the drawing on ' + place.name + ' could not be read, so only its label shows',
+      update() {
+        const r = rectOf(place);
+        show(nodes, r);
+        if (!r) return;
+        const box = { left: r.left - pad, top: r.top - pad, width: r.width + 2 * pad, height: r.height + 2 * pad };
+        if (art) {
+          // Stretched over an element or an area; at a point, at its own size.
+          if (box.width && box.height) {
+            art.setAttribute('width', box.width);
+            art.setAttribute('height', box.height);
+          }
+          move(art, box.left, box.top);
+        }
+        if (label) placeLabel(label, art ? art.getBoundingClientRect() : box, shape.labelSide ?? 'top');
+      }
+    };
+  }
+
+  /** Put a label by a box on the side asked for, kept in the window. */
+  function placeLabel(label, box, side) {
+    const w = label.offsetWidth;
+    const h = label.offsetHeight;
+    let x = box.left;
+    let y = box.top - h - 6;
+    if (side === 'bottom' || (side === 'top' && y < 4)) y = box.top + box.height + 6;
+    if (side === 'left' || side === 'right') {
+      x = side === 'left' ? box.left - w - 6 : box.left + box.width + 6;
+      y = box.top + box.height / 2 - h / 2;
+    }
+    if (side === 'inside') {
+      x = box.left + 6;
+      y = box.top + 6;
+    }
+    move(label, clamp(x, 4, innerWidth - w - 4), clamp(y, 4, innerHeight - h - 4));
+  }
+
+  /** A shape drawn around or over its target: a box, circle, highlight, underline, or a note alone. */
+  function makeOutline(shape) {
+    const [fill, ink] = paint(shape.color);
+    const place = placed.get(shape.target);
+    const kind = shape.kind;
+    const stroke = shape.stroke ?? 3;
+    const lines = { stroke: fill, 'stroke-width': stroke, 'stroke-linecap': 'round' };
+    if (shape.dashed) lines['stroke-dasharray'] = stroke * 3 + ' ' + stroke * 2;
+    const tint = (usual) => ({ fill, 'fill-opacity': shape.fill ?? usual });
+    const outline =
+      kind === 'box' ? svg('rect', { rx: shape.radius ?? 6, ...tint(0.08), ...lines })
+      : kind === 'circle' ? svg('ellipse', { ...tint(0.06), ...lines })
+      : kind === 'highlight' ? svg('rect', { rx: shape.radius ?? 3, ...tint(0.35) })
+      : kind === 'underline' ? svg('line', lines)
+      : null;
+    if (outline) overlay.shapes.append(outline);
+    const label = makeLabel(shape, fill, ink);
+    const nodes = [outline, label].filter(Boolean);
+    const pad = shape.padding ?? (kind === 'highlight' ? 2 : kind === 'underline' || kind === 'note' ? 0 : 4);
     return {
       nodes,
       place,
@@ -236,35 +389,51 @@ export function overlayFunction(injected: string): string {
         const r = rectOf(place);
         show(nodes, r);
         if (!r) return;
-        const pad = 4;
-        const box = { left: r.left - pad, top: r.top - pad, width: r.width + 2 * pad, height: r.height + 2 * pad };
-        rect.setAttribute('x', box.left);
-        rect.setAttribute('y', box.top);
-        rect.setAttribute('width', box.width);
-        rect.setAttribute('height', box.height);
+        let box = { left: r.left - pad, top: r.top - pad, width: r.width + 2 * pad, height: r.height + 2 * pad };
+        if (kind === 'box' || kind === 'highlight') {
+          outline.setAttribute('x', box.left);
+          outline.setAttribute('y', box.top);
+          outline.setAttribute('width', box.width);
+          outline.setAttribute('height', box.height);
+        } else if (kind === 'circle') {
+          // An ellipse through the box's corners would be too wide: this one rounds the box.
+          const c = center(box);
+          const rx = box.width * 0.6 + 6;
+          const ry = box.height * 0.6 + 6;
+          outline.setAttribute('cx', c.x);
+          outline.setAttribute('cy', c.y);
+          outline.setAttribute('rx', rx);
+          outline.setAttribute('ry', ry);
+          // Its label goes by the ellipse, which reaches past the box.
+          box = { left: c.x - rx, top: c.y - ry, width: 2 * rx, height: 2 * ry };
+        } else if (kind === 'underline') {
+          const y = box.top + box.height + stroke / 2 + 2;
+          outline.setAttribute('x1', box.left);
+          outline.setAttribute('x2', box.left + box.width);
+          outline.setAttribute('y1', y);
+          outline.setAttribute('y2', y);
+        }
         if (!label) return;
-        // Above the box, or below it when there is no room above.
-        let top = box.top - label.offsetHeight - 6;
-        if (top < 4) top = box.top + box.height + 6;
-        move(label, clamp(box.left, 4, innerWidth - label.offsetWidth - 4), top);
+        // A note sits on its spot; other labels by their shape.
+        if (kind === 'note') move(label, clamp(box.left, 4, innerWidth - label.offsetWidth - 4), clamp(box.top, 4, innerHeight - label.offsetHeight - 4));
+        else placeLabel(label, box, shape.labelSide ?? 'top');
       }
     };
   }
 
   function makeArrow(shape) {
-    const [fill, ink] = COLORS[shape.color];
+    const [fill, ink] = paint(shape.color);
     const place = placed.get(shape.target);
     const from = shape.from ? placed.get(shape.from) : null;
-    const line = svg('line', { stroke: fill, 'stroke-width': 3, 'stroke-linecap': 'round' });
+    const stroke = shape.stroke ?? 3;
+    const line = svg('line', { stroke: fill, 'stroke-width': stroke, 'stroke-linecap': 'round' });
+    if (shape.dashed) line.setAttribute('stroke-dasharray', stroke * 3 + ' ' + stroke * 2);
     const head = svg('polygon', { fill });
-    overlay.shapes.append(line, head);
-    const label = shape.label ? element('div', 'text label', shape.label) : null;
-    if (label) {
-      label.style.background = fill;
-      label.style.color = ink;
-      overlay.root.append(label);
-    }
-    const nodes = label ? [line, head, label] : [line, head];
+    const headed = shape.head !== false;
+    overlay.shapes.append(line);
+    if (headed) overlay.shapes.append(head);
+    const label = makeLabel(shape, fill, ink);
+    const nodes = [line, headed ? head : null, label].filter(Boolean);
     return {
       nodes,
       place,
@@ -277,7 +446,8 @@ export function overlayFunction(injected: string): string {
         const start = edge(f, center(r), 4);
         const end = edge(r, center(f), 6);
         const angle = Math.atan2(end.y - start.y, end.x - start.x);
-        const size = 14;
+        // The head grows with the line, and a line without one ends at the tip.
+        const size = headed ? 11 + stroke : 0;
         const corner = (turn) => (end.x - size * Math.cos(angle + turn)) + ',' + (end.y - size * Math.sin(angle + turn));
         head.setAttribute('points', end.x + ',' + end.y + ' ' + corner(0.45) + ' ' + corner(-0.45));
         line.setAttribute('x1', start.x);
@@ -323,7 +493,7 @@ export function overlayFunction(injected: string): string {
 
   /** The pointer glides from where it is to the target, then stays on it. */
   function point(target, text, color) {
-    const [fill, ink] = COLORS[color];
+    const [fill, ink] = paint(color);
     const place = placed.get(target);
     const r = rectOf(place);
     const previous = overlay.pointer;
@@ -450,6 +620,7 @@ export function overlayFunction(injected: string): string {
       for (const name of covered(overlay.caption.getBoundingClientRect())) found.add('The caption covers ' + name);
     }
     for (const item of overlay.items) {
+      if (item.failed) found.add(item.failed);
       if (!item.label || item.label.style.display === 'none') continue;
       for (const name of covered(item.label.getBoundingClientRect(), item)) {
         found.add('The label on ' + item.place.name + ' covers ' + name);
@@ -473,11 +644,12 @@ export function overlayFunction(injected: string): string {
   }
 
   const revealed = reveal();
-  const makers = { box: makeBox, arrow: makeArrow };
+  const make = (shape) =>
+    shape.kind === 'arrow' ? makeArrow(shape) : shape.kind === 'svg' ? makeDrawing(shape) : makeOutline(shape);
   switch (command.type) {
     case 'draw':
       if (command.clear) removeItems();
-      for (const shape of command.shapes) overlay.items.push(makers[shape.kind](shape));
+      for (const shape of command.shapes) overlay.items.push(make(shape));
       break;
     case 'point':
       if (command.target) point(command.target, command.text, command.color);
@@ -485,7 +657,7 @@ export function overlayFunction(injected: string): string {
       break;
     case 'step':
       removeItems();
-      for (const shape of command.shapes) overlay.items.push(makers[shape.kind](shape));
+      for (const shape of command.shapes) overlay.items.push(make(shape));
       if (command.point) point(command.point.target, command.point.text, command.point.color);
       else removePointer();
       break;

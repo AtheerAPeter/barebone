@@ -17,6 +17,7 @@ import { TerminalView } from './components/TerminalView'
 import { SettingsView } from './components/SettingsView'
 import { BrowserPanel } from './components/BrowserPanel'
 import { CodePanel } from './components/CodePanel'
+import { WorkspaceChip } from './components/Workspaces'
 import { BrowserSheet } from './remote/BrowserSheet'
 import { ProjectPicker } from './components/ProjectPicker'
 import { BotAvatar } from './components/BotAvatar'
@@ -39,9 +40,14 @@ import { useSpeechPlayer } from './lib/speech'
 import { LevelMeter } from './components/LevelMeter'
 import { PHONE, useMedia, useNarrower } from './lib/touch'
 import { useLeaving } from './lib/leaving'
+import { useChatWorkspaces } from './lib/workspaces'
+import { useChatSwitch } from './lib/chat-switch'
 
 /** How often the orb is told the agent's voice level while it speaks. */
 const ORB_LEVEL_MS = 50
+
+/** How long the sidebar takes to slide back after a keyboard switch: .sidebar.peek.out in styles.css. */
+const PEEK_OUT_MS = 140
 
 /** In a browser through the remote link (main/remote); the browser panel is the Mac's own. */
 const REMOTE = window.api.remote
@@ -208,6 +214,11 @@ export default function App(): React.JSX.Element {
   const project = state.projects.find((p) => p.id === chat?.projectId) ?? state.projects[0]
   /** The open chat's bot, when it is a bot's one conversation; a chat a bot started is a chat like any other. */
   const bot = chat && project?.bot && !chat.startedBy ? project : undefined
+  // Where the chat works: its branch, worktree, and merge or pull request (top bar and code panel).
+  const workspaces = useChatWorkspaces(
+    view === 'chat' && !bot ? chat?.id : undefined,
+    chat?.running === true
+  )
   // A bot's chat shows its dashboard or memory in its place until the user goes back to it.
   const [botPane, setBotPane] = useState<{ chatId: string; pane: BotPaneName }>()
   const pane: BotPaneName = bot && botPane && botPane.chatId === chat?.id ? botPane.pane : 'chat'
@@ -254,6 +265,29 @@ export default function App(): React.JSX.Element {
     [newChat, drawer]
   )
   const bots = useMemo(() => ({ projects: state.projects, openBot }), [state.projects, openBot])
+  // Switching chats from the keyboard, in the sidebar (lib/chat-switch.ts). A hidden sidebar
+  // springs out over the chat while Ctrl is held, and back once it is let go.
+  const { picked } = useChatSwitch({
+    current: bot ? `bot:${bot.id}` : view === 'chat' && chat ? `chat:${chat.id}` : undefined,
+    onPick: (key) => {
+      const [kind, id] = key.split(':')
+      if (kind === 'bot') return openBot(id)
+      setSelectedChatId(id)
+      setView('chat')
+    }
+  })
+  const switching = picked !== undefined
+  const [peekOut, setPeekOut] = useState(false)
+  const [wasSwitching, setWasSwitching] = useState(switching)
+  if (wasSwitching !== switching) {
+    setWasSwitching(switching)
+    setPeekOut(!switching)
+  }
+  useEffect(() => {
+    if (!peekOut) return
+    const timer = setTimeout(() => setPeekOut(false), PEEK_OUT_MS)
+    return () => clearTimeout(timer)
+  }, [peekOut])
 
   // Menu bar commands. The handler reads the selected chat through a ref so the
   // subscription is made once.
@@ -318,6 +352,8 @@ export default function App(): React.JSX.Element {
       {/* Stays mounted so hiding it can slide instead of cut. */}
       <Sidebar
         open={sidebarOpen}
+        peek={switching ? 'in' : peekOut ? 'out' : undefined}
+        picked={picked}
         state={state}
         selectedChatId={chat?.id}
         view={view}
@@ -443,6 +479,9 @@ export default function App(): React.JSX.Element {
             >
               <OrbIcon />
             </button>
+          )}
+          {view === 'chat' && chat && !bot && (
+            <WorkspaceChip workspaces={workspaces} onOpen={() => toggleCode(chat.id, true)} />
           )}
           <button
             className={`icon-btn${codeOpen ? ' on' : ''}`}
@@ -607,6 +646,7 @@ export default function App(): React.JSX.Element {
           key={chat.id}
           chatId={chat.id}
           project={project}
+          workspaces={workspaces}
           width={browserWidth}
           onResize={setBrowserWidth}
           onClose={() => toggleCode(chat.id, false)}

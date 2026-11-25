@@ -3,14 +3,11 @@ import { encodeFrame } from '../../shared/wire'
 import { normalizeUrl, type BuiltinBrowser, type ChatPage } from '../browser'
 import { loadConfig, saveConfig } from './config'
 import { handleRemote, listenRemote, onCallerGone, type Caller } from './registry'
-import { RtcStreams } from './rtc'
 
 /**
  * A chat's browser tab on a device of the remote link: a live picture of the
- * page, and the device's taps, scrolls and keys sent back to it. A device
- * that plays WebRTC gets the page as live video (rtc.ts), smooth and paced to
- * its connection; any other, or one that cannot connect, gets pictures from
- * Chrome's screencast as binary messages, the next once it shows one. It is the Mac's own tab, signed in to the
+ * page (Chrome's screencast, sent as binary messages), and the device's taps,
+ * scrolls and keys sent back to it. It is the Mac's own tab, signed in to the
  * user's accounts, so it is off until turned on in Settings on the Mac.
  *
  * A device shows one chat's tab at a time, and a chat's tab shows on one
@@ -43,10 +40,6 @@ interface View {
   untab?: () => void
   /** Scrolling the device asked for that has not reached the page yet. */
   scrolling?: Scrolling
-  /** The device plays the page as WebRTC video rather than pictures. */
-  rtc: boolean
-  /** The tab's video to the device, while one streams. */
-  stream?: Stream
   /** The page is being cast to the device. */
   casting: boolean
   /** The page's renderer crashed; the cast starts again once it is back. */
@@ -58,15 +51,6 @@ interface View {
   acks: (() => void)[]
   /** The page was loading, when the device was last told about it. */
   loading: boolean
-}
-
-/** A tab streaming to a device as video, at the size its page is laid out at (CSS pixels). */
-interface Stream {
-  tab: ChatPage
-  width: number
-  height: number
-  /** Its id with the streamer, once it opened there. */
-  id?: number
 }
 
 /** Scrolling that waits to go to the page, while the turn before is still being handled there. */
@@ -112,7 +96,6 @@ export class RemoteBrowser {
   /** Chats whose browser changed, to tell their devices about shortly. */
   private dirty = new Set<string>()
   private dirtyTimer?: NodeJS.Timeout
-  private rtc = new RtcStreams()
 
   constructor(
     private readonly browser: BuiltinBrowser,
@@ -145,28 +128,9 @@ export class RemoteBrowser {
 
   private register(): void {
     handleRemote('remoteBrowser:allowed', () => this.allowed)
-    handleRemote('remoteBrowser:open', (caller, chatId: unknown, size: unknown, rtc: unknown) =>
-      this.open(caller, chatId, size, rtc === true)
+    handleRemote('remoteBrowser:open', (caller, chatId: unknown, size: unknown) =>
+      this.open(caller, chatId, size)
     )
-    // The device's side of the video's connection (rtc.ts).
-    handleRemote('remoteBrowser:rtcAnswer', (caller, sdp: unknown) => {
-      const id = this.viewOf(caller)?.stream?.id
-      if (id !== undefined) this.rtc.answer(id, str(sdp))
-    })
-    listenRemote('remoteBrowser:rtcCandidate', (caller, candidate: unknown) => {
-      const id = this.viewOf(caller)?.stream?.id
-      const c = (candidate ?? {}) as Record<string, unknown>
-      if (id === undefined || typeof c.candidate !== 'string') return
-      this.rtc.candidate(id, {
-        candidate: c.candidate,
-        sdpMid: typeof c.sdpMid === 'string' ? c.sdpMid : null,
-        sdpMLineIndex: typeof c.sdpMLineIndex === 'number' ? c.sdpMLineIndex : null
-      })
-    })
-    listenRemote('remoteBrowser:rtcFailed', (caller) => {
-      const view = this.viewOf(caller)
-      if (view?.rtc) this.rtcFailed(view, 'The device could not play the video.')
-    })
     handleRemote('remoteBrowser:resize', (caller, size: unknown) => {
       const view = this.use(caller)
       view.size = sizeFrom(size)
@@ -223,7 +187,7 @@ export class RemoteBrowser {
   }
 
   /** Show a chat's tab on a device; another device showing it stops. */
-  private open(caller: Caller, chatId: unknown, size: unknown, rtc: boolean): RemoteBrowserView {
+  private open(caller: Caller, chatId: unknown, size: unknown): RemoteBrowserView {
     this.checkAllowed()
     if (typeof chatId !== 'string' || !this.host.chatExists(chatId)) {
       throw new Error('There is no such chat.')
@@ -239,7 +203,6 @@ export class RemoteBrowser {
       size: sizeFrom(size),
       device: (this.host.deviceOf(caller) ?? 'Remote link').split(' · ')[0],
       release: this.browser.keepOpen(chatId),
-      rtc,
       casting: false,
       crashed: false,
       acks: [],
@@ -280,7 +243,6 @@ export class RemoteBrowser {
     const crashed = (): void => {
       view.crashed = true
       view.casting = false
-      this.stopStream(view)
     }
     tab.on('dialog', dialogChanged)
     tab.on('dialogClosed', dialogChanged)
@@ -301,7 +263,9 @@ export class RemoteBrowser {
     view.untab?.()
     view.untab = undefined
     view.tab = undefined
-    this.stopCast(view, tab)
+    view.acks = []
+    if (view.casting) tab.driver.stopScreencast()
+    view.casting = false
     view.crashed = false
     tab.viewedRemotely = false
     if (!keepSize) this.unfit(view.chatId, tab)
@@ -338,8 +302,12 @@ export class RemoteBrowser {
     const tab = view.tab
     if (!tab || view.crashed) return
     const shown = webPage(tab.contents.getURL() || tab.url)
-    if (!shown) return this.stopCast(view, tab)
-    if (view.rtc) return this.stream(view, tab)
+    if (!shown) {
+      if (view.casting) tab.driver.stopScreencast()
+      view.casting = false
+      view.acks = []
+      return
+    }
     if (view.casting) return
     view.casting = true
     const { width, height, ratio } = view.size
@@ -362,86 +330,11 @@ export class RemoteBrowser {
       })
   }
 
-  /** Stop sending the page to the device, as pictures or as video. */
-  private stopCast(view: View, tab: ChatPage | undefined = view.tab): void {
-    if (view.casting) tab?.driver.stopScreencast()
-    view.casting = false
-    view.acks = []
-    this.stopStream(view)
-  }
-
   /** Cast again, at the device's new size. */
   private restartCast(view: View): void {
-    this.stopCast(view)
-    this.cast(view)
-  }
-
-  /**
-   * Stream the tab to the device as video, at the size its page is laid out at
-   * (an agent's, or the device's) and the device's pixels per CSS pixel. A
-   * capture keeps the page drawing, parked out of the window or not.
-   */
-  private stream(view: View, tab: ChatPage): void {
-    const { width, height } =
-      tab.viewport && tab.viewportBy === undefined ? tab.viewport : view.size
-    const current = view.stream
-    if (current?.tab === tab && current.width === width && current.height === height) return
-    this.stopStream(view)
-    const stream: Stream = { tab, width, height }
-    view.stream = stream
-    // Lets the app's streaming page capture it (browser.ts allows no other capture).
-    tab.streamedRemotely = true
-    // What the video shows of the page, for the device to place taps on it.
-    this.host.sendTo(view.caller, 'remoteBrowser:rtcFrame', [
-      { chatId: view.chatId, tab: tab.id, width, height }
-    ])
-    const ratio = view.size.ratio
-    this.rtc
-      .open(tab.contents, Math.round(width * ratio), Math.round(height * ratio), ratio, {
-        offer: (sdp, iceServers) => {
-          if (view.stream !== stream) return
-          this.host.sendTo(view.caller, 'remoteBrowser:rtc', [
-            view.chatId,
-            { type: 'offer', sdp, iceServers }
-          ])
-        },
-        candidate: (candidate) => {
-          if (view.stream !== stream) return
-          this.host.sendTo(view.caller, 'remoteBrowser:rtc', [
-            view.chatId,
-            { type: 'candidate', candidate }
-          ])
-        },
-        failed: (message) => {
-          if (view.stream === stream) this.rtcFailed(view, message)
-        }
-      })
-      .then(
-        (id) => {
-          if (view.stream === stream) stream.id = id
-          else this.rtc.close(id)
-        },
-        (error: Error) => {
-          if (view.stream === stream) this.rtcFailed(view, error.message)
-        }
-      )
-  }
-
-  private stopStream(view: View): void {
-    const stream = view.stream
-    view.stream = undefined
-    if (!stream) return
-    stream.tab.streamedRemotely = false
-    if (stream.id !== undefined) this.rtc.close(stream.id)
-  }
-
-  /** The video could not start or stopped: the device gets pictures from here on. */
-  private rtcFailed(view: View, message: string): void {
-    console.error(`The browser's video for a device stopped, pictures instead: ${message}`)
-    this.stopStream(view)
-    view.rtc = false
-    if (!this.views.has(view)) return
-    this.host.sendTo(view.caller, 'remoteBrowser:rtc', [view.chatId, { type: 'off' }])
+    if (view.casting) view.tab?.driver.stopScreencast()
+    view.casting = false
+    view.acks = []
     this.cast(view)
   }
 

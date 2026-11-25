@@ -58,6 +58,26 @@ export async function repoRoot(folder: string): Promise<string | undefined> {
 }
 
 /**
+ * The main checkout of a linked worktree (git worktree add); undefined for a
+ * main checkout, which has its own .git folder rather than one in another's.
+ */
+export async function worktreeOf(root: string): Promise<string | undefined> {
+  const [gitDir, commonDir] = (
+    await git(root, ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir'])
+  )
+    .trim()
+    .split('\n')
+  return gitDir !== commonDir ? dirname(commonDir) : undefined
+}
+
+/** The address of the repository's origin remote, or its first; undefined without one. */
+export async function remoteUrl(root: string): Promise<string | undefined> {
+  const remotes = (await git(root, ['remote'])).split('\n').filter(Boolean)
+  const remote = remotes.includes('origin') ? 'origin' : remotes[0]
+  return remote ? (await git(root, ['remote', 'get-url', remote])).trim() : undefined
+}
+
+/**
  * The repository a file is in, and the file's path in it; undefined when it
  * is in none. Git names both, so a path through a symlinked folder (macOS's
  * /tmp is /private/tmp) matches the paths in its status.

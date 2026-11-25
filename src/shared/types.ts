@@ -267,9 +267,9 @@ export interface Chat {
   /** Listed in the sidebar's Pinned section, by status, until the user unpins it. */
   pinned?: boolean
   /**
-   * When the user last sent a message in the chat, or started it. By status,
-   * the sidebar keeps a chat in front of the user for a day after (inFront),
-   * then settles it. Missing in chats saved before it was recorded.
+   * When the user last sent a message in the chat, or started it: a message
+   * after the chat was settled brings it back in front (inFront). Missing in
+   * chats saved before it was recorded.
    */
   activeAt?: number
   /** When the user settled the chat from the sidebar; a message they send after brings it back. */
@@ -353,21 +353,14 @@ export interface Chat {
   updatedAt: number
 }
 
-/** How long a chat stays in front of the user, by status, after they last chatted in it. */
-export const IN_FRONT_MS = 24 * 60 * 60_000
-
 /**
  * Whether the user keeps the chat in front of them in the sidebar, by status:
- * they chatted in it within the last day and have not settled it since. Chats
- * saved before activeAt was recorded count from their last update.
+ * until they settle it, and again once they chat in it after. Chats saved
+ * before activeAt was recorded count from their last update.
  */
-export function inFront(
-  chat: Pick<Chat, 'activeAt' | 'settledAt' | 'updatedAt'>,
-  now: number
-): boolean {
+export function inFront(chat: Pick<Chat, 'activeAt' | 'settledAt' | 'updatedAt'>): boolean {
   const active = chat.activeAt ?? chat.updatedAt
-  if (chat.settledAt !== undefined && chat.settledAt >= active) return false
-  return now - active < IN_FRONT_MS
+  return chat.settledAt === undefined || chat.settledAt < active
 }
 
 /** A chat's permission mode: set together, so it never applies half-changed. */
@@ -560,6 +553,13 @@ export interface AppState {
   mobile?: boolean
   /** The tabs of the user's own browser (Browser in the sidebar), kept across restarts. */
   browserTabs?: SavedTabs
+  /** The size chats' browser pages are laid out at, picked in the panel's toolbar; 'panel' (filling it) when missing. */
+  browserSize?: BrowserSize
+  /**
+   * Set once the chats that settled by themselves, a day after the user last
+   * chatted in them, were marked settled: since then only the user settles chats.
+   */
+  settledByUser?: boolean
   /** True when the user turned their custom look off (View → Custom Look); on when missing. */
   customLookOff?: boolean
 }
@@ -958,9 +958,14 @@ export interface BrowserState {
   canGoBack: boolean
   canGoForward: boolean
   /**
+   * The size the user picked for the chat's pages; none in the user's own
+   * browser (Browser in the sidebar), whose pages always fill it.
+   */
+  size?: BrowserSize
+  /**
    * The size an agent set the shown tab's page to (set_viewport), and the
    * fraction of it the panel shows it at (1 when it fits). None while the page
-   * fills the panel.
+   * has the user's size.
    */
   viewport?: PageViewport & {
     scale: number
@@ -997,6 +1002,19 @@ export interface PageViewport {
   mobile: boolean
 }
 
+/**
+ * The size the user lays chats' browser pages out at: a laptop's screen, a
+ * phone's, or the panel's own. A fixed size keeps screenshots the same shape
+ * for agents however the panel is dragged; the panel shows it scaled to fit.
+ */
+export type BrowserSize = 'desktop' | 'phone' | 'panel'
+
+export const BROWSER_SIZES: Record<BrowserSize, PageViewport | undefined> = {
+  desktop: { width: 1280, height: 800, mobile: false },
+  phone: { width: 390, height: 844, mobile: true },
+  panel: undefined
+}
+
 export interface Rect {
   x: number
   y: number
@@ -1027,6 +1045,38 @@ export interface GitChange {
   /** Where a renamed or copied file came from. */
   oldPath?: string
   kind: GitChangeKind
+}
+
+/** A merge request on GitLab, or a pull request on GitHub, for a branch. */
+export interface CodeReview {
+  kind: 'mr' | 'pr'
+  /** Its number: !12 on GitLab, #12 on GitHub. */
+  number: number
+  title: string
+  url: string
+  state: 'open' | 'draft' | 'merged' | 'closed'
+}
+
+/**
+ * A git checkout a chat works in (main/workspaces.ts): its project's, or one
+ * its tool calls went to, such as a worktree the agent made for a branch.
+ */
+export interface ChatWorkspace {
+  root: string
+  /** The branch checked out; none while HEAD is detached. */
+  branch?: string
+  /** The commit checked out, short. */
+  head?: string
+  /** The main checkout of the repository, when this is a linked worktree. */
+  worktreeOf?: string
+  /** Files changed, staged or not. */
+  changes: number
+  ahead: number
+  behind: number
+  upstream?: string
+  review?: CodeReview
+  /** The chat's latest tool call worked here. */
+  current: boolean
 }
 
 /** A project's repository, as the code panel's source control shows it. */

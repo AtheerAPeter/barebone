@@ -558,7 +558,8 @@ kbd {
  */
 @container topbar (max-width: 600px) {
   .crumb,
-  .status-chip-label {
+  .status-chip-label,
+  .workspace-chip-branch {
     display: none;
   }
 
@@ -1181,6 +1182,12 @@ img.project-icon {
   height: 24px;
 }
 
+/* While the ⋮ shows over the title's end, the title ends before it, in an ellipsis, not under it. */
+.chat-row.card:is(:hover, :focus-within) .chat-line,
+.chat-row.card:has(.row-menu.open) .chat-line {
+  padding-right: 26px;
+}
+
 .chat-row.card .chat-title {
   font-size: 14.5px;
   font-weight: 600;
@@ -1749,6 +1756,7 @@ img.project-icon {
   flex-shrink: 0;
   color: var(--text-soft);
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .call-line:not(:disabled):hover .call-verb {
@@ -1952,13 +1960,16 @@ img.project-icon {
   margin: 0 14px 10px;
 }
 
+/* A line keeps to one line however narrow the chat: its verb, counts and result stay whole, its words give way. */
 .call-result {
   flex-shrink: 0;
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .diff-count {
   flex-shrink: 0;
+  white-space: nowrap;
   display: inline-flex;
   gap: 5px;
   font-family: var(--mono);
@@ -2027,6 +2038,8 @@ img.project-icon {
 
 .result-del,
 .result-bad {
+  flex-shrink: 0;
+  white-space: nowrap;
   color: var(--danger);
   font-weight: 600;
 }
@@ -3096,8 +3109,8 @@ img.project-icon {
 .thumb img {
   display: block;
   width: auto;
-  max-width: 240px;
-  height: 96px;
+  max-width: min(420px, 100%);
+  height: 200px;
   object-fit: cover;
 }
 
@@ -3131,7 +3144,16 @@ img.project-icon {
   padding: 2px 4px 4px 27px;
 }
 
-/* One image at full size over the window; a click closes it. */
+/* The images a folded turn's work made, under its "Worked for" line. */
+.turn-work-images {
+  padding: 4px 4px 2px;
+}
+
+/*
+ * The chat's images over the window, edge to edge: no padding, no frame. The
+ * cross and the arrows float over the image on dark discs, so they show on
+ * any picture.
+ */
 .image-viewer {
   position: fixed;
   inset: 0;
@@ -3139,17 +3161,80 @@ img.project-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
-  background: rgba(0, 0, 0, 0.8);
-  cursor: zoom-out;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.92);
+  /* Pinches and drags are the viewer's, not the page's. */
+  touch-action: none;
+  user-select: none;
 }
 
 .image-viewer img {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  border-radius: var(--radius-lg);
-  box-shadow: var(--menu-shadow);
+  cursor: zoom-in;
+}
+
+.image-viewer img.zoomed {
+  cursor: grab;
+}
+
+.image-viewer-btn {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.image-viewer-btn:hover {
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.image-viewer-btn:disabled {
+  opacity: 0.3;
+}
+
+.image-viewer-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.image-viewer-close {
+  top: 14px;
+  right: 14px;
+}
+
+.image-viewer-prev,
+.image-viewer-next {
+  top: 50%;
+  margin-top: -20px;
+}
+
+.image-viewer-prev {
+  left: 14px;
+}
+
+.image-viewer-next {
+  right: 14px;
+}
+
+.image-viewer-count {
+  position: absolute;
+  top: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.5);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* One line tall on the composer's row; grows up to a limit (Composer.tsx) once expanded. */
@@ -4212,7 +4297,7 @@ img.project-icon {
   border-radius: 12px;
 }
 
-/* The size an agent laid the page out at; a click fills the panel again. */
+/* The size an agent laid the page out at; a click goes back to the user's size. */
 .viewport-chip {
   flex-shrink: 0;
   display: inline-flex;
@@ -4254,6 +4339,143 @@ img.project-icon {
   margin-left: 6px;
   color: var(--text-muted);
   font-size: 11.5px;
+}
+
+/*
+ * Where the chat works: in the top bar, the branch it works on now; over the
+ * code panel's changes, every checkout it worked in, with its merge or pull request.
+ */
+.workspace-chip {
+  flex-shrink: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  max-width: 340px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  background: var(--fill);
+  color: var(--text-soft);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.workspace-chip:hover {
+  background: var(--fill-strong);
+  color: var(--text);
+}
+
+.workspace-chip > svg {
+  flex: none;
+}
+
+.workspace-chip-branch {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.workspace-review {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--fill-strong);
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+}
+
+.workspace-review.open {
+  background: var(--add-bg);
+  color: var(--add-text);
+}
+
+.workspace-review.merged {
+  background: color-mix(in srgb, var(--graph-5) 16%, transparent);
+  color: var(--graph-5);
+}
+
+.workspace-review.closed {
+  background: var(--del-bg);
+  color: var(--del-text);
+}
+
+a.workspace-review:hover {
+  text-decoration: underline;
+}
+
+.workspaces {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 8px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.workspace {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+
+.workspace.current {
+  background: var(--fill);
+}
+
+.workspace-icon {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.workspace-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.workspace-branch,
+.workspace-where {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-branch {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.workspace-where {
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.workspace-facts {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.workspace-fact {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
 }
 
 .code-toolbar {
@@ -5442,58 +5664,59 @@ img.project-icon {
   gap: 6px;
 }
 
-/* Settings: one list of settings, a line each, grouped by what they touch. */
+/*
+ * Settings: the sections at the side, and the chosen one's settings as one
+ * rounded group of lines: an icon, a bold name, its controls. What a setting
+ * does opens over the page from its info button; its fields, in a dialog.
+ */
 
+/* Measured by its width, so a narrow window or panel lays it out in a column. */
 .settings {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  /* Scrolls like the sidebar: the track is never drawn, the rows are the page. */
-  scrollbar-width: none;
-  width: 100%;
-  max-width: 840px;
+  display: flex;
+  container-type: inline-size;
+}
+
+.settings-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  max-width: 980px;
   margin: 0 auto;
-  padding: 34px 24px 56px;
 }
 
-.settings::-webkit-scrollbar {
-  display: none;
+.settings-nav {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 212px;
+  padding: 26px 14px 24px 20px;
 }
 
-.settings-head {
-  margin-bottom: 16px;
-}
-
-.settings h2 {
-  margin: 0;
-  font-size: 26px;
-  font-weight: 750;
-  letter-spacing: -0.03em;
-  line-height: 1.1;
-}
-
-.settings-head p {
-  margin: 4px 0 0;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-/* The search: a glass field over the list, and a cross that clears it. */
+/* The search: a quiet field over the sections, and a cross that clears it. */
 .settings-search {
   display: flex;
   align-items: center;
-  gap: 9px;
-  height: 38px;
-  padding: 0 8px 0 12px;
-  background: var(--glass);
-  box-shadow: var(--glass-rim);
-  border-radius: 11px;
+  gap: 7px;
+  height: 32px;
+  padding: 0 4px 0 9px;
+  background: var(--fill);
+  border-radius: 8px;
+}
+
+.settings-search:focus-within {
+  background: var(--panel-main);
+  box-shadow:
+    0 0 0 1px var(--border-strong),
+    0 0 0 3px var(--focus-ring);
 }
 
 .settings-search > svg {
   flex: none;
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
   color: var(--text-muted);
 }
 
@@ -5504,7 +5727,7 @@ img.project-icon {
   outline: none;
   background: none;
   font: inherit;
-  font-size: 13.5px;
+  font-size: 13px;
   color: var(--text);
 }
 
@@ -5516,15 +5739,15 @@ img.project-icon {
   display: grid;
   place-items: center;
   flex: none;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
   color: var(--text-muted);
 }
 
 .settings-search-clear svg {
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
 }
 
 .settings-search-clear:hover {
@@ -5532,205 +5755,233 @@ img.project-icon {
   color: var(--text);
 }
 
-/* The filters, and how much of the list they leave. */
-.settings-filters {
+.settings-sections {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 10px 0 2px;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.settings-filter {
-  height: 26px;
-  padding: 0 11px;
-  border-radius: var(--radius-pill);
-  background: var(--fill);
-  color: var(--text-soft);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.settings-filter:hover {
-  background: var(--fill-strong);
-  color: var(--text);
-}
-
-/* The chosen filter is solid ink, as a chosen segment is: it reads at a glance. */
-.settings-filter[aria-pressed='true'] {
-  background: var(--solid);
-  color: var(--on-solid);
-}
-
-.settings-count {
-  margin-left: auto;
-  font-size: 11.5px;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-/* A group's name, over the rows that touch the same thing. */
-.settings-group {
-  margin: 16px 2px 2px;
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-/* One setting: the line, and the explanation under it when it is open. */
-.setting-line {
+.settings-section {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 42px;
-  padding: 3px 6px;
-  border-radius: 10px;
-}
-
-.setting-line:hover {
-  background: var(--hover);
-}
-
-/* The open row is one band, from its line to the end of its explanation. */
-.setting.open {
-  background: var(--fill);
-  border-radius: 10px;
-  padding-bottom: 2px;
-}
-
-.setting.open > .setting-line {
-  background: none;
-}
-
-.setting-text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  overflow: hidden;
-}
-
-.setting-name {
-  flex: none;
-  font-size: 13px;
-  font-weight: 650;
-  letter-spacing: -0.005em;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--text-soft);
+  font-size: 13.5px;
+  font-weight: 550;
+  text-align: left;
   white-space: nowrap;
 }
 
-/* What it does, on the same line: the part that makes the name mean something. */
-.setting-summary {
+.settings-section svg {
+  flex: none;
+  width: 17px;
+  height: 17px;
+}
+
+.settings-section:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.settings-section[aria-current='page'] {
+  background: var(--fill-strong);
+  color: var(--text);
+  font-weight: 650;
+}
+
+.settings-section:focus-visible,
+.setting-info:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+/* The chosen section's settings: the part of the view that scrolls. */
+.settings-page {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  /* Scrolls like the sidebar: the track is never drawn, the rows are the page. */
+  scrollbar-width: none;
+  padding: 24px 28px 56px;
+}
+
+.settings-page::-webkit-scrollbar {
+  display: none;
+}
+
+.settings-block {
+  max-width: 680px;
+}
+
+.settings-block + .settings-block {
+  margin-top: 28px;
+}
+
+.settings-group {
+  margin: 0 0 14px 2px;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+}
+
+/* A section's settings, as one rounded group. */
+.settings-list {
+  background: var(--card);
+  box-shadow: var(--card-edge);
+  border-radius: 14px;
+}
+
+/* One setting: its line, and what went wrong saving it, if anything. */
+.setting + .setting {
+  border-top: 1px solid var(--border);
+}
+
+.setting-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 54px;
+  padding: 8px 14px;
+}
+
+.setting-name {
+  min-width: 0;
   overflow: hidden;
-  color: var(--text-muted);
-  font-size: 12.5px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* A dot before the meaning, drawn as a shape so no reader says "middle dot". */
-.setting-summary::before {
-  content: '';
-  display: inline-block;
-  width: 3px;
-  height: 3px;
-  margin-right: 7px;
-  border-radius: 50%;
-  background: currentColor;
-  vertical-align: 2px;
-  opacity: 0.55;
-}
-
-/* The state and the control, together at the end of the line. */
-.setting-ctl {
-  display: flex;
-  align-items: center;
-  flex: none;
-  gap: 10px;
-}
-
-/* What the setting is now. The only colored thing in the list. */
-.setting-pill {
-  display: inline-flex;
-  align-items: center;
-  flex: none;
-  height: 20px;
-  padding: 0 8px;
-  border-radius: var(--radius-pill);
-  background: var(--fill);
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 650;
-  white-space: nowrap;
-}
-
-.setting-pill.on {
-  background: var(--add-bg);
-  color: var(--add-text);
-}
-
-.setting-pill.warn {
-  background: var(--del-bg);
-  color: var(--del-text);
-}
-
-/* A row's own control, such as Manage: smaller than a form's button. */
-.setting-action {
-  flex: none;
-  height: 26px;
-  padding: 0 10px;
-  border-radius: 7px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-/* The chevron that opens the explanation; it turns over when it is open. */
-.setting-more {
+/* What it does, behind the name, in a popover. */
+.setting-info {
   display: grid;
   place-items: center;
   flex: none;
   width: 24px;
   height: 24px;
+  margin-left: -6px;
+  margin-right: auto;
   border-radius: 6px;
   color: var(--text-muted);
+  opacity: 0.6;
 }
 
-.setting-more svg {
-  width: 14px;
-  height: 14px;
-  transition: transform var(--fast) var(--spring);
+.setting-info svg {
+  width: 15px;
+  height: 15px;
 }
 
-.setting-more[aria-expanded='true'] svg {
-  transform: rotate(180deg);
-}
-
-.setting-more:hover {
+.setting-info:hover,
+.setting-info[aria-expanded='true'] {
   background: var(--fill);
   color: var(--text);
+  opacity: 1;
 }
 
-/* The explanation and fields, lined up past the tile. */
-.setting-detail {
+/* What the setting is now, and its control, at the end of the line. */
+.setting-ctl {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 12px;
+}
+
+.setting-status {
+  color: var(--text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.setting-status.warn {
+  color: var(--warn);
+}
+
+/* A row's own control, such as Manage: smaller than a form's button. */
+.setting-action {
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.setting-error {
+  margin: -4px 14px 12px 46px;
+}
+
+/* What a setting does: a card over the page, under its info button. */
+.setting-popover {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(340px, calc(100vw - 16px));
+  padding: 12px 14px;
+  background: var(--menu-title);
+  box-shadow: var(--menu-shadow);
+  border-radius: 12px;
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  animation: fade-in var(--fast) ease both;
+}
+
+/* A setting's fields, in a dialog over Settings. */
+.settings-dialog {
+  position: absolute;
+  top: 12vh;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 32px));
+  max-height: 76vh;
+  transform: translateX(-50%);
+  background: var(--panel-main);
+  box-shadow: var(--menu-shadow);
+  border-radius: 16px;
+  animation: fade-in var(--fast) ease both;
+}
+
+.settings-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 12px 4px 20px;
+}
+
+.settings-dialog-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.settings-dialog-body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 2px 10px 14px 52px;
+  overflow-y: auto;
+  padding: 8px 20px 20px;
 }
 
-.setting-detail[hidden] {
-  display: none;
-}
-
-.setting-detail p {
+.setting-popover p,
+.settings-dialog-body p {
   margin: 0;
   color: var(--text-soft);
   font-size: 12.5px;
   line-height: 1.55;
 }
 
-.setting-detail code {
+.setting-popover code,
+.settings-dialog-body code {
   padding: 1px 5px;
   color: var(--text);
   font-size: 12px;
@@ -5738,75 +5989,18 @@ img.project-icon {
   border-radius: var(--radius-sm);
 }
 
-.setting-scope {
-  color: var(--text-muted) !important;
-  font-size: 11.5px !important;
+/* Whom a change of an agent's ability reaches, under what it does. */
+.setting-popover .setting-scope {
+  color: var(--text-muted);
+  font-size: 11.5px;
 }
 
-/*
- * A narrow window: the pill and the control move under the line, so the name
- * and what it does keep their room and never clip.
- */
-@media (max-width: 620px) {
-  .setting-line {
-    flex-wrap: wrap;
-    align-items: flex-start;
-    position: relative;
-    row-gap: 6px;
-    padding: 9px 32px 9px 6px;
-  }
-
-  .setting-text {
-    flex: 1 1 0;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-  }
-
-  .setting-name {
-    white-space: normal;
-  }
-
-  .setting-summary {
-    display: -webkit-box;
-    white-space: normal;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    line-height: 1.4;
-  }
-
-  .setting-summary::before {
-    content: none;
-  }
-
-  /* Lines up with the name, past the tile, and takes the line after it. */
-  .setting-ctl {
-    flex: 0 0 100%;
-    padding-left: 40px;
-  }
-
-  .setting-ctl > .setting-action,
-  .setting-ctl > .switch {
-    margin-left: auto;
-  }
-
-  .setting-more {
-    position: absolute;
-    top: 6px;
-    right: 0;
-  }
-
-  .setting-detail {
-    padding-left: 6px;
-  }
-}
-
-/* Nothing matches the search and filter. */
+/* Nothing matches the search. */
 .settings-empty {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 22px 2px;
+  padding: 22px 0;
   color: var(--text-muted);
   font-size: 13px;
 }
@@ -5815,50 +6009,50 @@ img.project-icon {
   margin: 0;
 }
 
-/* The row's tile: a white glyph on a solid color. */
-.settings-icon {
+/* The row's icon: a plain glyph, as the sections have. */
+.setting-icon {
   display: grid;
   place-items: center;
   flex: none;
-  width: 30px;
-  height: 30px;
-  color: #ffffff;
-  background: var(--tile);
-  border-radius: 8px;
+  width: 22px;
+  color: var(--text-soft);
 }
 
-.settings-icon svg {
-  width: 17px;
-  height: 17px;
-  stroke-width: 2.1;
+.setting-icon svg {
+  width: 18px;
+  height: 18px;
 }
 
-.tone-indigo {
-  --tile: #5856d6;
-}
-.tone-orange {
-  --tile: #f08a00;
-}
-.tone-pink {
-  --tile: #f2305a;
-}
-.tone-red {
-  --tile: #e5352b;
-}
-.tone-purple {
-  --tile: #a248db;
-}
-.tone-blue {
-  --tile: #0a7cf0;
-}
-.tone-green {
-  --tile: #25a244;
-}
-.tone-teal {
-  --tile: #0098b8;
-}
-.tone-gray {
-  --tile: #7c7c82;
+/* Too narrow for a side: the sections go in a row over the page. */
+@container (max-width: 640px) {
+  .settings-body {
+    flex-direction: column;
+  }
+
+  .settings-nav {
+    width: auto;
+    gap: 10px;
+    padding: 18px 16px 6px;
+  }
+
+  .settings-sections {
+    flex-direction: row;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .settings-section {
+    flex: none;
+  }
+
+  .settings-page {
+    padding: 14px 16px 48px;
+  }
+
+  .settings-group {
+    font-size: 20px;
+  }
 }
 
 .settings-row {
@@ -5962,7 +6156,7 @@ img.project-icon {
   min-width: 0;
 }
 
-.setting-detail code.remote-url {
+.settings-dialog-body code.remote-url {
   font-size: 13px;
   user-select: all;
   word-break: break-all;
@@ -7027,6 +7221,59 @@ button,
 
 .sidebar.closed > * {
   opacity: 0.4;
+}
+
+/*
+ * A keyboard switch (lib/chat-switch.ts) shows a hidden sidebar over the chat,
+ * taking no room, so nothing moves: it springs out as Ctrl is held and slides
+ * back once it is let go.
+ */
+.sidebar.closed.peek {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* Its hidden margin stays, offset here: changing it would slide the chat as it goes back. */
+  left: var(--sidebar-width);
+  z-index: 30;
+  visibility: visible;
+  box-shadow:
+    inset -1px 0 0 var(--border),
+    12px 0 40px -12px rgba(0, 0, 0, 0.35);
+  transition: none;
+}
+
+/* Shown whole at once: the hidden sidebar's faded contents do not fade back in. */
+.sidebar.closed.peek > * {
+  opacity: 1;
+  transition: none;
+}
+
+/* Quick and light: out with a small overshoot as Ctrl goes down, straight back as it is let go. */
+.sidebar.closed.peek.in {
+  animation: sidebar-pop-in 180ms cubic-bezier(0.2, 1.15, 0.4, 1) both;
+}
+
+.sidebar.closed.peek.out {
+  animation: sidebar-pop-out 140ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+@keyframes sidebar-pop-in {
+  from {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes sidebar-pop-out {
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar.closed.peek.in,
+  .sidebar.closed.peek.out {
+    animation: none;
+  }
 }
 
 /* Resizing follows the pointer at once. */

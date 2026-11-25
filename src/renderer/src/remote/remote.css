@@ -176,18 +176,13 @@ html.remote .remote-browser.wide .rb-notice {
   background: var(--well);
 }
 
-.rb-page > img,
-.rb-page > video {
+.rb-page > img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
   object-position: top center;
   pointer-events: none;
-}
-
-.rb-page > video[hidden] {
-  display: none;
 }
 
 .rb-message {
@@ -571,11 +566,7 @@ html.remote .remote-browser.wide .rb-notice {
     display: none;
   }
 
-  /* Settings use the whole width, and a key's field takes its own line above its buttons. */
-  html.remote .setting-detail {
-    padding-left: 0;
-  }
-
+  /* A key's field takes its own line above its buttons. */
   html.remote .settings-row {
     flex-wrap: wrap;
   }
@@ -873,7 +864,7 @@ html.remote .remote-browser.wide .rb-notice {
 
   html.remote .thumb img {
     max-width: 100%;
-    height: 130px;
+    height: 220px;
   }
 
   /* A photo the user sent stays larger than the agent's thumbnails. */
@@ -1219,142 +1210,80 @@ html.remote .remote-browser.wide .rb-notice {
     height: 40px;
   }
 
-  /* Settings: full-width sheets with 44px fields and 15px labels. */
-  html.remote .settings {
-    padding: 22px 12px 40px;
-  }
-
-  html.remote .settings-head {
-    margin-bottom: 14px;
-  }
-
-  html.remote .settings h2 {
-    font-size: 30px;
-  }
-
-  html.remote .settings-head p {
-    font-size: 14px;
+  /* Settings: the sections in a row over the page, 44px fields and 15px labels. */
+  html.remote .settings-nav {
+    padding: 22px 12px 6px;
   }
 
   html.remote .settings-search {
-    height: 46px;
-    border-radius: 14px;
+    height: 44px;
+    border-radius: 12px;
   }
 
   html.remote .settings-search input {
     font-size: 16px;
   }
 
-  html.remote .settings-filters {
-    gap: 8px;
-    margin-top: 12px;
+  html.remote .settings-section {
+    height: 36px;
+    padding: 0 14px;
+    border-radius: var(--radius-pill);
+    font-size: 15px;
   }
 
-  html.remote .settings-filter {
-    height: 34px;
+  html.remote .settings-page {
+    padding: 12px 12px 40px;
+  }
+
+  html.remote .settings-group {
+    font-size: 22px;
+  }
+
+  html.remote .setting-line {
+    min-height: 60px;
+    padding: 10px 14px;
+  }
+
+  html.remote .setting-icon svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  html.remote .setting-name {
+    font-size: 16px;
+  }
+
+  html.remote .setting-info {
+    width: 32px;
+    height: 32px;
+  }
+
+  html.remote .setting-status {
+    font-size: 14px;
+  }
+
+  html.remote .setting-action {
+    height: 36px;
     padding: 0 14px;
     font-size: 14px;
   }
 
-  html.remote .settings-count {
-    font-size: 13px;
-  }
-
-  html.remote .settings-group {
-    margin-top: 20px;
-    font-size: 11.5px;
-  }
-
-  html.remote .setting-line {
-    flex-wrap: wrap;
-    align-items: flex-start;
-    position: relative;
-    row-gap: 6px;
-    min-height: 0;
-    padding: 10px 32px 10px 6px;
-  }
-
-  html.remote .settings-icon {
-    width: 34px;
-    height: 34px;
-    border-radius: 9px;
-  }
-
-  html.remote .settings-icon svg {
-    width: 19px;
-    height: 19px;
-  }
-
-  /* On a phone the name sits over its line, which wraps to two lines. */
-  html.remote .setting-text {
-    flex: 1 1 0;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-  }
-
-  html.remote .setting-name {
-    font-size: 15.5px;
-    white-space: normal;
-  }
-
-  html.remote .setting-summary {
-    display: -webkit-box;
-    white-space: normal;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    font-size: 13.5px;
-    line-height: 1.4;
-  }
-
-  html.remote .setting-summary::before {
-    content: none;
-  }
-
-  html.remote .setting-ctl {
-    flex: 0 0 100%;
-    padding-left: 40px;
-  }
-
-  html.remote .setting-pill {
-    height: 22px;
-    font-size: 12px;
-  }
-
-  html.remote .setting-action {
-    height: 34px;
-    padding: 0 12px;
-    font-size: 13px;
-  }
-
-  html.remote .setting-ctl > .setting-action,
-  html.remote .setting-ctl > .switch {
-    margin-left: auto;
-  }
-
-  html.remote .setting-more {
-    position: absolute;
-    top: 8px;
-    right: 0;
-    width: 30px;
-    height: 30px;
-  }
-
-  html.remote .setting-detail {
+  html.remote .settings-dialog-body {
     gap: 14px;
-    padding: 2px 6px 16px;
+    padding: 8px 18px 22px;
   }
 
   html.remote .setting-scope {
     font-size: 13px !important;
   }
 
-  html.remote .setting-detail p {
+  html.remote .settings-dialog-body p,
+  html.remote .setting-popover p {
     font-size: 14.5px;
     line-height: 1.6;
   }
 
-  html.remote .setting-detail code {
+  html.remote .settings-dialog-body code {
     font-size: 13px;
   }
 
@@ -1406,7 +1335,7 @@ html.remote .remote-browser.wide .rb-notice {
     left: 14px;
   }
 
-  html.remote .setting-detail code.remote-url {
+  html.remote .settings-dialog-body code.remote-url {
     font-size: 14.5px;
   }
 
@@ -1685,9 +1614,15 @@ html.remote .remote-browser.wide .rb-notice {
     height: 22px;
   }
 
-  /* The image viewer's padding: more room for its close tap. */
-  html.remote .image-viewer {
-    padding: 16px;
+  /* The image viewer's buttons, sized for a thumb. */
+  html.remote .image-viewer-btn {
+    width: 46px;
+    height: 46px;
+  }
+
+  html.remote .image-viewer-prev,
+  html.remote .image-viewer-next {
+    margin-top: -23px;
   }
 
   html.remote .connection-bar {

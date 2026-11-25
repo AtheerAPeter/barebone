@@ -10,6 +10,7 @@ import type {
   BotChange,
   BrowserState,
   Chat,
+  ChatWorkspace,
   ChatPermissions,
   ChatItem,
   CodeDoc,
@@ -48,7 +49,6 @@ import type {
   WalkControl,
   Walkthrough
 } from './types'
-import type { RtcCandidate, RtcSignal } from './rtc'
 import type { FrameHeader } from './wire'
 import type { MenuCommand } from '../main/menu'
 
@@ -254,16 +254,11 @@ export function makeApi(t: Transport) {
     remoteBrowser: {
       allowed: (): Promise<boolean> => invoke('remoteBrowser:allowed'),
       onAllowed: (listener: (on: boolean) => void) => on('remoteBrowser:allowed', listener),
-      /**
-       * Show a chat's tab here, the page laid out at this size; another device
-       * showing it stops. `rtc`: this browser plays WebRTC, and gets the page as
-       * live video rather than pictures (shared/rtc.ts).
-       */
+      /** Show a chat's tab here, the page laid out at this size; another device showing it stops. */
       open: (
         chatId: string,
-        size: { width: number; height: number; ratio: number },
-        rtc = false
-      ): Promise<RemoteBrowserView> => invoke('remoteBrowser:open', chatId, size, rtc),
+        size: { width: number; height: number; ratio: number }
+      ): Promise<RemoteBrowserView> => invoke('remoteBrowser:open', chatId, size),
       resize: (size: { width: number; height: number; ratio: number }): Promise<void> =>
         invoke('remoteBrowser:resize', size),
       close: (): Promise<void> => invoke('remoteBrowser:close'),
@@ -272,18 +267,6 @@ export function makeApi(t: Transport) {
       onFrame: (listener: (header: FrameHeader, jpeg: Uint8Array) => void) =>
         on('remoteBrowser:frame', listener),
       ack: (): void => send('remoteBrowser:ack'),
-      /** The video's offer and candidates from the Mac, or that it stopped (then pictures come). */
-      onRtc: (listener: (chatId: string, signal: RtcSignal) => void) =>
-        on('remoteBrowser:rtc', listener),
-      /** What the video shows of the page, in CSS pixels, to place taps on it. */
-      onRtcFrame: (
-        listener: (frame: { chatId: string; tab: string; width: number; height: number }) => void
-      ) => on('remoteBrowser:rtcFrame', listener),
-      rtcAnswer: (sdp: string): Promise<void> => invoke('remoteBrowser:rtcAnswer', sdp),
-      rtcCandidate: (candidate: RtcCandidate): void =>
-        send('remoteBrowser:rtcCandidate', candidate),
-      /** This browser could not play the video: pictures instead. */
-      rtcFailed: (): void => send('remoteBrowser:rtcFailed'),
       /** It stopped showing here: another device opened it, or the Mac turned it off. */
       onClosed: (listener: (chatId: string, reason: 'elsewhere' | 'off') => void) =>
         on('remoteBrowser:closed', listener),
@@ -429,7 +412,10 @@ export function makeApi(t: Transport) {
       closeTab: (tabId: string): Promise<void> => invoke('browser:closeTab', tabId),
       newTab: (): Promise<void> => invoke('browser:newTab'),
       /** Lay the page out at the panel's size again, after an agent set it to another. */
-      fillPanel: (): Promise<void> => invoke('browser:fillPanel'),
+      /** The page has the size picked in the toolbar again, not the one an agent set. */
+      resetViewport: (): Promise<void> => invoke('browser:resetViewport'),
+      /** The menu of sizes to lay chats' pages out at, opened at a point in the window. */
+      showSizeMenu: (x: number, y: number): void => send('browser:sizeMenu', x, y),
       /** Open the panel's ⋮ menu at a point in the window. */
       showMenu: (x: number, y: number): void => send('browser:menu', x, y),
       getState: (): Promise<BrowserState> => invoke('browser:state'),
@@ -547,6 +533,10 @@ export function makeApi(t: Transport) {
     },
 
     listFiles: (projectPath: string): Promise<string[]> => invoke('files:list', projectPath),
+    /** Ctrl+Tab pressed in a browser page: the chat switch steps by this (1, or -1 with Shift). */
+    onSwitcherStep: (listener: (by: number) => void) => on('switcher:step', listener),
+    /** The git checkouts a chat works in, its latest first: branches, worktrees, merge and pull requests. */
+    chatWorkspaces: (chatId: string): Promise<ChatWorkspace[]> => invoke('chat:workspaces', chatId),
     /** What the user sent in the project's chats, newest first, for the composer to complete. */
     promptHistory: (projectId: string): Promise<string[]> => invoke('prompts:history', projectId),
 

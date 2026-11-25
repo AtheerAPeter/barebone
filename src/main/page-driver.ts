@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { WebContents } from 'electron'
+import { nativeImage, type WebContents } from 'electron'
 import { source as playwrightSource } from 'playwright-injected-script'
 import { USKeyboardLayout } from 'playwright-keyboard-layout'
 import type { PageViewport } from '../shared/types'
@@ -31,6 +31,8 @@ const WORLD = 'barebone'
 const INJECTED = '__bareboneInjected'
 /** DevTools commands answer in milliseconds; a page that takes this long is stuck. */
 const COMMAND_TIMEOUT = 10_000
+/** The longest an agent's script may run in the page, waits included (see evaluate). */
+export const MAX_EVALUATE_SECONDS = 50
 /** JPEG quality of screencast pictures, which go over the remote link: smaller over sharper. */
 const SCREENCAST_QUALITY = 70
 /** Chromium's own screencast frames, of which only when they come is used, are this small. */
@@ -1796,15 +1798,13 @@ export class PageDriver {
    * a quarter of the pixels, and makes its pixels the points that input at a
    * point takes, at any zoom. Model APIs resend every image with each request
    * and refuse images over 2000 pixels once a chat has many. A page set to a
-   * size bigger than the panel (see emulate) is drawn smaller than that; its
-   * capture is scaled up to it, so its pixels are still those points.
-   *
-   * Such a page is drawn at its scale in the top left of its view, and only
-   * that part is taken. A parked view (another tab, a background chat's) keeps
-   * the size it last had on screen, so the rest of it is empty, and scaling all
-   * of it to the page's size would stretch the page out of shape.
+   * size bigger than the panel (see emulate) is drawn smaller than that, so it
+   * is drawn again at full size for the capture (see fullSizeScreenshot).
    */
   async screenshot(): Promise<string> {
+    // Drawn smaller than its size, the page's picture would be blurred stretched back to it.
+    const scale = this.emulated?.scale
+    if (scale !== undefined && scale < 1) return this.fullSizeScreenshot()
     const { image, width, height } = await this.picture()
     if (image.isEmpty()) throw new Error('The page has not drawn anything yet.')
     const size = image.getSize()
@@ -1817,9 +1817,40 @@ export class PageDriver {
   }
 
   /**
+   * A screenshot of a page laid out at a size bigger than the panel shows: the
+   * panel draws it scaled down, so Chromium draws its viewport again at full
+   * size for the capture, as sharp as the page is. Asked on the driver's own
+   * session, Chromium puts the page's emulated size back after; another
+   * session's capture would leave it laid out at its view's size.
+   */
+  private async fullSizeScreenshot(): Promise<string> {
+    await this.attach()
+    await this.ensureDrawing()
+    const { cssVisualViewport: viewport } = await this.send<{
+      cssVisualViewport: { pageX: number; pageY: number; clientWidth: number; clientHeight: number }
+    }>('Page.getLayoutMetrics')
+    const { width, height } = { width: viewport.clientWidth, height: viewport.clientHeight }
+    const { data } = await this.send<{ data: string }>('Page.captureScreenshot', {
+      format: 'png',
+      clip: { x: viewport.pageX, y: viewport.pageY, width, height, scale: 1 }
+    })
+    const image = nativeImage.createFromBuffer(Buffer.from(data, 'base64'))
+    if (image.isEmpty()) throw new Error('The page has not drawn anything yet.')
+    // At the page's CSS pixels, which are the points input at a point takes (see screenshot).
+    const size = image.getSize()
+    const fitted =
+      size.width !== Math.round(width) || size.height !== Math.round(height)
+        ? image.resize({ width: Math.round(width), height: Math.round(height), quality: 'best' })
+        : image
+    return fitted.toPNG().toString('base64')
+  }
+
+  /**
    * The page's viewport as an image at the display's pixels, and its size in
-   * CSS pixels. A page at a set size is taken from the top left of its view,
-   * where it is drawn (see screenshot).
+   * CSS pixels. A page at a set size is drawn at its scale in the top left of
+   * its view, and only that part is taken: a parked view (another tab, a
+   * background chat's) keeps the size it last had on screen, so the rest of it
+   * is empty, and taking all of it would stretch the page out of shape.
    */
   private async picture(): Promise<{
     image: Electron.NativeImage
@@ -1872,10 +1903,10 @@ export class PageDriver {
 
   /**
    * Run an expression in the page's own context, or in an iframe's (named by
-   * the f number its refs carry, like f1), and return its JSON value.
+   * the f number its refs carry, like f1), and return its JSON value. It has
+   * `timeout` milliseconds, its promise's wait included.
    */
-  async evaluate(expression: string, iframe?: string): Promise<unknown> {
-    const timeout = COMMAND_TIMEOUT
+  async evaluate(expression: string, iframe?: string, timeout = COMMAND_TIMEOUT): Promise<unknown> {
     await this.attach()
     const { sessionId, contextId } = iframe ? this.iframeContext(iframe) : {}
     let response: RemoteResult
@@ -1899,6 +1930,10 @@ export class PageDriver {
       // script or, when none runs, the next one, which would be the page's own.
       if (error instanceof PageTimeoutError) {
         this.send('Runtime.terminateExecution', {}, sessionId).catch(() => undefined)
+        // Most often the script itself waits too long, polling or sleeping, not a frozen page.
+        throw new Error(
+          `The script did not finish within ${timeout / 1000}s. If it waits for something on purpose, give it a longer timeout (up to ${MAX_EVALUATE_SECONDS}s); otherwise the page may be busy or frozen.`
+        )
       }
       throw error
     }

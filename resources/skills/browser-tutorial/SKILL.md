@@ -19,7 +19,9 @@ Show a step with one `show_step` call:
 
 - `caption` says what the step is about in a sentence or two, like "Step 2 of 4: pick a plan".
 - `point` moves the pointer to the element the step is about, with a short instruction in its `text`, like "Click Upgrade".
-- `shapes` adds at most two or three: a `box` around the area that matters, or an `arrow` toward something small. Give each a short label when it helps. Detail that doesn't fit in a label or the caption goes in the chat.
+- `shapes` marks what matters: a `box` or `circle` around an area, a `highlight` over text, an `underline`, an `arrow` toward something small, or a `note` with words at a spot. Give each a short label when it helps. Draw what the step needs; a few marks usually read best. Detail that doesn't fit in a label or the caption goes in the chat.
+- Every shape's look is yours to pick, and all of it is optional: any `color` (a name or a hex color), `stroke`, `dashed`, `fill`, `padding`, `radius`, `label_side`, `label_style` (CSS for the label), and `head: false` for an arrow without a head. Left out, each shape has its usual look.
+- For anything the shapes don't cover (a sketch, an icon, a gradient, a stamp, curved arrows, a mock-up), draw it yourself as an `svg` shape: your own `<svg>` markup, placed over an element or an area and kept on it as the page scrolls.
 
 It removes the shapes of the step before. Its result says whether anything is in the way: a target that is hidden or off the page, or the caption or a label covering one. Fix what it names with another `show_step`; there is no need to take a screenshot to check. The caption moves to the top by itself when at the bottom it would cover a target.
 

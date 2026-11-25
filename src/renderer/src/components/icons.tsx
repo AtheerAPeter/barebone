@@ -1,11 +1,13 @@
 import type { ComponentType, SVGProps } from 'react'
 import {
+  IconAdjustmentsHorizontal,
   IconAlignLeft,
   IconArrowBackUp,
   IconArrowDown,
   IconArrowMoveRight,
   IconArrowUp,
   IconArrowsExchange,
+  IconArrowsMaximize,
   IconBook,
   IconBrandTelegram,
   IconCheck,
@@ -15,6 +17,7 @@ import {
   IconClock,
   IconCloudDownload,
   IconCopy,
+  IconDeviceDesktop,
   IconDeviceMobile,
   IconDots,
   IconDotsVertical,
@@ -26,6 +29,7 @@ import {
   IconFolderPlus,
   IconGauge,
   IconGitBranch,
+  IconInfoCircle,
   IconKeyboard,
   IconLayoutGrid,
   IconLayoutSidebar,
@@ -40,6 +44,7 @@ import {
   IconPencil,
   IconPlayerPause,
   IconPlayerPlay,
+  IconPlugConnected,
   IconPlus,
   IconRefresh,
   IconRoute,
@@ -47,6 +52,7 @@ import {
   IconServer,
   IconSettings,
   IconShield,
+  IconSparkles,
   IconSquareFilled,
   IconSun,
   IconTag,
@@ -58,6 +64,7 @@ import {
   IconVideo,
   IconMusic,
   IconVolume,
+  IconWaveform,
   IconWorld,
   IconX
 } from '@tabler/icons-react'
@@ -192,6 +199,16 @@ export const MoveIcon = fromTabler(IconArrowMoveRight)
 export const GridIcon = fromTabler(IconLayoutGrid)
 export const DotsIcon = fromTabler(IconDots)
 export const PhoneIcon = fromTabler(IconDeviceMobile)
+export const DesktopIcon = fromTabler(IconDeviceDesktop)
+/** Pages fill the browser panel, at whatever size it has. */
+export const FitIcon = fromTabler(IconArrowsMaximize)
+/** Settings' sections. */
+export const SlidersIcon = fromTabler(IconAdjustmentsHorizontal)
+export const SparklesIcon = fromTabler(IconSparkles)
+export const PlugIcon = fromTabler(IconPlugConnected)
+export const WaveformIcon = fromTabler(IconWaveform)
+/** What a setting does, behind its name. */
+export const InfoIcon = fromTabler(IconInfoCircle)
 /** The user's own look (Settings → Custom look). */
 export const PaletteIcon = fromTabler(IconPalette)
 /** Telegram's paper plane, on the Control from Telegram settings. */

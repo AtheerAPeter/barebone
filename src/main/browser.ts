@@ -12,7 +12,15 @@ import {
 import { EventEmitter } from 'node:events'
 import { existsSync, mkdirSync } from 'node:fs'
 import { extname, basename, join } from 'node:path'
-import type { BrowserState, PageViewport, Rect, SavedTabs } from '../shared/types'
+import {
+  BROWSER_SIZES,
+  OWN_BROWSER,
+  type BrowserSize,
+  type BrowserState,
+  type PageViewport,
+  type Rect,
+  type SavedTabs
+} from '../shared/types'
 import { PageDriver } from './page-driver'
 
 /**
@@ -95,8 +103,8 @@ function parked(bounds: Electron.Rectangle): Electron.Rectangle {
 }
 
 /**
- * Where a page goes in the panel's area: all of it, or the size an agent set
- * (set_viewport) in the middle, scaled down to fit when it is bigger. The
+ * Where a page goes in the panel's area: all of it, or the size it is laid out
+ * at in the middle, scaled down to fit when it is bigger. The
  * scale is the share of the page's CSS pixels the view shows it at.
  */
 function placed(
@@ -154,19 +162,17 @@ export class ChatPage extends EventEmitter {
   url = ''
   /** The page's icon, once the page has declared one. */
   favicon?: string
-  /** The size an agent set the page to (set_viewport); it fills the panel while there is none. */
+  /** The size an agent set the page to (set_viewport); it has the user's size while there is none. */
   viewport?: PageViewport
   /** The device of the remote link that set that size to its own, if one did (remote/browser.ts). */
   viewportBy?: string
-  /** The share of that size the panel shows it at, while it has one. */
+  /** The share of the page's size the panel shows it at, while it has one. */
   scale = 1
   /**
    * A device of the remote link shows the page (remote/browser.ts). What it does
    * there is done far from the Mac, where no one may be to answer a dialog.
    */
   viewedRemotely = false
-  /** The page's video is being captured for a device of the remote link (remote/rtc.ts). */
-  streamedRemotely = false
   /**
    * A reopened tab that has not loaded its page yet. Every page is a renderer
    * process, so saved tabs load when they are first used, not all at once.
@@ -208,12 +214,13 @@ export class ChatPage extends EventEmitter {
   /**
    * Load the page of a reopened tab, if it has not been loaded yet. Settles
    * when its first load has loaded or failed, also when that load had started
-   * already.
+   * already. Emits 'load' as that first load starts.
    */
   load(): Promise<void> {
     if (this.unloaded) {
       this.unloaded = false
       this.firstLoad = this.contents.loadURL(this.url || 'about:blank').catch(() => undefined)
+      this.emit('load')
     }
     return this.firstLoad ?? Promise.resolve()
   }
@@ -304,6 +311,10 @@ export class BuiltinBrowser {
   private waitingForPanel: (() => void)[] = []
   /** Chats whose browser stays open whatever the panel shows, and how many keep each open. */
   private kept = new Map<string, number>()
+  /** The size the user picked for chats' pages (see setSize). */
+  private size: BrowserSize = 'panel'
+  /** Told when the user picks a size in the panel's menu, to keep it. */
+  onSizePicked?: (size: BrowserSize) => void
   /** Told where the panel's page is after every layout; undefined while none shows. */
   onPageArea?: (area: Electron.Rectangle | undefined) => void
   /** Told when a chat's browser changed: its tabs, their pages, their sizes. */
@@ -327,18 +338,13 @@ export class BuiltinBrowser {
     // (for voice input), so any page an agent opens could listen without asking.
     // The window capturing a tab to record it (recording.ts) is asked here too,
     // as that tab: with no device, from the window's own origin (a page asking
-    // itself has the page's), while the recording starts. It is let through, as
-    // is the app's own streaming page capturing a tab a device of the remote link
-    // is shown (remote/rtc.ts), from the same origin, while it streams.
+    // itself has the page's), while the recording starts. It is let through.
     browserSession.setPermissionRequestHandler((contents, permission, callback, details) => {
       if (permission !== 'media') return callback(true)
       if (!('mediaTypes' in details)) return callback(false)
       const noDevice = !details.mediaTypes?.length
       const fromWindow = sameOrigin(details.securityOrigin, this.window.webContents.getURL())
-      const page = this.pageOf(contents)?.[1]
-      callback(
-        noDevice && fromWindow && (page?.capturing === true || page?.streamedRemotely === true)
-      )
+      callback(noDevice && fromWindow && this.pageOf(contents)?.[1].capturing === true)
     })
     // Routes alert() and confirm() to the app (see onPageDialog). Registered on
     // the session, so it also runs in windows that pages open as tabs.
@@ -506,9 +512,15 @@ export class BuiltinBrowser {
     if (!options.opened) {
       tab.url = options.url ?? ''
       tab.unloaded = true
-      // Reopened tabs wait until they are used; the active one is loaded by browserFor.
-      if (!browser.restoring) void tab.load()
     }
+    // The page gets the user's size as it loads; a tab not loaded yet has no page to lay out.
+    const sized = (): void => {
+      if (this.sizeOf(chatId, tab)) void this.resize(chatId, tab, undefined).catch(() => undefined)
+    }
+    if (tab.unloaded) tab.once('load', sized)
+    else sized()
+    // Reopened tabs wait until they are used; the active one is loaded by browserFor.
+    if (!options.opened && !browser.restoring) void tab.load()
     if (!browser.restoring) {
       this.layout()
       this.saveTabs(chatId)
@@ -728,6 +740,52 @@ export class BuiltinBrowser {
     ]).popup({ window: this.window, x: Math.round(x * zoom), y: Math.round(y * zoom) })
   }
 
+  /** The panel's size menu, at a point in the window: the sizes the user can lay pages out at. */
+  showSizeMenu(x: number, y: number): void {
+    const zoom = this.window.webContents.getZoomFactor()
+    const item = (size: BrowserSize, label: string): Electron.MenuItemConstructorOptions => ({
+      label,
+      type: 'radio',
+      checked: this.size === size,
+      click: () => {
+        this.setSize(size)
+        this.onSizePicked?.(size)
+      }
+    })
+    const { desktop, phone } = BROWSER_SIZES
+    Menu.buildFromTemplate([
+      item('panel', 'Fit to Panel'),
+      item('desktop', `Desktop  ${desktop!.width} × ${desktop!.height}`),
+      item('phone', `Phone  ${phone!.width} × ${phone!.height}`)
+    ]).popup({ window: this.window, x: Math.round(x * zoom), y: Math.round(y * zoom) })
+  }
+
+  /**
+   * Lay chats' pages out at a size, those an agent or a device of the remote
+   * link set no size of its own for. The user's own browser always fills its view.
+   */
+  setSize(size: BrowserSize): void {
+    if (!(size in BROWSER_SIZES)) throw new Error(`There is no browser size "${size}".`)
+    if (size === this.size) return
+    const before = BROWSER_SIZES[this.size]
+    this.size = size
+    for (const [chatId, browser] of this.chats) {
+      if (chatId === OWN_BROWSER) continue
+      for (const tab of browser.tabs) {
+        // A tab not loaded yet gets the size as it loads.
+        if (tab.viewport || tab.unloaded) continue
+        void this.resize(chatId, tab, before).catch(() => undefined)
+      }
+    }
+    this.emitState()
+  }
+
+  /** The size a tab's page is laid out at: an agent's or a device's, else the user's; none fills the panel. */
+  private sizeOf(chatId: string, tab: ChatPage): PageViewport | undefined {
+    if (tab.viewport) return tab.viewport
+    return chatId === OWN_BROWSER ? undefined : BROWSER_SIZES[this.size]
+  }
+
   /** Clear cookies and site data once the user confirms; it signs them out of every site. */
   private async confirmClearData(): Promise<void> {
     const { response } = await dialog.showMessageBox(this.window, {
@@ -749,15 +807,17 @@ export class BuiltinBrowser {
   private layout(): void {
     for (const [chatId, browser] of this.chats) {
       for (const tab of browser.tabs) {
-        const { bounds, scale } = placed(tab.viewport, this.pageArea)
+        const size = this.sizeOf(chatId, tab)
+        const { bounds, scale } = placed(size, this.pageArea)
         tab.shown =
           this.panelBounds !== undefined &&
           chatId === this.activeChat &&
           tab === browser.active &&
           !this.panelHidden
         tab.view.setBounds(tab.shown ? bounds : parked(bounds))
-        // A page at a set size is scaled anew as the panel changes size.
-        if (tab.viewport && scale !== tab.scale) tab.driver.emulate(tab.viewport, scale)
+        // A page at a set size is scaled anew as the panel changes size; one
+        // not loaded yet gets its scale as it loads.
+        if (size && !tab.unloaded && scale !== tab.scale) tab.driver.emulate(size, scale)
         tab.scale = scale
       }
     }
@@ -766,10 +826,9 @@ export class BuiltinBrowser {
   }
 
   /**
-   * Lay a tab's page out at a size (set_viewport), or at the panel's again
-   * (undefined). Settles once the page has it; one turned into a phone's page
-   * or back reloads, as pages read the touch screen and user agent as they load.
-   * `by` names the device of the remote link that set the size, when one did.
+   * Lay a tab's page out at a size (set_viewport), or at the user's again
+   * (undefined). Settles once the page has it. `by` names the device of the
+   * remote link that set the size, when one did.
    */
   async setViewport(
     chatId: string,
@@ -777,18 +836,33 @@ export class BuiltinBrowser {
     viewport: PageViewport | undefined,
     by?: string
   ): Promise<void> {
-    const reload = (tab.viewport?.mobile ?? false) !== (viewport?.mobile ?? false)
+    const before = this.sizeOf(chatId, tab)
     tab.viewport = viewport
     tab.viewportBy = viewport && by
-    tab.scale = placed(viewport, this.pageArea).scale
+    await this.resize(chatId, tab, before)
+  }
+
+  /**
+   * Lay a tab's page out at the size it has now (see sizeOf), after it had
+   * `before`. Settles once the page has it; one turned into a phone's page or
+   * back reloads, as pages read the touch screen and user agent as they load.
+   */
+  private async resize(
+    chatId: string,
+    tab: ChatPage,
+    before: PageViewport | undefined
+  ): Promise<void> {
+    const size = this.sizeOf(chatId, tab)
+    const reload = (before?.mobile ?? false) !== (size?.mobile ?? false)
+    tab.scale = placed(size, this.pageArea).scale
     // So the page is laid out once: at its new size before its view changes
     // to show it, or at its view's size once the view fills the panel again.
-    if (viewport) {
-      tab.driver.emulate(viewport, tab.scale)
+    if (size) {
+      tab.driver.emulate(size, tab.scale)
       await tab.driver.emulating.catch(() => undefined)
     }
     this.layout()
-    if (!viewport) tab.driver.emulate(undefined)
+    if (!size) tab.driver.emulate(undefined)
     this.changed(chatId)
     await tab.driver.emulating
     if (reload && tab.contents.getURL()) tab.contents.reload()
@@ -952,8 +1026,8 @@ export class BuiltinBrowser {
     if (this.activeChat) this.newTab(this.activeChat)
   }
 
-  /** The page the panel shows fills it again, at whatever size an agent set it to. */
-  async fillPanel(): Promise<void> {
+  /** The page the panel shows has the user's size again, whatever size an agent set it to. */
+  async resetViewport(): Promise<void> {
     const page = this.activePage()
     if (this.activeChat && page?.viewport) await this.setViewport(this.activeChat, page, undefined)
   }
@@ -995,13 +1069,15 @@ export class BuiltinBrowser {
   state(chatId = this.activeChat): BrowserState {
     const browser = chatId ? this.chats.get(chatId) : undefined
     const contents = browser?.active?.contents
+    const size = chatId === OWN_BROWSER ? undefined : this.size
     if (!browser || !contents) {
       const saved = chatId ? this.savedTabs.get(chatId) : undefined
-      return { ...EMPTY_STATE, url: saved?.urls[saved.active] ?? '' }
+      return { ...EMPTY_STATE, size, url: saved?.urls[saved.active] ?? '' }
     }
     const shownUrl = (url: string): string => (url === 'about:blank' ? '' : url)
     const { viewport, scale, viewportBy } = browser.active!
     return {
+      size,
       viewport: viewport && { ...viewport, scale, ...(viewportBy ? { by: viewportBy } : {}) },
       tabs: browser.tabs.map((tab) => ({
         id: tab.id,

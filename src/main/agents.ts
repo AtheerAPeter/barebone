@@ -692,6 +692,12 @@ class AgentProcess implements AgentBackend {
   /** Chats whose own turn the user stopped: what it still reports until its result starts no new one. */
   private stoppingOwn = new Set<string>()
   /**
+   * Chats whose turn is being stopped (see cancel), until it ends. A call the
+   * agent then ends as failed was cut off, not failed: Claude Code reports
+   * one as rejected by the user, or stopped before it ran.
+   */
+  private cancelling = new Set<string>()
+  /**
    * Chats that left work running in the agent's process (a background command,
    * a Monitor). ACP does not say when it ends, so the process is kept until
    * the chat lets go of its session (see scheduleIdleStop).
@@ -699,6 +705,12 @@ class AgentProcess implements AgentBackend {
   private backgroundWork = new Set<string>()
   /** Reports Claude Code's subagents handed back, by their Agent call, until that call ends. */
   private reports = new Map<string, string>()
+  /**
+   * What Codex's commands printed so far, by call, until the call ends. Codex
+   * streams it in `_meta.terminal_output_delta` rather than as content (see
+   * commandOutput).
+   */
+  private commandOutputs = new Map<string, string>()
   /**
    * The subagents running as sessions of their own (ACP's subagents RFD), by
    * session id. The chat shows each as a subagent line whose id is its session
@@ -1294,6 +1306,7 @@ class AgentProcess implements AgentBackend {
     clearTimeout(this.idleTimer)
     this.retryNotices.delete(chatId)
     this.stoppingOwn.delete(chatId)
+    this.cancelling.delete(chatId)
     this.compacted.delete(chatId)
     const turn = Symbol(chatId)
     let stopped = false
@@ -1414,6 +1427,7 @@ class AgentProcess implements AgentBackend {
         this.emit(chatId, { ...item, status: 'interrupted', cancellable: undefined })
       }
     }
+    this.cancelling.delete(chatId)
     const notice = this.retryNotices.get(chatId)
     if (notice) {
       this.retryNotices.delete(chatId)
@@ -1457,6 +1471,7 @@ class AgentProcess implements AgentBackend {
     const sessionId = store.getChat(chatId).sessionId
     const connection = this.connection
     if (!connection || !this.isLive(sessionId)) return
+    this.cancelling.add(chatId)
     const { methods } = await loadSdk()
     for (const [id, pending] of this.permissions) {
       if (pending.chatId === chatId && ofTurn(pending)) {
@@ -1715,7 +1730,8 @@ class AgentProcess implements AgentBackend {
     const subagent = claude?.toolName !== undefined && SUBAGENT_TOOLS.has(claude.toolName)
     const report = claude?.toolResponse?.handbackReport?.text
     if (subagent && report) this.reports.set(update.toolCallId, report)
-    const content = formatToolContent(update.content) ?? formatRaw(update.rawOutput)
+    const printed = this.commandOutput(update.toolCallId, update._meta)
+    const content = formatToolContent(update.content, printed) ?? formatRaw(update.rawOutput)
     const text =
       this.reports.get(update.toolCallId) ?? (subagent ? content?.replace(TOOLS_USED, '') : content)
     const output = text === undefined ? undefined : limitOutput(text)
@@ -1730,6 +1746,8 @@ class AgentProcess implements AgentBackend {
       (claude?.toolName === 'Monitor' ? claude.toolResponse?.taskId : undefined)
     if (task) this.backgroundWork.add(chatId)
     const parentId = subagentId ?? claude?.parentToolUseId
+    const status = (update.status as ToolStatus | undefined) ?? base.status
+    const stopping = this.cancelling.has(chatId) || this.stoppingOwn.has(chatId)
     this.emit(chatId, {
       ...base,
       // The adapter leaves out a subagent's unchanged input, and with it its type.
@@ -1739,7 +1757,8 @@ class AgentProcess implements AgentBackend {
           : base.title
         : (update.title ?? base.title),
       toolKind: subagent ? 'agent' : (update.kind ?? base.toolKind),
-      status: (update.status as ToolStatus | undefined) ?? base.status,
+      // Ended by the stop, not by a failure of its own.
+      status: status === 'failed' && stopping ? 'interrupted' : status,
       input: formatRaw(update.rawInput) ?? base.input,
       output: output ?? base.output,
       ...(images.length ? { images } : {}),
@@ -1747,9 +1766,31 @@ class AgentProcess implements AgentBackend {
     })
     if (update.status === 'completed' || update.status === 'failed') {
       this.reports.delete(update.toolCallId)
+      this.commandOutputs.delete(update.toolCallId)
       // A step of the chat's own turn, not of a subagent's work.
       if (!subagentId) this.afterStep(chatId)
     }
+  }
+
+  /**
+   * What a command has printed so far, with its exit code once it ended with
+   * one other than 0. Codex sends a command's output as chunks in its calls'
+   * `_meta.terminal_output_delta`, and how it ended in `_meta.terminal_exit`,
+   * to a client that runs no terminals of its own, as this one does not.
+   */
+  private commandOutput(
+    toolCallId: string,
+    meta: Record<string, unknown> | null | undefined
+  ): string | undefined {
+    const chunk = meta?.terminal_output_delta as { data?: unknown } | undefined
+    const exit = meta?.terminal_exit as { exit_code?: unknown } | undefined
+    let printed = this.commandOutputs.get(toolCallId)
+    if (typeof chunk?.data === 'string') printed = (printed ?? '') + chunk.data
+    if (typeof exit?.exit_code === 'number' && exit.exit_code !== 0) {
+      printed = `${printed?.trimEnd() ?? ''}\nExit code ${exit.exit_code}`.trimStart()
+    }
+    if (printed !== undefined) this.commandOutputs.set(toolCallId, printed)
+    return printed
   }
 
   /**
@@ -1946,15 +1987,19 @@ function providerRetry(
   return { attempt: retry.attempt, message: /[.!?]$/.test(message) ? message : `${message}.` }
 }
 
-function formatToolContent(content: acp.ToolCallContent[] | null | undefined): string | undefined {
-  if (!content?.length) return undefined
+/** A call's content as text; `printed` is what its command printed, shown for its terminal. */
+function formatToolContent(
+  content: acp.ToolCallContent[] | null | undefined,
+  printed?: string
+): string | undefined {
+  if (!content?.length) return printed
   const parts = content.flatMap((c) => {
     // Images are shown as pictures (contentImages).
     if (c.type === 'content' && c.content.type === 'image') return []
     if (c.type === 'content')
       return c.content.type === 'text' ? c.content.text : `[${c.content.type}]`
     if (c.type === 'diff') return `--- ${c.path}\n${diffLines(c.oldText ?? '', c.newText)}`
-    return '[terminal output]'
+    return printed ?? '[terminal output]'
   })
   return parts.join('\n')
 }

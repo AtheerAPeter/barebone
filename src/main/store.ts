@@ -13,9 +13,11 @@ import {
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
+  inFront,
   NAME_MAX,
   senderChat,
   type AppState,
+  type BrowserSize,
   type Chat,
   type ChatItem,
   type ChatPermissions,
@@ -138,6 +140,18 @@ if (emptyChats.length > 0) {
   writeJson(statePath, state)
 }
 
+// Chats used to settle by themselves a day after the user last chatted in them; now only the
+// user settles them. The ones that had settled that way are marked settled, once, so they stay.
+if (!state.settledByUser) {
+  const dayAgo = Date.now() - 24 * 60 * 60_000
+  for (const chat of state.chats) {
+    const active = chat.activeAt ?? chat.updatedAt
+    if (inFront(chat) && active < dayAgo) chat.settledAt = active
+  }
+  state.settledByUser = true
+  writeJson(statePath, state)
+}
+
 const messages = new Map<string, ChatItem[]>()
 /**
  * Each project's prompt history (see shared/prompt-history.ts), built on the
@@ -221,6 +235,12 @@ export function setRecording(on: boolean): void {
 /** Keep the user's own browser's tabs (OWN_BROWSER). */
 export function setBrowserTabs(tabs: SavedTabs): void {
   state.browserTabs = tabs
+  scheduleFlush()
+}
+
+/** Keep the size chats' browser pages are laid out at; filling the panel is the default. */
+export function setBrowserSize(size: BrowserSize): void {
+  state.browserSize = size === 'panel' ? undefined : size
   scheduleFlush()
 }
 

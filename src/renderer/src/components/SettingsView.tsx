@@ -18,60 +18,65 @@ import { useUpdateInstall } from '../lib/update'
 import {
   CloseIcon,
   DownloadIcon,
-  MusicIcon,
   GlobeIcon,
-  PaletteIcon,
   MicIcon,
+  MusicIcon,
+  PaletteIcon,
   PencilIcon,
   PhoneIcon,
+  PlugIcon,
   RouteIcon,
   SearchIcon,
   ServerIcon,
+  SlidersIcon,
+  SparklesIcon,
   SpeakerIcon,
   TagIcon,
   TelegramIcon,
   TextIcon,
-  VideoIcon
+  VideoIcon,
+  WaveformIcon,
+  WrenchIcon
 } from './icons'
 import { ProvidersBody } from './ProvidersCard'
 import { RemoteLinkBody, SignedInBody } from './RemoteLinkCard'
-import { SettingsRow, Switch, type SettingsTone } from './SettingsRow'
+import { SettingsDialog, SettingsRow, Switch } from './SettingsRow'
 
-/** The filter above the list: every setting, the ones on, the ones off, the ones missing something. */
-type Filter = 'all' | 'on' | 'off' | 'needs'
-const FILTERS: { id: Filter; name: string }[] = [
-  { id: 'all', name: 'All' },
-  { id: 'on', name: 'On' },
-  { id: 'off', name: 'Off' },
-  { id: 'needs', name: 'Needs setup' }
-]
-
-/** The groups of Settings, in the order they are shown. */
-const GROUPS = ['Agents', 'Abilities', 'Voice', 'Connections', 'App'] as const
+/** The sections of Settings, in the order the side lists them. */
+const GROUPS = ['General', 'Agents', 'Abilities', 'Voice', 'Connections'] as const
 type Group = (typeof GROUPS)[number]
 
+const GROUP_ICONS: Record<Group, ReactNode> = {
+  General: <SlidersIcon />,
+  Agents: <SparklesIcon />,
+  Abilities: <WrenchIcon />,
+  Voice: <WaveformIcon />,
+  Connections: <PlugIcon />
+}
+
 /**
- * One setting, as the list needs it: what it is called, the line that says what
- * it does, what it is now (for the filters) and the row that shows it.
+ * One setting, as the page needs it: what it is called, what it does, what it
+ * is now, its controls, and its fields if it has any.
  */
 interface RowDef {
   id: string
   group: Group
   name: string
+  /** What it does in a line, for the search. */
   summary: string
   /** Words the search finds it by, beyond its name and summary. */
   keywords: string
-  /** On or off, for the filters; unset when the setting has no such state. */
-  state?: 'on' | 'off'
-  /** Missing a key or a pairing: what the "Needs setup" filter shows. */
-  needs?: boolean
   icon: ReactNode
-  tone: SettingsTone
-  pill?: string
-  pillTone?: 'on' | 'off' | 'warn'
-  /** The switch, or a button that opens the row. */
-  action?: ReactNode
-  detail: ReactNode
+  /** What it does in full, in the info popover. */
+  info: ReactNode
+  /** What it is now, in words; a switch says it itself. */
+  status?: string
+  /** Missing something it needs to work, such as a key or a download. */
+  needs?: boolean
+  /** Its switch, if it has one. */
+  toggle?: ReactNode
+  /** Its fields, opened in a dialog by a button with this label. */
+  panel?: { label: string; body: ReactNode }
 }
 
 /** The API keys main keeps, shown by their last four characters. */
@@ -82,10 +87,10 @@ interface KeyHints {
 }
 
 /**
- * Settings: every switch, key and link the app has, as one list grouped by what
- * it touches. A line per setting says what it does and what it is now; the
- * chevron opens the full explanation and the fields. Search and the filters
- * narrow the list, so what is off, or missing a key, is one click away.
+ * Settings: every switch, key and link the app has, in sections listed at the
+ * side. A line per setting: its name, what it is now, and its switch or the
+ * button that opens its fields. What it does is behind the info button. The
+ * search looks through every section at once.
  */
 export function SettingsView({
   name,
@@ -111,8 +116,8 @@ export function SettingsView({
   onProvidersChange: () => void
 }): React.JSX.Element {
   const [query, setQuery] = useState('')
-  const [filter, setFilter] = useState<Filter>('all')
-  /** The one row whose explanation is open. */
+  const [section, setSection] = useState<Group>('General')
+  /** The setting whose fields are open in a dialog. */
   const [open, setOpen] = useState<string>()
   const [hints, setHints] = useState<KeyHints>({})
   const [providers, setProviders] = useState<number>()
@@ -170,22 +175,92 @@ export function SettingsView({
     />
   )
 
-  const manage = (id: string, label: string): ReactNode => (
-    <button
-      type="button"
-      className="btn setting-action"
-      onClick={() => setOpen(open === id ? undefined : id)}
-    >
-      {label}
-    </button>
-  )
-
-  const keyState = (hint: string | null | undefined): 'on' | 'off' | undefined =>
-    hint === undefined ? undefined : hint ? 'on' : 'off'
-  const keyPill = (hint: string | null | undefined): string => (hint ? 'Key saved' : 'Add a key')
-  const keyTone = (hint: string | null | undefined): 'on' | 'warn' => (hint ? 'on' : 'warn')
+  // A key shows only once saved: the button says when one is missing.
+  const keyStatus = (hint: string | null | undefined): string | undefined =>
+    hint ? 'Key saved' : undefined
 
   const rows: RowDef[] = [
+    {
+      id: 'name',
+      group: 'General',
+      name: 'Name',
+      summary: 'What this Barebone is called, to tell several apart.',
+      keywords: 'name rename profile title home screen instance server',
+      icon: <TagIcon />,
+      info: (
+        <p>
+          The title of the remote link&apos;s page, its tab, and the app&apos;s name when you add
+          the page to a phone&apos;s Home Screen. Name each Barebone you use, such as Home or
+          Server, to see at once which one is open. A Home Screen app keeps the name it was added
+          with.
+        </p>
+      ),
+      status: name ?? 'Barebone',
+      panel: { label: 'Edit', body: <NameForm saved={name ?? ''} /> }
+    },
+    {
+      id: 'look',
+      group: 'General',
+      name: 'Custom look',
+      summary: 'Ask a chat to restyle Barebone: colors, layout, messages, tool calls, icons.',
+      keywords: 'look theme css style colors fonts layout appearance icons reset custom',
+      icon: <PaletteIcon />,
+      info: (
+        <p>
+          Ask any chat to change how Barebone looks: its colors and fonts, where things sit, the
+          messages, tool calls and icons, the window&apos;s buttons. The chat writes a stylesheet,{' '}
+          <code>look.css</code>, and <code>look.json</code>, and the window changes as each is
+          saved. The remote link&apos;s pages get the same look. The switch turns it off and on
+          again; so does View → Custom Look in the menu bar, for when a look hides this page.
+        </p>
+      ),
+      status: look && !look.files ? 'None yet' : undefined,
+      toggle:
+        look?.files && onOff('look', 'Custom look', look.on, (on) => window.api.look.setOn(on)),
+      panel: look?.files
+        ? {
+            label: 'Reset',
+            body: (
+              <>
+                <p>Go back to Barebone&apos;s own look. The look&apos;s files go to the Trash.</p>
+                <div className="settings-row">
+                  <button
+                    type="button"
+                    className="btn primary"
+                    onClick={() => {
+                      setOpen(undefined)
+                      void run('look', () => window.api.look.reset())
+                    }}
+                  >
+                    Reset to Barebone&apos;s look
+                  </button>
+                </div>
+              </>
+            )
+          }
+        : undefined
+    },
+    {
+      id: 'updates',
+      group: 'General',
+      name: 'Updates',
+      summary: CHECKS_UPDATES
+        ? 'Barebone checks for a newer release every few hours.'
+        : 'Barebone is updated by installing its new build.',
+      keywords: 'version update release install newer',
+      icon: <DownloadIcon />,
+      info: (
+        <p>
+          {CHECKS_UPDATES
+            ? 'Barebone checks for a newer release every few hours, and can install it from here.'
+            : 'Barebone is updated by installing its new build in its place.'}
+        </p>
+      ),
+      status: version ? `v${version}` : undefined,
+      panel: CHECKS_UPDATES
+        ? { label: 'Check', body: <UpdatesBody version={version} /> }
+        : undefined
+    },
     {
       id: 'providers',
       group: 'Agents',
@@ -193,20 +268,18 @@ export function SettingsView({
       summary: 'The APIs chats can run on. Each one adds its models to the model picker.',
       keywords: 'custom api key base url openai anthropic ollama openrouter models server',
       icon: <ServerIcon />,
-      tone: 'indigo',
-      pill: providers === undefined ? undefined : providers > 0 ? `${providers} set` : 'None',
-      pillTone: providers ? 'on' : 'off',
-      action: manage('providers', 'Manage'),
-      detail: (
-        <>
-          <p>
-            Add any API that speaks OpenAI Chat Completions, OpenAI Responses or Anthropic Messages.
-            Its models show in the model picker under Custom providers, and chats on them run on the
-            app&apos;s own agent.
-          </p>
-          <ProvidersBody onChange={refreshProviders} />
-        </>
-      )
+      info: (
+        <p>
+          Add any API that speaks OpenAI Chat Completions, OpenAI Responses or Anthropic Messages.
+          Its models show in the model picker under Custom providers, and chats on them run on the
+          app&apos;s own agent.
+        </p>
+      ),
+      status: providers ? `${providers} added` : undefined,
+      panel: {
+        label: providers ? 'Manage' : 'Add',
+        body: <ProvidersBody onChange={refreshProviders} />
+      }
     },
     {
       id: 'instructions',
@@ -215,22 +288,20 @@ export function SettingsView({
       summary: 'One block of text every new chat is told before it starts.',
       keywords: 'prompt system agents claude codex rules language german',
       icon: <TextIcon />,
-      tone: 'orange',
-      pill: instructions?.trim() ? 'Saved' : 'Not set',
-      pillTone: instructions?.trim() ? 'on' : 'off',
-      action: manage('instructions', 'Edit'),
-      detail: (
-        <>
-          <p>
-            Given to every new chat, on every agent. Claude Code and Codex get them in their system
-            prompt, after their own; the app&apos;s own agent before the project&apos;s{' '}
-            <code>AGENTS.md</code> or <code>CLAUDE.md</code>, and its subagents too. Agents that
-            take no system prompt read them with the chat&apos;s first message. A chat keeps the
-            instructions it started with, so a change applies to chats started after it.
-          </p>
-          <InstructionsForm saved={instructions ?? ''} />
-        </>
-      )
+      info: (
+        <p>
+          Given to every new chat, on every agent. Claude Code and Codex get them in their system
+          prompt, after their own; the app&apos;s own agent before the project&apos;s{' '}
+          <code>AGENTS.md</code> or <code>CLAUDE.md</code>, and its subagents too. Agents that take
+          no system prompt read them with the chat&apos;s first message. A chat keeps the
+          instructions it started with, so a change applies to chats started after it.
+        </p>
+      ),
+      status: instructions?.trim() ? 'Saved' : undefined,
+      panel: {
+        label: instructions?.trim() ? 'Edit' : 'Add',
+        body: <InstructionsForm saved={instructions ?? ''} />
+      }
     },
     {
       id: 'annotations',
@@ -238,13 +309,8 @@ export function SettingsView({
       name: 'Drawing on pages',
       summary: 'Agents can box, point and caption in the browser, then wait for your click.',
       keywords: 'browser draw arrows labels pointer tutorial annotations',
-      state: annotations ? 'on' : 'off',
       icon: <PencilIcon />,
-      tone: 'pink',
-      pill: annotations ? 'On' : 'Off',
-      pillTone: annotations ? 'on' : 'off',
-      action: onOff('annotations', 'Drawing on pages', annotations, window.api.setAnnotations),
-      detail: (
+      info: (
         <>
           <p>
             Gives every agent browser tools that draw on the page in the browser panel (boxes and
@@ -253,23 +319,18 @@ export function SettingsView({
             them how. Turned off, the tools and the skill stay out of the chats&apos; context.
           </p>
           <Scope />
-          {errors.annotations && <div className="msg-error">{errors.annotations}</div>}
         </>
-      )
+      ),
+      toggle: onOff('annotations', 'Drawing on pages', annotations, window.api.setAnnotations)
     },
     {
       id: 'recording',
       group: 'Abilities',
       name: 'Recording videos',
       summary: 'Agents can record a browser tab as an MP4, with their voice.',
-      keywords: 'video mp4 demo walkthrough record screen tab',
-      state: recording ? 'on' : 'off',
+      keywords: 'video mp4 demo walkthrough record screen tab thumbnails ffmpeg',
       icon: <VideoIcon />,
-      tone: 'red',
-      pill: recording ? 'On' : 'Off',
-      pillTone: recording ? 'on' : 'off',
-      action: onOff('recording', 'Recording videos', recording, window.api.setRecording),
-      detail: (
+      info: (
         <>
           <p>
             Gives every agent browser tools that record a tab of the browser panel as an MP4 video,
@@ -278,15 +339,21 @@ export function SettingsView({
             The browser is signed in to your accounts, so what a page shows is in the video.
           </p>
           <Scope />
-          {errors.recording && <div className="msg-error">{errors.recording}</div>}
-          <h4 className="settings-subhead">Thumbnails</h4>
-          <p>
-            With ffmpeg on this Mac, every video gets a thumbnail: its best still, saved as a JPEG
-            beside it and put in as its first frame, so players and sites show that one.
-          </p>
-          <DownloadBody id="ffmpeg" what="ffmpeg" status={downloads?.ffmpeg} />
         </>
-      )
+      ),
+      toggle: onOff('recording', 'Recording videos', recording, window.api.setRecording),
+      panel: {
+        label: 'Thumbnails',
+        body: (
+          <>
+            <p>
+              With ffmpeg on this Mac, every video gets a thumbnail: its best still, saved as a JPEG
+              beside it and put in as its first frame, so players and sites show that one.
+            </p>
+            <DownloadBody id="ffmpeg" what="ffmpeg" status={downloads?.ffmpeg} />
+          </>
+        )
+      }
     },
     {
       id: 'music',
@@ -296,26 +363,23 @@ export function SettingsView({
         'Agents can make music on this Mac: a drum roll when a task is done, tracks for videos.',
       keywords:
         'music soundtrack background track stable audio video demo drum roll fanfare jingle',
-      state: music ? 'on' : 'off',
-      needs: music && downloads?.music.state === 'missing',
       icon: <MusicIcon />,
-      tone: 'pink',
-      pill: music ? 'On' : 'Off',
-      pillTone: music ? 'on' : 'off',
-      action: onOff('music', 'Music', music, window.api.setMusic),
-      detail: (
-        <>
-          <p>
-            Agents make instrumental music from a description, with Stable Audio 3 Small on this
-            Mac. When an agent tells you out loud that a task is done, it can play a drum roll
-            before the news or a little tune under its words. It can also make a track to play
-            quietly under the voice of a video it records. The model is downloaded once
-            {downloads ? `, ${megabytes(downloads.music.total)}` : ''}.
-          </p>
-          <DownloadBody id="music" what="the music model" status={downloads?.music} />
-          {errors.music && <div className="msg-error">{errors.music}</div>}
-        </>
-      )
+      info: (
+        <p>
+          Agents make instrumental music from a description, with Stable Audio 3 Small on this Mac.
+          When an agent tells you out loud that a task is done, it can play a drum roll before the
+          news or a little tune under its words. It can also make a track to play quietly under the
+          voice of a video it records. The model is downloaded once
+          {downloads ? `, ${megabytes(downloads.music.total)}` : ''}.
+        </p>
+      ),
+      status: music && downloads?.music.state === 'missing' ? 'Not downloaded' : undefined,
+      needs: music && downloads?.music.state === 'missing',
+      toggle: onOff('music', 'Music', music, window.api.setMusic),
+      panel: {
+        label: 'Model',
+        body: <DownloadBody id="music" what="the music model" status={downloads?.music} />
+      }
     },
     {
       id: 'codeTours',
@@ -323,13 +387,8 @@ export function SettingsView({
       name: 'Code walkthroughs',
       summary: 'Agents can walk you through code, stop after stop, in the code panel.',
       keywords: 'code tour route stops explain source panel narration',
-      state: codeTours ? 'on' : 'off',
       icon: <RouteIcon />,
-      tone: 'purple',
-      pill: codeTours ? 'On' : 'Off',
-      pillTone: codeTours ? 'on' : 'off',
-      action: onOff('codeTours', 'Code walkthroughs', codeTours, window.api.setCodeTours),
-      detail: (
+      info: (
         <>
           <p>
             Gives every agent a tool that walks you through code in the code panel: how a feature
@@ -341,9 +400,9 @@ export function SettingsView({
             way.
           </p>
           <Scope />
-          {errors.codeTours && <div className="msg-error">{errors.codeTours}</div>}
         </>
-      )
+      ),
+      toggle: onOff('codeTours', 'Code walkthroughs', codeTours, window.api.setCodeTours)
     },
     {
       id: 'mobile',
@@ -351,13 +410,8 @@ export function SettingsView({
       name: 'Mobile apps',
       summary: 'Agents can read and tap screens on simulators and emulators.',
       keywords: 'ios android simulator emulator device metro react native adb',
-      state: mobile ? 'on' : 'off',
       icon: <PhoneIcon />,
-      tone: 'gray',
-      pill: mobile ? 'On' : 'Off',
-      pillTone: mobile ? 'on' : 'off',
-      action: onOff('mobile', 'Mobile apps', mobile, window.api.setMobile),
-      detail: (
+      info: (
         <>
           <p>
             Gives every agent tools that run and test mobile apps on the iOS simulators and Android
@@ -368,10 +422,10 @@ export function SettingsView({
             the tools stay out of the chats&apos; context.
           </p>
           <Scope />
-          {mobile && <MobileChecks />}
-          {errors.mobile && <div className="msg-error">{errors.mobile}</div>}
         </>
-      )
+      ),
+      toggle: onOff('mobile', 'Mobile apps', mobile, window.api.setMobile),
+      panel: mobile ? { label: 'Tools', body: <MobileChecks /> } : undefined
     },
     {
       id: 'voice',
@@ -379,58 +433,58 @@ export function SettingsView({
       name: 'Voice input',
       summary: `Hold ${TALK_KEY} or the mic to dictate; Whisper on Groq writes it out.`,
       keywords: 'speech to text dictate microphone whisper groq language arabic',
-      state: keyState(hints.voice),
-      needs: hints.voice === null,
       icon: <MicIcon />,
-      tone: 'green',
-      pill: hints.voice === undefined ? undefined : keyPill(hints.voice),
-      pillTone: keyTone(hints.voice),
-      action: manage('voice', hints.voice ? 'Manage' : 'Add key'),
-      detail: (
-        <>
-          <p>
-            Hold the microphone button in the composer, or the {TALK_KEY} key, while you speak. When
-            you let go, Whisper on Groq writes out what you said in the language you spoke, such as
-            Arabic, English or German. A click on the button records until the next click. The
-            recording is sent to Groq. It takes a Groq API key, free from{' '}
-            <code>console.groq.com</code>.
-          </p>
+      info: (
+        <p>
+          Hold the microphone button in the composer, or the {TALK_KEY} key, while you speak. When
+          you let go, Whisper on Groq writes out what you said in the language you spoke, such as
+          Arabic, English or German. A click on the button records until the next click. The
+          recording is sent to Groq. It takes a Groq API key, free from{' '}
+          <code>console.groq.com</code>.
+        </p>
+      ),
+      status: keyStatus(hints.voice),
+      panel: {
+        label: hints.voice ? 'Manage' : 'Add key',
+        body: (
           <KeyForm
             label="Groq API key"
             hint={hints.voice}
             save={window.api.voice.setKey}
             onSaved={(hint) => setHint('voice', hint)}
           />
-        </>
-      )
+        )
+      }
     },
     {
       id: 'speech',
       group: 'Voice',
       name: 'Spoken messages',
       summary: 'Agents can say things out loud in a natural voice on this Mac.',
-      keywords: 'voice speak out loud supertonic audio language arabic german',
-      state: speech ? 'on' : 'off',
+      keywords: 'voice speak out loud supertonic voxcpm audio language arabic german',
+      icon: <SpeakerIcon />,
+      info: (
+        <p>
+          Agents can say things out loud, such as when they need you or finish a long task, in a
+          voice that runs on this Mac. Download a voice, turn it on, and pick which one speaks
+          Arabic and which every other language.
+        </p>
+      ),
+      status:
+        speech &&
+        downloads !== undefined &&
+        VOICES.every(({ id }) => downloads[id].state !== 'ready')
+          ? 'No voice yet'
+          : undefined,
       needs:
         speech &&
         downloads !== undefined &&
         VOICES.every(({ id }) => downloads[id].state !== 'ready'),
-      icon: <SpeakerIcon />,
-      tone: 'teal',
-      pill: speech ? 'On' : 'Off',
-      pillTone: speech ? 'on' : 'off',
-      action: onOff('speech', 'Spoken messages', speech, window.api.speech.set),
-      detail: (
-        <>
-          <p>
-            Agents can say things out loud, such as when they need you or finish a long task, in a
-            voice that runs on this Mac. Download a voice, turn it on, and pick which one speaks
-            Arabic and which every other language.
-          </p>
-          <VoicesBody on={speech} voices={voices} downloads={downloads} />
-          {errors.speech && <div className="msg-error">{errors.speech}</div>}
-        </>
-      )
+      toggle: onOff('speech', 'Spoken messages', speech, window.api.speech.set),
+      panel: {
+        label: 'Voices',
+        body: <VoicesBody on={speech} voices={voices} downloads={downloads} />
+      }
     },
     {
       id: 'search',
@@ -438,29 +492,27 @@ export function SettingsView({
       name: 'Web search',
       summary: 'Chats look things up on the web through Exa.',
       keywords: 'web lookup exa search key internet',
-      state: keyState(hints.exa),
-      needs: hints.exa === null,
       icon: <SearchIcon />,
-      tone: 'blue',
-      pill: hints.exa === undefined ? undefined : keyPill(hints.exa),
-      pillTone: keyTone(hints.exa),
-      action: manage('search', hints.exa ? 'Manage' : 'Add key'),
-      detail: (
-        <>
-          <p>
-            Chats on the app&apos;s own agent (Custom providers, OpenCode API, Cline API and Command
-            Code API) search the web with Exa, as opencode does. Searches work without a key on
-            Exa&apos;s free, rate-limited tier. With a key from <code>dashboard.exa.ai</code>, they
-            use your Exa account.
-          </p>
+      info: (
+        <p>
+          Chats on the app&apos;s own agent (Custom providers, OpenCode API, Cline API and Command
+          Code API) search the web with Exa, as opencode does. Searches work without a key on
+          Exa&apos;s free, rate-limited tier. With a key from <code>dashboard.exa.ai</code>, they
+          use your Exa account.
+        </p>
+      ),
+      status: keyStatus(hints.exa),
+      panel: {
+        label: hints.exa ? 'Manage' : 'Add key',
+        body: (
           <KeyForm
             label="Exa API key"
             hint={hints.exa}
             save={window.api.exa.setKey}
             onSaved={(hint) => setHint('exa', hint)}
           />
-        </>
-      )
+        )
+      }
     },
     {
       id: 'telegram',
@@ -468,241 +520,182 @@ export function SettingsView({
       name: 'Control from Telegram',
       summary: 'Guide a chat from your phone through your own bot.',
       keywords: 'telegram bot phone remote chat botfather pair qr',
-      state: telegram ? (telegram.state === 'ready' ? 'on' : 'off') : undefined,
-      needs: telegram ? telegram.state !== 'ready' : undefined,
       icon: <TelegramIcon />,
-      tone: 'blue',
-      pill: telegram ? (telegram.state === 'ready' ? 'Paired' : 'Not paired') : undefined,
-      pillTone: telegram?.state === 'ready' ? 'on' : 'warn',
-      action: manage('telegram', telegram?.state === 'ready' ? 'Manage' : 'Set up'),
-      detail: (
-        <>
-          <p>
-            Guide a chat from your phone. In Telegram, send <code>/newbot</code> to @BotFather and
-            paste the token it gives you here. Then choose Control from Telegram in a chat&apos;s
-            menu in the sidebar. What you send the bot goes to that chat, and chats it starts with{' '}
-            <code>@chats</code> show as cards that keep up with what they do. Bot chats in Telegram
-            are not end-to-end encrypted. Barebone has to be open on a Mac that is awake.
-          </p>
-          <KeyForm
-            label="Telegram bot token"
-            hint={hints.telegram}
-            save={window.api.telegram.setKey}
-            onSaved={(hint) => setHint('telegram', hint)}
-          />
-          <TelegramStatusBlock status={telegram} />
-        </>
-      )
+      info: (
+        <p>
+          Guide a chat from your phone. In Telegram, send <code>/newbot</code> to @BotFather and
+          paste the token it gives you here. Then choose Control from Telegram in a chat&apos;s menu
+          in the sidebar. What you send the bot goes to that chat, and chats it starts with{' '}
+          <code>@chats</code> show as cards that keep up with what they do. Bot chats in Telegram
+          are not end-to-end encrypted. Barebone has to be open on a Mac that is awake.
+        </p>
+      ),
+      status: telegram?.state === 'ready' ? 'Paired' : undefined,
+      panel: {
+        label: telegram?.state === 'ready' ? 'Manage' : 'Set up',
+        body: (
+          <>
+            <KeyForm
+              label="Telegram bot token"
+              hint={hints.telegram}
+              save={window.api.telegram.setKey}
+              onSaved={(hint) => setHint('telegram', hint)}
+            />
+            <TelegramStatusBlock status={telegram} />
+          </>
+        )
+      }
     },
     {
       id: 'remote',
       group: 'Connections',
       name: 'Remote link',
       summary: 'Use chats from a browser on your phone or another computer.',
-      keywords: 'remote zrok tunnel phone browser pair qr link',
-      state: remoteClient ? undefined : remote ? (remote.on ? 'on' : 'off') : undefined,
+      keywords: 'remote zrok cloudflare tunnel phone browser pair qr link devices',
       icon: <GlobeIcon />,
-      tone: 'teal',
-      pill: remoteClient ? 'This browser' : remote ? (remote.on ? 'On' : 'Off') : undefined,
-      pillTone: remote?.on ? 'on' : 'off',
-      action: remoteClient
-        ? undefined
-        : remote
+      info: (
+        <p>
+          Use Barebone in a browser on your phone or another computer. A device joins by scanning a
+          QR code, and paired devices see and control Barebone&apos;s browser tabs, which are signed
+          in to your accounts.
+        </p>
+      ),
+      status: remoteClient ? 'This browser' : undefined,
+      toggle:
+        !remoteClient && remote
           ? onOff('remote', 'Remote link', remote.on, window.api.remoteLink.setOn)
           : undefined,
-      detail: (
-        <>
-          {/* Through the link it signs the browser out; on a server, where the link is set
-              up from its paired devices (main/remote), the link's own body comes first. */}
-          {remoteClient && remote && <RemoteLinkBody status={remote} error={errors.remote} />}
-          {remoteClient ? (
-            <SignedInBody managedHere={Boolean(remote)} />
-          ) : (
-            <RemoteLinkBody status={remote} error={errors.remote} />
-          )}
-        </>
-      )
-    },
-    {
-      id: 'name',
-      group: 'App',
-      name: 'Name',
-      summary: 'What this Barebone is called, to tell several apart.',
-      keywords: 'name rename profile title home screen instance server',
-      icon: <TagIcon />,
-      tone: 'gray',
-      pill: name ?? 'Barebone',
-      pillTone: name ? 'on' : 'off',
-      action: manage('name', 'Edit'),
-      detail: (
-        <>
-          <p>
-            The title of the remote link&apos;s page, its tab, and the app&apos;s name when you add
-            the page to a phone&apos;s Home Screen. Name each Barebone you use, such as Home or
-            Server, to see at once which one is open. A Home Screen app keeps the name it was added
-            with.
-          </p>
-          <NameForm saved={name ?? ''} />
-        </>
-      )
-    },
-    {
-      id: 'look',
-      group: 'App',
-      name: 'Custom look',
-      summary: 'Ask a chat to restyle Barebone: colors, layout, messages, tool calls, icons.',
-      keywords: 'look theme css style colors fonts layout appearance icons reset custom',
-      state: look?.files ? (look.on ? 'on' : 'off') : undefined,
-      icon: <PaletteIcon />,
-      tone: 'purple',
-      pill: !look ? undefined : !look.files ? 'None' : look.on ? 'On' : 'Off',
-      pillTone: look?.files && look.on ? 'on' : 'off',
-      action:
-        look?.files && onOff('look', 'Custom look', look.on, (on) => window.api.look.setOn(on)),
-      detail: (
-        <>
-          <p>
-            Ask any chat to change how Barebone looks: its colors and fonts, where things sit, the
-            messages, tool calls and icons, the window&apos;s buttons. The chat writes a stylesheet,{' '}
-            <code>look.css</code>, and <code>look.json</code>, and the window changes as each is
-            saved. The remote link&apos;s pages get the same look. The switch turns it off and on
-            again; so does View → Custom Look in the menu bar, for when a look hides this page.
-          </p>
-          {look?.files && (
-            <div className="settings-row">
-              <button
-                type="button"
-                className="btn"
-                onClick={() => {
-                  if (!confirm("Go back to Barebone's own look? The look's files go to the Trash."))
-                    return
-                  void run('look', () => window.api.look.reset())
-                }}
-              >
-                Reset to Barebone&apos;s look
-              </button>
-            </div>
-          )}
-          {errors.look && <div className="msg-error">{errors.look}</div>}
-        </>
-      )
-    },
-    {
-      id: 'updates',
-      group: 'App',
-      name: 'Updates',
-      summary: CHECKS_UPDATES
-        ? 'Barebone checks for a newer release every few hours.'
-        : 'Barebone is updated by installing its new build.',
-      keywords: 'version update release install newer',
-      icon: <DownloadIcon />,
-      tone: 'gray',
-      pill: version ? `v${version}` : undefined,
-      detail: <UpdatesBody version={version} />
+      panel: {
+        label: remoteClient ? 'Manage' : 'Devices',
+        body: (
+          <>
+            {/* Through the link it signs the browser out; on a server, where the link is set
+                up from its paired devices (main/remote), the link's own body comes first. */}
+            {remoteClient && remote && <RemoteLinkBody status={remote} error={errors.remote} />}
+            {remoteClient ? (
+              <SignedInBody managedHere={Boolean(remote)} />
+            ) : (
+              <RemoteLinkBody status={remote} error={errors.remote} />
+            )}
+          </>
+        )
+      }
     }
   ]
 
-  const matches = useMemo(() => {
-    const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
-    return (row: RowDef): boolean => {
-      if (filter === 'on' && row.state !== 'on') return false
-      if (filter === 'off' && row.state !== 'off') return false
-      if (filter === 'needs' && row.needs !== true) return false
-      if (!words.length) return true
-      const text = `${row.name} ${row.summary} ${row.keywords} ${row.group}`.toLowerCase()
-      return words.every((word) => text.includes(word))
-    }
-  }, [query, filter])
-
-  const shown = rows.filter(matches).length
-  const clear = (): void => {
-    setQuery('')
-    setFilter('all')
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const searching = words.length > 0
+  const matches = (row: RowDef): boolean => {
+    const text = `${row.name} ${row.summary} ${row.keywords} ${row.group}`.toLowerCase()
+    return words.every((word) => text.includes(word))
   }
+  // A search looks through every section; otherwise the chosen one shows.
+  const groups = searching ? GROUPS : [section]
+  const found = searching && rows.some(matches)
+  const dialog = rows.find((row) => row.id === open)
 
   return (
     <div className="settings">
-      <div className="settings-head">
-        <h2>Settings</h2>
-        <p>Everything your agents can do, in one list. Search it, or show only what is off.</p>
-      </div>
-      <label className="settings-search">
-        <SearchIcon />
-        <input
-          type="text"
-          aria-label="Search settings"
-          placeholder="Search settings — name, action, or group"
-          value={query}
-          spellCheck={false}
-          autoComplete="off"
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            // A search being cleared keeps Settings open; an empty one leaves it.
-            if (e.key === 'Escape' && query) {
-              e.preventDefault()
-              setQuery('')
-            }
-          }}
-        />
-        {query && (
-          <button
-            type="button"
-            className="settings-search-clear"
-            aria-label="Clear the search"
-            onClick={() => setQuery('')}
-          >
-            <CloseIcon />
-          </button>
-        )}
-      </label>
-      <div className="settings-filters">
-        {FILTERS.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            className="settings-filter"
-            aria-pressed={filter === f.id}
-            onClick={() => setFilter(f.id)}
-          >
-            {f.name}
-          </button>
-        ))}
-        <span className="settings-count">
-          {shown} of {rows.length}
-        </span>
-      </div>
-      {GROUPS.map((group) => {
-        const list = rows.filter((row) => row.group === group && matches(row))
-        if (!list.length) return null
-        return (
-          <section className="settings-block" key={group}>
-            <h3 className="settings-group">{group}</h3>
-            {list.map((row) => (
-              <SettingsRow
-                key={row.id}
-                icon={row.icon}
-                tone={row.tone}
-                name={row.name}
-                summary={row.summary}
-                pill={row.pill}
-                pillTone={row.pillTone}
-                action={row.action}
-                open={open === row.id}
-                onToggle={() => setOpen(open === row.id ? undefined : row.id)}
+      <div className="settings-body">
+        <nav className="settings-nav" aria-label="Settings sections">
+          <label className="settings-search">
+            <SearchIcon />
+            <input
+              type="text"
+              aria-label="Search settings"
+              placeholder="Search"
+              value={query}
+              spellCheck={false}
+              autoComplete="off"
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                // A search being cleared keeps Settings open; an empty one leaves it.
+                if (e.key === 'Escape' && query) {
+                  e.preventDefault()
+                  setQuery('')
+                }
+              }}
+            />
+            {query && (
+              <button
+                type="button"
+                className="settings-search-clear"
+                aria-label="Clear the search"
+                onClick={() => setQuery('')}
               >
-                {row.detail}
-              </SettingsRow>
+                <CloseIcon />
+              </button>
+            )}
+          </label>
+          <div className="settings-sections">
+            {GROUPS.map((group) => (
+              <button
+                key={group}
+                type="button"
+                className="settings-section"
+                aria-current={!searching && section === group ? 'page' : undefined}
+                onClick={() => {
+                  setSection(group)
+                  setQuery('')
+                }}
+              >
+                {GROUP_ICONS[group]}
+                {group}
+              </button>
             ))}
-          </section>
-        )
-      })}
-      {shown === 0 && (
-        <div className="settings-empty">
-          <p>Nothing matches.</p>
-          <button type="button" className="btn" onClick={clear}>
-            Clear the search and filters
-          </button>
+          </div>
+        </nav>
+        <div className="settings-page">
+          {groups.map((group) => {
+            const list = rows.filter((row) => row.group === group && matches(row))
+            if (!list.length) return null
+            return (
+              <section className="settings-block" key={group}>
+                <h3 className="settings-group">{group}</h3>
+                <div className="settings-list">
+                  {list.map((row) => (
+                    <SettingsRow
+                      key={row.id}
+                      icon={row.icon}
+                      name={row.name}
+                      info={row.info}
+                      status={row.status}
+                      warn={row.needs}
+                      error={errors[row.id]}
+                      action={
+                        <>
+                          {row.panel && (
+                            <button
+                              type="button"
+                              className="btn setting-action"
+                              onClick={() => setOpen(row.id)}
+                            >
+                              {row.panel.label}
+                            </button>
+                          )}
+                          {row.toggle}
+                        </>
+                      }
+                    />
+                  ))}
+                </div>
+              </section>
+            )
+          })}
+          {searching && !found && (
+            <div className="settings-empty">
+              <p>No setting matches &ldquo;{query.trim()}&rdquo;.</p>
+              <button type="button" className="btn" onClick={() => setQuery('')}>
+                Clear search
+              </button>
+            </div>
+          )}
         </div>
+      </div>
+      {dialog?.panel && (
+        <SettingsDialog title={dialog.name} onClose={() => setOpen(undefined)}>
+          {dialog.panel.body}
+        </SettingsDialog>
       )}
     </div>
   )

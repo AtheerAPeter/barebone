@@ -32,6 +32,7 @@ import { renderMarkdown } from '../lib/markdown'
 import { BotCard } from './BotPane'
 import { BotAvatar } from './BotAvatar'
 import { BotsContext } from '../lib/bots'
+import { ChatImages } from '../lib/chat-images'
 import { elapsed } from '../lib/time'
 import type { VoiceState } from '../lib/voice'
 import { Composer } from './Composer'
@@ -114,6 +115,7 @@ export function ChatView({
     [items]
   )
   const turns = useMemo(() => toTurns(items), [items])
+  const images = useMemo(() => chatImages(items), [items])
   const bot = useContext(BotsContext).projects.find(
     (p) => p.id === chat.projectId && p.bot && !chat.startedBy
   )
@@ -257,30 +259,36 @@ export function ChatView({
           stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
         }}
       >
-        <div className="chat-items">
-          {loaded && items.length === 0 && (
-            // A bot's conversation starts with who it is, as a contact's profile.
-            <div className={`chat-empty${bot ? ' bot-profile' : ''}`}>
-              {bot && <BotAvatar project={bot} size={72} chat={chat} />}
-              <h2>
-                {bot ? bot.name : chat.title === 'New chat' ? 'What should we build?' : chat.title}
-              </h2>
-              {bot && <p>{bot.bot?.job}</p>}
-            </div>
-          )}
-          {turns.map((turn, index) => (
-            <TurnView
-              key={turn.id}
-              turn={turn}
-              chatId={chat.id}
-              projectPath={projectPath}
-              live={chat.running && index === turns.length - 1}
-              working={chat.running && index >= Math.min(workingFrom, turns.length - 1)}
-              loaded={loaded}
-            />
-          ))}
-          {chat.running && !chat.waiting && <Working />}
-        </div>
+        <ChatImages.Provider value={images}>
+          <div className="chat-items">
+            {loaded && items.length === 0 && (
+              // A bot's conversation starts with who it is, as a contact's profile.
+              <div className={`chat-empty${bot ? ' bot-profile' : ''}`}>
+                {bot && <BotAvatar project={bot} size={72} chat={chat} />}
+                <h2>
+                  {bot
+                    ? bot.name
+                    : chat.title === 'New chat'
+                      ? 'What should we build?'
+                      : chat.title}
+                </h2>
+                {bot && <p>{bot.bot?.job}</p>}
+              </div>
+            )}
+            {turns.map((turn, index) => (
+              <TurnView
+                key={turn.id}
+                turn={turn}
+                chatId={chat.id}
+                projectPath={projectPath}
+                live={chat.running && index === turns.length - 1}
+                working={chat.running && index >= Math.min(workingFrom, turns.length - 1)}
+                loaded={loaded}
+              />
+            ))}
+            {chat.running && !chat.waiting && <Working />}
+          </div>
+        </ChatImages.Provider>
       </div>
       <div className="composer-wrap">
         {chat.background && <BackgroundStrip chatId={chat.id} background={chat.background} />}
@@ -442,7 +450,12 @@ function TurnView({
       )}
       {work.length > 0 && (
         <BlockFrame id={`${turn.id}:work`} loaded={loaded}>
-          <TurnWork working={working} workedMs={turn.user?.workedMs}>
+          <TurnWork
+            working={working}
+            workedMs={turn.user?.workedMs}
+            images={chatImages(turn.work)}
+            chatId={chatId}
+          >
             {work.map((block, index) => (
               <BlockView
                 key={blockId(block)}
@@ -566,10 +579,15 @@ function BlockView({
 function TurnWork({
   working,
   workedMs,
+  images,
+  chatId,
   children
 }: {
   working: boolean
   workedMs?: number
+  /** The images the work made, such as screenshots: shown under it while it is folded. */
+  images: string[]
+  chatId: string
   children: React.ReactNode
 }): React.JSX.Element {
   const [open, setOpen] = useState(working)
@@ -588,11 +606,28 @@ function TurnWork({
         {label}
         <ChevronIcon width={11} height={11} className="chevron" />
       </button>
+      {!open && images.length > 0 && (
+        <div className="turn-work-images">
+          <Thumbnails chatId={chatId} files={images} />
+        </div>
+      )}
       <Collapse open={open} className="turn-work-body">
         {children}
       </Collapse>
     </div>
   )
+}
+
+/** The images in chat items, in the order they show: photos sent, and what agents and their calls made. */
+function chatImages(items: ChatItem[]): string[] {
+  const files = items.flatMap((item) => {
+    if (item.kind === 'user')
+      return item.attachments?.flatMap((a) => (a.file ? [a.file] : [])) ?? []
+    if (item.kind === 'text' || item.kind === 'tool') return item.images ?? []
+    return []
+  })
+  // A file shown twice is one stop in the viewer.
+  return [...new Set(files)]
 }
 
 /** "45s", "1m 4s", "1h 2m": how long a turn took, as Codex writes it. */

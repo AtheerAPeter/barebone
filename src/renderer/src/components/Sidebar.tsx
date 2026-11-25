@@ -56,6 +56,13 @@ export type View = 'chat' | 'skills' | 'files' | 'terminal' | 'browser' | 'setti
 interface SidebarProps {
   /** Hidden, it slides out but stays mounted, keeping its scroll and search. */
   open: boolean
+  /**
+   * Shown for a keyboard switch (lib/chat-switch.ts) while it is hidden: over
+   * the chat, springing out ('in') and back ('out'), without taking room.
+   */
+  peek?: 'in' | 'out'
+  /** The row a keyboard switch has highlighted, in place of the open chat's. */
+  picked?: string
   state: AppState
   selectedChatId?: string
   view: View
@@ -74,14 +81,16 @@ interface SidebarProps {
 /**
  * Laid out like ChatGPT's: actions on top, then one scrolling list of chats,
  * grouped one of two ways the user switches between. By status, chats that
- * need the user or are working come first, then the idle ones the user chatted
- * in today (inFront); every other chat is settled, in a sheet that rises from
+ * need the user or are working come first, then the idle ones the user has not
+ * settled (inFront); every other chat is settled, in a sheet that rises from
  * the bottom. Each chat shows its project's icon, which is how chats of
  * different projects are told apart. By project, each project is a folder that
  * opens to its chats.
  */
 export function Sidebar({
   open,
+  peek,
+  picked,
   state,
   selectedChatId,
   view,
@@ -223,13 +232,13 @@ export function Sidebar({
   const running = chats.filter(
     (c) => !c.pinned && working(c) && !c.waiting && !leadWorking(c) && !ofBot(c)
   )
-  // The rest are idle: in front of the user for a day after they last chatted in them, unless
-  // they settle them sooner; then settled, until they chat in them again.
+  // The rest are idle: in front of the user until they settle them; then settled, until they
+  // chat in them again.
   const rest = chats.filter(
     (c) => !c.pinned && !working(c) && !c.waiting && !nested(c) && !ofBot(c)
   )
-  const idle = rest.filter((c) => inFront(c, now))
-  const settled = rest.filter((c) => !inFront(c, now))
+  const idle = rest.filter((c) => inFront(c))
+  const settled = rest.filter((c) => !inFront(c))
   // While searching, settled matches are listed with the others rather than in the sheet.
   const sheet = !byProject && !q && settled.length > 0
   // A sheet that went away (a search, the last settled chat brought back) comes back lowered.
@@ -266,7 +275,7 @@ export function Sidebar({
       <div
         key={chat.id}
         data-chat={chat.id}
-        className={`chat-row${card ? ' card' : ''}${led ? ' lead' : ''}${view === 'chat' && chat.id === selectedChatId ? ' selected' : ''}`}
+        className={`chat-row${card ? ' card' : ''}${led ? ' lead' : ''}${(picked !== undefined ? picked === `chat:${chat.id}` : view === 'chat' && chat.id === selectedChatId) ? ' selected' : ''}`}
         title={[project?.name, latest].filter(Boolean).join(' · ')}
         onClick={() => {
           onSelectChat(chat.id)
@@ -324,8 +333,8 @@ export function Sidebar({
                     }
                   ]
                 : []),
-              // By status, a chat in front of the user can be settled before its day is up.
-              ...(!byProject && !chat.pinned && !ofBot(chat) && inFront(chat, now)
+              // By status, a chat in front of the user stays there until the user settles it.
+              ...(!byProject && !chat.pinned && !ofBot(chat) && inFront(chat)
                 ? [{ name: 'Settle', onSelect: () => window.api.settleChat(chat.id) }]
                 : []),
               { name: 'Rename', onSelect: () => setRenaming(chat.id) },
@@ -583,13 +592,17 @@ export function Sidebar({
     const conversation = own.find((c) => !c.startedBy)
     // The bot speaks for whichever of its chats needs the user or works, else its conversation.
     const live = own.find((c) => c.waiting) ?? own.find((c) => c.running) ?? conversation
-    const selected = view === 'chat' && conversation?.id === selectedChatId
+    const selected =
+      picked !== undefined
+        ? picked === `bot:${project.id}`
+        : view === 'chat' && conversation?.id === selectedChatId
     const led = conversation && !q ? started.get(conversation.id) : undefined
     const workingLed = led?.filter((c) => c.running).length ?? 0
     const isOpen = Boolean(conversation && openLeads.has(conversation.id))
     const row = (
       <div
         key={project.id}
+        data-bot={project.id}
         className={`chat-row bot-row${led ? ' lead' : ''}${selected ? ' selected' : ''}`}
         title={`${project.name}: ${project.bot?.job}`}
         onClick={() => onOpenBot(project.id)}
@@ -652,8 +665,8 @@ export function Sidebar({
 
   return (
     <nav
-      className={`sidebar${open ? '' : ' closed'}${resizing ? ' resizing' : ''}`}
-      inert={!open}
+      className={`sidebar${open ? '' : ' closed'}${!open && peek ? ` peek ${peek}` : ''}${resizing ? ' resizing' : ''}`}
+      inert={!open && peek !== 'in'}
       ref={navRef}
     >
       <div
