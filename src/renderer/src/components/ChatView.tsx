@@ -18,10 +18,13 @@ import {
   callKind,
   callVerb,
   category,
+  commandText,
+  callWords,
   groupCategories,
-  groupSummary,
+  groupSteps,
   harnessTool,
   isWebSearch,
+  looksAround,
   spokenText,
   toolKindAndTarget,
   toolLabel,
@@ -48,6 +51,7 @@ import {
   CopyIcon,
   DiffIcon,
   FileIcon,
+  FolderIcon,
   GlobeIcon,
   LockIcon,
   PencilIcon,
@@ -286,7 +290,7 @@ export function ChatView({
                 loaded={loaded}
               />
             ))}
-            {chat.running && !chat.waiting && <Working />}
+            {chat.running && !chat.waiting && <Working label={workingLabel(items)} />}
           </div>
         </ChatImages.Provider>
       </div>
@@ -448,24 +452,18 @@ function TurnView({
           <Item item={turn.user} chatId={chatId} live={false} />
         </BlockFrame>
       )}
-      {work.length > 0 && (
-        <BlockFrame id={`${turn.id}:work`} loaded={loaded}>
-          <TurnWork
-            working={working}
-            workedMs={turn.user?.workedMs}
-            images={chatImages(turn.work)}
-            chatId={chatId}
-          >
-            {work.map((block, index) => (
-              <BlockView
-                key={blockId(block)}
-                block={block}
-                chatId={chatId}
-                live={live && answer.length === 0 && index === work.length - 1}
-                loaded={loaded}
-              />
-            ))}
-          </TurnWork>
+      {work.map((block, index) => (
+        <BlockView
+          key={blockId(block)}
+          block={block}
+          chatId={chatId}
+          live={live && answer.length === 0 && index === work.length - 1}
+          loaded={loaded}
+        />
+      ))}
+      {work.length > 0 && !working && turn.user?.workedMs !== undefined && (
+        <BlockFrame id={`${turn.id}:worked`} loaded={loaded}>
+          <WorkedFor ms={turn.user.workedMs} />
         </BlockFrame>
       )}
       {answer.map((block, index) => (
@@ -571,51 +569,12 @@ function BlockView({
 }
 
 /**
- * A turn's work, as Codex shows it: "Activity" while the agent works, then
- * "Worked for 1m 4s" once the turn is done, when it folds away above the
- * answer. A message that steers the agent meanwhile leaves it open. A click
- * opens or folds it at any time.
+ * Where a finished turn's work ends and its answer starts, as Codex marks it:
+ * "Worked for 1m 4s" on a rule. The work stays in sight above it; only its
+ * runs of tool calls are folded, each into one line.
  */
-function TurnWork({
-  working,
-  workedMs,
-  images,
-  chatId,
-  children
-}: {
-  working: boolean
-  workedMs?: number
-  /** The images the work made, such as screenshots: shown under it while it is folded. */
-  images: string[]
-  chatId: string
-  children: React.ReactNode
-}): React.JSX.Element {
-  const [open, setOpen] = useState(working)
-  // Open while the agent works, folded when it finishes (React's pattern for
-  // state that follows a prop: compare with the value at the last render).
-  const [wasWorking, setWasWorking] = useState(working)
-  if (wasWorking !== working) {
-    setWasWorking(working)
-    setOpen(working)
-  }
-  const label =
-    !working && workedMs !== undefined ? `Worked for ${workedFor(workedMs)}` : 'Activity'
-  return (
-    <div className={`turn-work${open ? ' open' : ''}`}>
-      <button className="turn-work-head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        {label}
-        <ChevronIcon width={11} height={11} className="chevron" />
-      </button>
-      {!open && images.length > 0 && (
-        <div className="turn-work-images">
-          <Thumbnails chatId={chatId} files={images} />
-        </div>
-      )}
-      <Collapse open={open} className="turn-work-body">
-        {children}
-      </Collapse>
-    </div>
-  )
+function WorkedFor({ ms }: { ms: number }): React.JSX.Element {
+  return <div className="worked-for">Worked for {workedFor(ms)}</div>
 }
 
 /** The images in chat items, in the order they show: photos sent, and what agents and their calls made. */
@@ -715,7 +674,7 @@ const Item = memo(function Item({
       // Short one-line thoughts are progress notes between tool calls and stay
       // visible; longer ones are the model's raw reasoning and fold away.
       if (item.text.length <= THOUGHT_INLINE_MAX && !item.text.trim().includes('\n')) {
-        return <div className="note">{item.text}</div>
+        return <div className="note">{thoughtHeading(item.text) ?? item.text}</div>
       }
       return <Thinking text={item.text} live={live} />
     case 'plan':
@@ -1208,6 +1167,19 @@ const OPTION_ORDER: Record<string, number> = {
 /** Thoughts up to this length on one line are shown inline instead of folded. */
 const THOUGHT_INLINE_MAX = 300
 
+/**
+ * The last heading of a thought, which Codex's reasoning summaries start each
+ * step with ("**Reading the config**" or "# Reading the config"), without its marks.
+ */
+function thoughtHeading(text: string): string | undefined {
+  const lines = text.trim().split('\n').reverse()
+  for (const line of lines) {
+    const heading = line.trim().match(/^(?:\*\*(.+)\*\*|#{1,6}\s+(.+))$/)
+    if (heading) return (heading[1] ?? heading[2]).trim()
+  }
+  return undefined
+}
+
 /** Output lines shown under an open step before the rest folds away. */
 const OUTPUT_PREVIEW = 12
 
@@ -1274,8 +1246,13 @@ const CATEGORY_ICONS: Record<Category, (p: React.SVGProps<SVGSVGElement>) => Rea
 
 /** The icon of one call, by what it did. */
 function CallIcon({ tool }: { tool: ToolItem }): React.JSX.Element {
+  const looks = looksAround(tool)
   const Icon =
-    callKind(tool) === 'search' || isWebSearch(tool) ? SearchIcon : CATEGORY_ICONS[category(tool)]
+    callKind(tool) === 'search' || isWebSearch(tool) || looks === 'search'
+      ? SearchIcon
+      : looks === 'list'
+        ? FolderIcon
+        : CATEGORY_ICONS[category(tool)]
   return <Icon width={15} height={15} className="call-icon" />
 }
 
@@ -1291,7 +1268,6 @@ function ToolGroup({ tools, chatId }: { tools: ToolItem[]; chatId: string }): Re
   // Images stay in sight while the group is folded; open, each is under its call.
   const images = tools.flatMap((t) => t.images ?? [])
   const active = tools.findLast(isRunning)
-  const failed = tools.filter((t) => t.status === 'failed').length
   const Icon = CATEGORY_ICONS[groupCategories(tools)[0]]
   // Calls all to one of the app's own servers take its color.
   const servers = new Set(tools.map((t) => harnessTool(t)?.server))
@@ -1305,13 +1281,10 @@ function ToolGroup({ tools, chatId }: { tools: ToolItem[]; chatId: string }): Re
       >
         <Icon width={15} height={15} className="call-icon" />
         {active ? (
-          <span className="act-lead shimmer">
-            {callVerb(active)[1]} {toolKindAndTarget(active)[1]}
-          </span>
+          <span className="act-lead shimmer">{callWords(active, true)}</span>
         ) : (
-          <span className="act-lead">{groupSummary(tools)}</span>
+          <span className="act-lead">{groupSteps(tools)}</span>
         )}
-        {failed > 0 && <span className="result-bad">{failed} failed</span>}
         <ChevronIcon width={10} height={10} className="chevron" />
       </button>
       {!open && images.length > 0 && (
@@ -1381,7 +1354,6 @@ function AgentRow({
           {steps.length > 0 && (
             <span className="call-result">{plural(steps.length, 'step', 'steps')}</span>
           )}
-          {item.status === 'failed' && <span className="result-bad">failed</span>}
           {item.status === 'interrupted' && <span className="call-result">interrupted</span>}
           <ChevronIcon width={10} height={10} className="chevron" />
         </button>
@@ -1439,8 +1411,12 @@ const CallRow = memo(function CallRow({
   const [done, doing] = callVerb(tool)
   const target = toolKindAndTarget(tool)[1]
   const file = callKind(tool) === 'read' || callKind(tool) === 'edit'
+  // A command opens on its shell card, as in Codex, even before it has output.
+  const shell = callKind(tool) === 'run' && !harnessTool(tool)
   // A read's output is the file itself: nothing to open.
-  const expandable = lines.length > 0 && tool.toolKind !== 'read'
+  // A failure is told only inside the call, so a failed one opens even without output.
+  const failed = tool.status === 'failed'
+  const expandable = shell || failed || (lines.length > 0 && tool.toolKind !== 'read')
   const hidden = lines.length - OUTPUT_PREVIEW
   const shown = all || hidden <= 0 ? lines : lines.slice(0, OUTPUT_PREVIEW)
   const server = harnessTool(tool)?.server
@@ -1455,8 +1431,9 @@ const CallRow = memo(function CallRow({
         onClick={() => setOpen((o) => !o)}
       >
         <CallIcon tool={tool} />
+        {/* A command reads as words here; its card shows the command itself. */}
         <span className={`call-verb${running ? ' shimmer' : ''}`}>{running ? doing : done}</span>
-        <span className={`call-target${file ? ' file' : ''}`}>{target}</span>
+        {target && <span className={`call-target${file ? ' file' : ''}`}>{target}</span>}
         <CallResult tool={tool} lines={lines} />
         {expandable && <ChevronIcon width={10} height={10} className="chevron" />}
       </button>
@@ -1465,25 +1442,35 @@ const CallRow = memo(function CallRow({
           <Thumbnails chatId={chatId} files={tool.images} />
         </div>
       )}
-      {expandable && (
-        <Collapse open={open} className="step-output">
-          {shown.map((line, index) => (
-            <div key={index} className={diffClass(line)}>
-              {line || ' '}
-            </div>
-          ))}
-          {hidden > 0 && (
-            <button className="step-more" onClick={() => setAll((a) => !a)}>
-              {all ? 'Show less' : `Show ${hidden} more line${hidden === 1 ? '' : 's'}`}
-            </button>
-          )}
+      {shell ? (
+        <Collapse open={open} className="shell-card">
+          <ShellCard tool={tool} lines={lines} />
         </Collapse>
+      ) : (
+        expandable && (
+          <Collapse open={open} className="step-output">
+            {shown.map((line, index) => (
+              <div key={index} className={diffClass(line)}>
+                {line || ' '}
+              </div>
+            ))}
+            {hidden > 0 && (
+              <button className="step-more" onClick={() => setAll((a) => !a)}>
+                {all ? 'Show less' : `Show ${hidden} more line${hidden === 1 ? '' : 's'}`}
+              </button>
+            )}
+            {failed && <div className="step-failed">Failed</div>}
+          </Collapse>
+        )
       )}
     </div>
   )
 })
 
-/** What came of a call, after its target: a failure, or an edit's line counts. */
+/**
+ * What came of a call, after its target: an edit's line counts. Failures are
+ * not marked, as in Codex: the agent deals with them and says so if it matters.
+ */
 function CallResult({
   tool,
   lines
@@ -1492,7 +1479,6 @@ function CallResult({
   lines: string[]
 }): React.JSX.Element | null {
   if (isRunning(tool)) return null
-  if (tool.status === 'failed') return <span className="result-bad">failed</span>
   if (tool.status === 'interrupted') return <span className="call-result">interrupted</span>
   if (tool.toolKind === 'edit') {
     const added = lines.filter((l) => lineClass(l) === 'diff-add').length
@@ -1500,6 +1486,94 @@ function CallResult({
     if (added || removed) return <DiffCount added={added} removed={removed} />
   }
   return null
+}
+
+/**
+ * A command's output as the terminal printed it. Claude Code fences it as
+ * markdown (```) and puts "Exit code 1" first, which the card's end says.
+ */
+function shellOutput(lines: string[]): string[] {
+  let from = 0
+  let to = lines.length
+  if (/^```\w*$/.test(lines[from]?.trim() ?? '')) from++
+  if (to > from && lines[to - 1].trim() === '```') to--
+  if (/^exit code \d+$/i.test(lines[from]?.trim() ?? '')) from++
+  return lines.slice(from, to)
+}
+
+/** How a finished command ended, as Codex's shell card says it; nothing while it runs. */
+function commandEnd(tool: ToolItem, lines: string[]): React.ReactNode {
+  if (isRunning(tool)) return null
+  if (tool.status === 'interrupted') return 'Stopped'
+  if (tool.status === 'failed') {
+    const code = lines.join('\n').match(/exit (?:code|status)[:\s]+(\d+)/i)?.[1]
+    return code ? `Exit code ${code}` : 'Failed'
+  }
+  return (
+    <>
+      <CheckIcon width={12} height={12} /> Success
+    </>
+  )
+}
+
+/**
+ * A command opened, as Codex's shell card: the command after a "$", its
+ * output in a box that scrolls and keeps its end in sight, and how it ended.
+ */
+function ShellCard({ tool, lines: all }: { tool: ToolItem; lines: string[] }): React.JSX.Element {
+  const command = commandText(tool)
+  const [whole, setWhole] = useState(false)
+  const lines = shellOutput(all)
+  return (
+    <div className="shell">
+      <div className="shell-command">
+        <span className="shell-prompt">$</span>
+        <button
+          type="button"
+          className={`shell-command-text${whole ? ' whole' : ''}`}
+          onClick={() => setWhole((w) => !w)}
+        >
+          {command}
+        </button>
+        <CopyButton text={command} label="Copy command" />
+      </div>
+      {lines.length > 0 ? (
+        <div className="shell-output">
+          <CopyButton text={lines.join('\n')} label="Copy output" />
+          {/* Reversed, so the box starts scrolled to the output's end. */}
+          <div className="shell-lines">
+            <div>{lines.join('\n')}</div>
+          </div>
+        </div>
+      ) : (
+        !isRunning(tool) && <div className="shell-empty">No output</div>
+      )}
+      <div className="shell-end">{commandEnd(tool, lines)}</div>
+    </div>
+  )
+}
+
+function CopyButton({ text, label }: { text: string; label: string }): React.JSX.Element {
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const timer = setTimeout(() => setCopied(false), 1500)
+    return () => clearTimeout(timer)
+  }, [copied])
+  return (
+    <button
+      type="button"
+      className="icon-btn shell-copy"
+      title={copied ? 'Copied' : label}
+      aria-label={label}
+      onClick={async () => {
+        await navigator.clipboard.writeText(text)
+        setCopied(true)
+      }}
+    >
+      {copied ? <CheckIcon width={13} height={13} /> : <CopyIcon width={13} height={13} />}
+    </button>
+  )
 }
 
 /** A file a turn edited, with its diff lines and how many were added and removed. */
@@ -1619,13 +1693,14 @@ function Thinking({ text, live }: { text: string; live: boolean }): React.JSX.El
   )
 }
 
+/** The todos as Codex lists them: an empty circle, a spinner, or a circle with a check. */
 function TodoList({ entries }: { entries: PlanEntry[] }): React.JSX.Element {
   return (
     <div className="todo-list">
       {entries.map((entry, index) => (
         <div key={index} className={`todo ${entry.status}`}>
-          <span className="todo-box">
-            {entry.status === 'completed' && <CheckIcon width={10} height={10} />}
+          <span className="todo-mark">
+            {entry.status === 'completed' && <CheckIcon width={9} height={9} />}
           </span>
           {entry.content}
         </div>
@@ -1634,17 +1709,47 @@ function TodoList({ entries }: { entries: PlanEntry[] }): React.JSX.Element {
   )
 }
 
-/** A todo update in the chat: one line with the progress, the list on click. */
+/** How far the todos are, as Codex's ring: the done part filled in. */
+function TodoRing({ done, total }: { done: number; total: number }): React.JSX.Element {
+  const length = 2 * Math.PI * 5
+  return (
+    <svg className="todo-ring" width={12} height={12} viewBox="0 0 12 12" aria-hidden>
+      <circle cx={6} cy={6} r={5} />
+      <circle
+        cx={6}
+        cy={6}
+        r={5}
+        strokeDasharray={length}
+        strokeDashoffset={length * (1 - done / Math.max(1, total))}
+      />
+    </svg>
+  )
+}
+
+/** The step the agent is on: the one in progress, else the first not done, else the last. */
+function currentStep(entries: PlanEntry[]): number {
+  const at = entries.findIndex((e) => e.status === 'in_progress')
+  if (at >= 0) return at
+  const next = entries.findIndex((e) => e.status !== 'completed')
+  return next >= 0 ? next : entries.length - 1
+}
+
+/**
+ * The todos in the chat, where the agent set them: Codex's ring and "Step 2 / 5"
+ * with the step it is on; the whole list on click.
+ */
 function PlanStep({ entries }: { entries: PlanEntry[] }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const done = entries.filter((e) => e.status === 'completed').length
+  const step = currentStep(entries)
   return (
     <div className={`activity${open ? ' open' : ''}`}>
       <button className="act-line" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        <span className="act-lead">Updated todos</span>
-        <span className="act-detail">
-          {done} of {entries.length} done
+        <TodoRing done={done} total={entries.length} />
+        <span className="act-lead todo-step">
+          Step {step + 1} / {entries.length}
         </span>
+        <span className="act-detail">{entries[step]?.content}</span>
         <ChevronIcon width={10} height={10} className="chevron" />
       </button>
       <Collapse open={open} className="act-body">
@@ -1654,28 +1759,26 @@ function PlanStep({ entries }: { entries: PlanEntry[] }): React.JSX.Element {
   )
 }
 
-/** The chat's open todos, pinned above the composer while the agent works through them. */
+/**
+ * The chat's open todos, pinned above the composer while the agent works
+ * through them, as Codex's pill: the ring, "Step 2 / 5" and the step it is on.
+ * A click or tap opens the list.
+ */
 function TodoStrip({ entries }: { entries: PlanEntry[] }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const done = entries.filter((e) => e.status === 'completed').length
-  const next =
-    entries.find((e) => e.status === 'in_progress') ?? entries.find((e) => e.status !== 'completed')
+  const step = currentStep(entries)
   return (
     <div className={`todo-strip${open ? ' open' : ''}`}>
       <Collapse open={open} className="todo-strip-list">
         <TodoList entries={entries} />
       </Collapse>
       <button className="todo-bar" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        <span className="todo-label">Todos</span>
-        <span className="todo-bars">
-          {entries.map((entry, index) => (
-            <i key={index} className={entry.status} />
-          ))}
+        <TodoRing done={done} total={entries.length} />
+        <span className="todo-step">
+          Step {step + 1} / {entries.length}
         </span>
-        <span>
-          {done} of {entries.length}
-        </span>
-        {next && <span className="todo-next">Next: {next.content}</span>}
+        <span className="todo-next">{entries[step]?.content}</span>
       </button>
     </div>
   )
@@ -1791,7 +1894,17 @@ function spoken(text: string): string {
   return `…${end.slice(end.indexOf(' ') + 1)}`
 }
 
-function Working(): React.JSX.Element {
+/**
+ * What the agent does now, as Codex's status says it: the heading of what it
+ * is thinking ("Reading the config"), else "Thinking" while it thinks, else "Working".
+ */
+function workingLabel(items: ChatItem[]): string {
+  const last = items.at(-1)
+  if (last?.kind !== 'thought') return 'Working'
+  return thoughtHeading(last.text) ?? 'Thinking'
+}
+
+function Working({ label }: { label: string }): React.JSX.Element {
   const [seconds, setSeconds] = useState(0)
   useEffect(() => {
     const started = Date.now()
@@ -1800,7 +1913,7 @@ function Working(): React.JSX.Element {
   }, [])
   return (
     <div className="working">
-      <span className="shimmer">Working</span>
+      <span className="shimmer working-label">{label}</span>
       <span className="working-time">
         {elapsed(seconds)}
         {/* A key to press, so not on a touch screen (remote.css). */}

@@ -81,12 +81,12 @@ Everything in the chat is a page element like the rest, so the same file restyle
 
 - `.user-msg .bubble`: the user's messages (tokens `--bubble`, `--bubble-text`, `--radius-bubble`).
 - `.markdown`: the agent's replies, with ordinary `p`, `h1` to `h3`, `ul`, `a`, `code` and `pre` inside.
-- `.activity`: a group of tool calls. `.act-line` is its summary line ("Ran 3 commands"), `.call` one tool call with `.call-verb` and `.call-target`, and `.open` marks a group or call that is expanded. `.thinking-body` is the model's thinking.
-- `.turn-work`: a turn's work, open while the agent works and folded into "Worked for 1m 6s" (`.turn-work-head`) once it is done. Permission prompts and the agent's questions (`.ask-card`) sit in it too. To hide tool calls, hide `.activity`, never `.turn-work` or its body: that would hide a prompt the agent is waiting on, and the chat would look stuck.
+- `.activity`: a group of tool calls. `.act-line` is its summary line ("Read files, ran commands"), `.call` one tool call with `.call-verb` and `.call-target`, `.shell` a command's card once opened, and `.open` marks a group or call that is expanded. `.thinking-body` is the model's thinking. To hide tool calls, hide `.activity` and `.call`, never `.ask-card`: that would hide a prompt the agent is waiting on, and the chat would look stuck.
+- `.worked-for`: the "Worked for 1m 6s" line between a finished turn's work and its answer.
 - `.answer-actions`: the buttons under a reply.
 - `.composer`: the message field, a grid with the areas `header`, `leading`, `primary` and `trailing`. Its buttons sit in `.composer-leading` and `.composer-trailing`. `display: contents` on one of those lets each button be placed on its own with `grid-area` or `order`.
 
-Folded parts (a tool call's output, an edited file's diff, a finished turn's work) are only put in the page the first time they are opened, so a stylesheet can hide them or restyle them once open, but can't make them start open.
+Folded parts (a tool call's output, an edited file's diff) are only put in the page the first time they are opened, so a stylesheet can hide them or restyle them once open, but can't make them start open.
 
 `see_app` only outlines what the window shows. When the parts you need aren't on screen (no tool calls in the open chat), ask the user to open a chat that has them.
 

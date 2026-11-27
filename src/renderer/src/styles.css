@@ -1634,7 +1634,7 @@ img.project-icon {
   padding: 0 4px;
 }
 
-/* A short progress note between tool calls: the agent says it to the user, so it reads like its answer. */
+/* A short thought between tool calls: the agent telling what it does, so it reads like its messages. */
 .note {
   padding: 0 4px;
 }
@@ -1677,11 +1677,21 @@ img.project-icon {
   display: inline-flex;
   align-items: baseline;
   gap: 8px;
+  max-width: 100%;
   padding: 3px 4px;
   font-size: 14px;
 }
 
+/* What the agent thinks about now can be long: it keeps to one line. */
+.working-label {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .working-time {
+  flex-shrink: 0;
   color: var(--text-muted);
 }
 
@@ -1690,6 +1700,13 @@ img.project-icon {
  * run of calls is one summary line ("Edited 2 files, explored 3 files"); its
  * calls open underneath. What is happening right now shimmers.
  */
+
+/* Activity reads smaller than what the agent says, like ChatGPT's "Thought for 12s". */
+.block > .activity,
+.block > .call {
+  font-size: 14px;
+  line-height: 1.6;
+}
 
 .act-line {
   display: flex;
@@ -1822,51 +1839,42 @@ img.project-icon {
   --text-muted: var(--harness);
 }
 
-/* An open group's rows line up under its line, without an indent rule. */
+/* An open group's rows, as in Codex: set in under its line, along a hairline. */
 .tool-rows {
+  position: relative;
   margin: 2px 0 4px;
+  padding-left: 24px;
+}
+
+.tool-rows::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 11px;
+  width: 1px;
+  background: var(--border);
 }
 
 /*
- * A turn's work, as in Codex: "Activity" while the agent works, then "Worked
- * for …", folded above the answer once the turn is done. It reads smaller
- * than the answer, like ChatGPT's "Thought for 12s".
+ * Where a finished turn's work ends and its answer starts, as Codex marks it:
+ * "Worked for 1m 4s" with a hairline running on to the right.
  */
-.turn-work {
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-/* A turn's summary opens its calls: an outlined pill, as what can be clicked in a chat is. */
-.turn-work-head {
+.worked-for {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 12px;
+  gap: 12px;
+  padding: 0 4px;
   color: var(--text-muted);
-  text-align: left;
-  border-radius: var(--radius-pill);
-  box-shadow: inset 0 0 0 1px var(--border);
+  font-size: 13px;
+  white-space: nowrap;
 }
 
-.turn-work-head:hover,
-.turn-work.open > .turn-work-head {
-  color: var(--text-soft);
-}
-
-.turn-work > .turn-work-head .chevron {
-  opacity: 1;
-}
-
-.turn-work.open > .turn-work-head .chevron {
-  transform: rotate(90deg);
-}
-
-.turn-work-body {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-top: 6px;
+.worked-for::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
 }
 
 /* Under a finished answer, as in ChatGPT: copy, its icon lined up with the text. */
@@ -1976,10 +1984,48 @@ img.project-icon {
   font-size: 12px;
 }
 
-/* The chevron turns while the line is open. */
+/*
+ * The chevron turns while the line is open. As in Codex it shows on hover or
+ * while open; on a touch screen, which has no hover, it always shows.
+ */
 .act-line .chevron,
 .call-line .chevron {
   align-self: center;
+  opacity: 0;
+  transition:
+    transform 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.act-line:hover .chevron,
+.act-line:focus-visible .chevron,
+.call-line:hover .chevron,
+.call-line:focus-visible .chevron,
+.activity.open > .act-line .chevron,
+.activity.open > .act-row > .act-line .chevron,
+.call.open > .call-line .chevron {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .act-line .chevron,
+  .call-line .chevron {
+    opacity: 1;
+  }
+}
+
+/* A row's line counts stay muted, as in Codex, and take their colors on hover. */
+.call-line .diff-count :is(.result-add, .result-del) {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.call-line:hover .diff-count .result-add {
+  color: var(--ok);
+}
+
+.call-line:hover .diff-count .result-del {
+  color: var(--danger);
 }
 
 .activity.open > .act-line .chevron,
@@ -2036,12 +2082,117 @@ img.project-icon {
   font-weight: 600;
 }
 
-.result-del,
-.result-bad {
+.result-del {
   flex-shrink: 0;
   white-space: nowrap;
   color: var(--danger);
   font-weight: 600;
+}
+
+/*
+ * A command opened, as Codex's shell card: "$ command", its output in a box
+ * that scrolls with its end in sight, and how it ended on the right.
+ */
+.shell-card {
+  padding: 4px 0 8px;
+}
+
+.shell {
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+}
+
+.shell-command {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 6px 4px 12px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.shell-prompt {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+/* Two lines of a long command; a click shows it whole. */
+.shell-command-text {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.shell-command-text.whole {
+  -webkit-line-clamp: unset;
+}
+
+.shell-output {
+  position: relative;
+}
+
+.shell-lines {
+  display: flex;
+  flex-direction: column-reverse;
+  max-height: 144px;
+  overflow: auto;
+  padding: 4px 12px;
+  color: var(--text-soft);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.shell-empty {
+  padding: 4px 12px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.shell-end {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  min-height: 8px;
+  padding: 2px 12px 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.shell-copy.icon-btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  color: var(--text-muted);
+  opacity: 0;
+}
+
+.shell-output > .shell-copy {
+  position: absolute;
+  top: 0;
+  right: 6px;
+  z-index: 1;
+  background: var(--well);
+}
+
+.shell-command:hover > .shell-copy,
+.shell-output:hover > .shell-copy,
+.shell-copy:focus-visible {
+  opacity: 1;
 }
 
 /* A call's output or diff, open under its row. */
@@ -2077,6 +2228,15 @@ img.project-icon {
 .step-output .diff-del {
   background: var(--del-bg);
   color: var(--del-text);
+}
+
+/* A failed call says so at the end of its output, only when opened. */
+.step-output > .step-failed {
+  padding-top: 4px;
+  color: var(--text-muted);
+  font-family: var(--sans);
+  font-size: 13px;
+  text-align: right;
 }
 
 .step-more {
@@ -2613,53 +2773,83 @@ img.project-icon {
 
 /* Todos: in a card, and pinned above the composer */
 
+/* The todos as Codex lists them: an empty circle, a spinner, or a circle with a check; no strike-through. */
 .todo-list {
   display: grid;
-  gap: 2px;
+  gap: 6px;
 }
 
 .todo {
   display: flex;
   align-items: baseline;
-  gap: 9px;
+  gap: 8px;
+  color: var(--text-soft);
 }
 
-.todo-box {
-  width: 15px;
-  height: 15px;
+.todo-mark {
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
   display: inline-grid;
   place-items: center;
   align-self: center;
   box-shadow: inset 0 0 0 1.5px var(--border-strong);
-  border-radius: var(--radius-sm);
+  border-radius: 50%;
 }
 
 .todo.completed {
   color: var(--text-muted);
 }
 
-.todo.completed .todo-box {
-  background: var(--solid);
-  box-shadow: none;
-  color: var(--on-solid);
+.todo.completed .todo-mark {
+  box-shadow: inset 0 0 0 1.5px var(--text-muted);
+  color: var(--text-muted);
 }
 
 .todo.in_progress {
   color: var(--text);
-  font-weight: 600;
 }
 
-.todo.in_progress .todo-box {
-  box-shadow: inset 0 0 0 1.5px var(--accent);
+.todo.in_progress .todo-mark {
+  border: 1.5px solid var(--fill-strong);
+  border-top-color: var(--accent);
+  box-shadow: none;
+  animation: todo-spin 0.9s linear infinite;
 }
 
-.todo.in_progress .todo-box::after {
-  content: '';
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--accent);
+@keyframes todo-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .todo.in_progress .todo-mark {
+    animation: none;
+  }
+}
+
+/* How far the todos are: Codex's ring, the done part filled in. */
+.todo-ring {
+  flex-shrink: 0;
+  align-self: center;
+  transform: rotate(-90deg);
+}
+
+.todo-ring circle {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  transition: stroke-dashoffset 120ms ease-out;
+}
+
+.todo-ring circle:first-child {
+  opacity: 0.16;
+}
+
+.todo-step {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .todo-strip {
@@ -2689,30 +2879,8 @@ img.project-icon {
   text-align: left;
 }
 
-.todo-label {
+.todo-bar:hover {
   color: var(--text);
-  font-weight: 500;
-}
-
-.todo-bars {
-  display: flex;
-  gap: 3px;
-  flex-shrink: 0;
-}
-
-.todo-bars i {
-  width: 14px;
-  height: 4px;
-  background: var(--fill-strong);
-  border-radius: var(--radius-sm);
-}
-
-.todo-bars i.completed {
-  background: var(--solid);
-}
-
-.todo-bars i.in_progress {
-  background: var(--accent);
 }
 
 .todo-next {
@@ -3142,11 +3310,6 @@ img.project-icon {
 /* A call's images, lined up with its words after the icon. */
 .call-images {
   padding: 2px 4px 4px 27px;
-}
-
-/* The images a folded turn's work made, under its "Worked for" line. */
-.turn-work-images {
-  padding: 4px 4px 2px;
 }
 
 /*
@@ -7010,7 +7173,6 @@ button,
 .picker-button,
 .style-grid button,
 .lead-toggle,
-.turn-work-head,
 .skill-row,
 .palette-row,
 .menu button,
@@ -7043,7 +7205,6 @@ button,
 }
 
 :is(
-  .turn-work-head,
   .skill-row,
   .palette-row,
   .menu button,

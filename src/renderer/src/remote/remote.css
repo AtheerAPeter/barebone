@@ -822,14 +822,12 @@ html.remote .remote-browser.wide .rb-notice {
   }
 
   html.remote .working,
-  html.remote .note,
   html.remote .chat-notice,
   html.remote .resolved {
     font-size: 15px;
   }
 
-  html.remote .working,
-  html.remote .note {
+  html.remote .working {
     padding: 4px;
   }
 
@@ -851,6 +849,10 @@ html.remote .remote-browser.wide .rb-notice {
   html.remote .call.alone > .call-line {
     padding: 4px 4px;
     font-size: 15px;
+  }
+
+  html.remote .worked-for {
+    font-size: 14px;
   }
 
   html.remote .act-body {
@@ -999,6 +1001,12 @@ html.remote .remote-browser.wide .rb-notice {
   html.remote .background-strip,
   html.remote .waiting-strip {
     font-size: 15px;
+  }
+
+  /* The todos' pill: thumb-high. */
+  html.remote .todo-bar {
+    height: 40px;
+    font-size: 14px;
   }
 
   /* Thumb-sized ends on a waiting message's row. */

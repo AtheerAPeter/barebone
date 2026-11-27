@@ -1661,7 +1661,10 @@ class AgentProcess implements AgentBackend {
       case 'compaction_update':
         return this.onCompaction(chatId, update)
       case 'plan': {
-        const existing = store.getMessages(chatId).findLast((i) => i.kind === 'plan')
+        // The turn's own todos update in place; a later turn's start where it is.
+        const messages = store.getMessages(chatId)
+        const turnStart = messages.findLastIndex((i) => i.kind === 'user')
+        const existing = messages.slice(turnStart + 1).findLast((i) => i.kind === 'plan')
         this.emit(chatId, {
           kind: 'plan',
           id: existing?.id ?? crypto.randomUUID(),
