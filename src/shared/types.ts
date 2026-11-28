@@ -190,11 +190,36 @@ export interface BotRoutine {
   nextAt: number
 }
 
+/**
+ * A profile: its own projects (with their chats) and its own browser, with
+ * its own cookies and logins. Everything else (settings, providers, keys) is
+ * the app's, shared by every profile. The window shows one profile at a time.
+ */
+export interface Profile {
+  id: string
+  name: string
+  createdAt: number
+  /** The tabs of the user's own browser (Browser in the sidebar) in this profile, kept across restarts. */
+  browserTabs?: SavedTabs
+}
+
+/** The profile every project made before profiles is in; its browser keeps the logins from then. */
+export const DEFAULT_PROFILE = 'default'
+
+/** The state as the window shows it: the active profile's projects, and their chats. */
+export function profileView(state: AppState): AppState {
+  const projects = state.projects.filter((p) => p.profileId === state.profileId)
+  const ids = new Set(projects.map((p) => p.id))
+  return { ...state, projects, chats: state.chats.filter((c) => ids.has(c.projectId)) }
+}
+
 export interface Project {
   id: string
   name: string
   path: string
   createdAt: number
+  /** The profile it is in: its chats are listed there, and their browsers use that profile's logins. */
+  profileId: string
   /** Marks the project's icon and its chats in the sidebar: a preset, or a custom #rrggbb. */
   color?: ProjectColor | `#${string}`
   /** Chosen by the user; unset shows the project's own icon (its favicon) if it has one. */
@@ -519,6 +544,10 @@ export function appName(state: Pick<AppState, 'name'>): string {
 }
 
 export interface AppState {
+  /** At least one; projects made before profiles are in DEFAULT_PROFILE. */
+  profiles: Profile[]
+  /** The profile the window shows. */
+  profileId: string
   projects: Project[]
   chats: Chat[]
   /**
@@ -551,8 +580,6 @@ export interface AppState {
   music?: boolean
   /** Whether agents get the device tools, for mobile apps (main/devices.ts). Off when missing. */
   mobile?: boolean
-  /** The tabs of the user's own browser (Browser in the sidebar), kept across restarts. */
-  browserTabs?: SavedTabs
   /** The size chats' browser pages are laid out at, picked in the panel's toolbar; 'panel' (filling it) when missing. */
   browserSize?: BrowserSize
   /**
@@ -567,8 +594,8 @@ export interface AppState {
 /**
  * The user's own browser, Browser in the sidebar: tabs of its own, kept by
  * the built-in browser (main/browser.ts) under this key, where each chat's
- * are kept under the chat's id. It shares the chats' browser profile, so the
- * same logins.
+ * are kept under the chat's id. It is the active profile's, so it has the
+ * same logins as that profile's chats.
  */
 export const OWN_BROWSER = 'browser'
 

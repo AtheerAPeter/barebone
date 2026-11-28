@@ -65,7 +65,10 @@ export function remoteApi(): {
   const receive = (message: ServerMessage): void => {
     if (message.t === 'state') {
       const first = !state
-      state = applyPatch(state ?? { projects: [], chats: [] }, message.patch)
+      state = applyPatch(
+        state ?? { profiles: [], profileId: '', projects: [], chats: [] },
+        message.patch
+      )
       if (first) stateWaiters.splice(0).forEach((resolve) => resolve(state!))
       else emit('state:changed', state)
     } else if (message.t === 'ret') {

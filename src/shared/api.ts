@@ -27,6 +27,7 @@ import type {
   GitLog,
   GitStatus,
   OrbState,
+  Profile,
   Project,
   RecordingRequest,
   RemoteBrowserView,
@@ -300,6 +301,17 @@ export function makeApi(t: Transport) {
       remove: (id: string): Promise<void> => invoke('providers:remove', id),
       /** List the provider's models now: how many, or why it could not. */
       check: (id: string): Promise<CustomProviderCheck> => invoke('providers:check', id)
+    },
+
+    /** Profiles: each has its own projects, chats and browser logins; the window shows one. */
+    profiles: {
+      add: (name: string): Promise<Profile> => invoke('profile:add', name),
+      rename: (profileId: string, name: string): Promise<void> =>
+        invoke('profile:rename', profileId, name),
+      /** Show this profile's projects and chats; the user's own browser takes its logins. */
+      switch: (profileId: string): Promise<void> => invoke('profile:switch', profileId),
+      /** Delete a profile with its projects and chats, once the user confirms on the Mac. */
+      remove: (profileId: string): Promise<void> => invoke('profile:remove', profileId)
     },
 
     addProject: (): Promise<Project | null> => invoke('project:add'),

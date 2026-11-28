@@ -60,6 +60,7 @@ import {
   IconTool,
   IconTrash,
   IconUpload,
+  IconUserCircle,
   IconUserCog,
   IconVideo,
   IconMusic,
@@ -213,5 +214,7 @@ export const InfoIcon = fromTabler(IconInfoCircle)
 export const PaletteIcon = fromTabler(IconPalette)
 /** Telegram's paper plane, on the Control from Telegram settings. */
 export const TelegramIcon = fromTabler(IconBrandTelegram)
+/** A profile: its own projects, chats and browser logins (Settings → Profiles). */
+export const ProfileIcon = fromTabler(IconUserCircle)
 /** The persona the agent's main conversation runs as (Claude Code's custom agents). */
 export const PersonaIcon = fromTabler(IconUserCog)

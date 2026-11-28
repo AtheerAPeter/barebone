@@ -133,8 +133,8 @@ export function freeFolder(name: string): string {
   return path
 }
 
-/** Make a bot: its folder, with its instructions and an empty memory, and its project. */
-export function createBot(bot: NewBot): Project {
+/** Make a bot in a profile: its folder, with its instructions and an empty memory, and its project. */
+export function createBot(bot: NewBot, profileId: string): Project {
   const name = bot.name.trim()
   if (!name) throw new Error('"name" is empty.')
   if (name.length > MAX_NAME) throw new Error(`"name" is longer than ${MAX_NAME} characters.`)
@@ -152,6 +152,7 @@ export function createBot(bot: NewBot): Project {
     name,
     path,
     createdAt: Date.now(),
+    profileId,
     color: bot.color,
     bot: { shape: bot.shape, job: look.job }
   }

@@ -37,7 +37,7 @@ import { AgentManager } from './agents'
 import { Limits } from './limits'
 import { BotNotices } from './bot-notices'
 import { Routines } from './routines'
-import { BuiltinBrowser } from './browser'
+import { BuiltinBrowser, clearProfileData, partitionFor } from './browser'
 import {
   chatsMcpEndpoint,
   devicesMcpEndpoint,
@@ -378,10 +378,10 @@ function createWindow(): BuiltinBrowser {
     },
     (chatId) => store.getState().chats.some((c) => c.id === chatId && c.running),
     {
-      // The user's own browser (Browser in the sidebar) keeps its tabs in the app's state.
+      // The user's own browser (Browser in the sidebar) keeps its tabs in the active profile.
       get: (chatId) =>
         chatId === OWN_BROWSER
-          ? store.getState().browserTabs
+          ? store.activeProfile().browserTabs
           : store.getState().chats.find((c) => c.id === chatId)?.browserTabs,
       set: (chatId, tabs) => {
         if (chatId === OWN_BROWSER) store.setBrowserTabs(tabs)
@@ -389,7 +389,10 @@ function createWindow(): BuiltinBrowser {
           store.updateChat(chatId, { browserTabs: tabs })
         }
       }
-    }
+    },
+    // Each chat's pages have its profile's logins; the user's own browser, the active profile's.
+    (chatId) =>
+      partitionFor(chatId === OWN_BROWSER ? store.activeProfile().id : store.profileOf(chatId))
   )
 
   browser.setSize(store.getState().browserSize ?? 'panel')
@@ -699,8 +702,9 @@ function registerGitIpc(): void {
 /** Bots (bots.ts): chats make them, and the window shows their dashboards and memory. */
 function registerBotsIpc(): void {
   provideBots({
-    create: (_caller, bot) => {
-      const project = createBot(bot)
+    // A bot a chat makes is in that chat's profile.
+    create: (caller, bot) => {
+      const project = createBot(bot, store.profileOf(caller))
       stateChanged()
       return project
     },
@@ -793,7 +797,7 @@ function registerBotsIpc(): void {
       const file = result.filePaths[0]
       if (result.canceled || !file) return null
       try {
-        const project = await importBot(file)
+        const project = await importBot(file, store.activeProfile().id)
         stateChanged()
         return project
       } catch (error) {
@@ -828,11 +832,20 @@ function registerBotsIpc(): void {
   })
 }
 
-/** The project of a folder: the one there already, or a new one named after it. */
+/** The project of a folder in the active profile: the one there already, or a new one named after it. */
 function projectAt(path: string): Project {
-  const existing = store.getState().projects.find((p) => p.path === path)
+  const profileId = store.activeProfile().id
+  const existing = store
+    .getState()
+    .projects.find((p) => p.path === path && p.profileId === profileId)
   if (existing) return existing
-  const project = { id: crypto.randomUUID(), name: basename(path), path, createdAt: Date.now() }
+  const project = {
+    id: crypto.randomUUID(),
+    name: basename(path),
+    path,
+    createdAt: Date.now(),
+    profileId
+  }
   store.addProject(project)
   stateChanged()
   return project
@@ -963,6 +976,55 @@ function registerIpc(browser: BuiltinBrowser): void {
   handle('project:folders', (typed: string) => folderSuggestions(typed))
   registerFileManager()
   terminals.register()
+
+  // Profiles: each has its own projects, chats and browser logins.
+  handle('profile:add', (name: string) => {
+    const profile = store.addProfile(name)
+    stateChanged()
+    return profile
+  })
+  handle('profile:rename', (profileId: string, name: string) => {
+    store.renameProfile(profileId, name)
+    stateChanged()
+  })
+  handle('profile:switch', (profileId: string) => switchProfile(profileId))
+  handle(
+    'profile:remove',
+    async (profileId: string) => {
+      const { profiles, projects, chats } = store.getState()
+      const profile = profiles.find((p) => p.id === profileId)
+      if (!profile || profiles.length === 1) return
+      const ids = new Set(projects.filter((p) => p.profileId === profileId).map((p) => p.id))
+      const removed =
+        ids.size === 0
+          ? ''
+          : `${ids.size === 1 ? 'Its project' : `Its ${ids.size} projects`} and their chats are removed from Barebone; the folders stay where they are. `
+      const { response } = await dialog.showMessageBox(mainWindow, {
+        type: 'warning',
+        message: `Delete the ${profile.name} profile?`,
+        detail: `${removed}Its browser is signed out of every site.`,
+        buttons: ['Delete', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1
+      })
+      if (response !== 0) return
+      for (const chat of chats.filter((c) => ids.has(c.projectId))) await deleteChat(chat.id)
+      const wasActive = store.getState().profileId === profileId
+      store.removeProfile(profileId)
+      if (wasActive) browser.reopen(OWN_BROWSER)
+      stateChanged()
+      await clearProfileData(profileId)
+    },
+    MAC_ONLY
+  )
+
+  /** Show another profile; the user's own browser reopens with its tabs and logins. */
+  function switchProfile(profileId: string): void {
+    if (store.getState().profileId === profileId) return
+    store.setActiveProfile(profileId)
+    browser.reopen(OWN_BROWSER)
+    stateChanged()
+  }
 
   handle('project:remove', (projectId: string) => {
     store.removeProject(projectId)

@@ -3,6 +3,7 @@ import { renderSVG } from 'uqr'
 import {
   NAME_MAX,
   type DownloadId,
+  type Profile,
   type Downloads,
   type DownloadStatus,
   type MobileToolCheck,
@@ -27,6 +28,7 @@ import {
   PencilIcon,
   PhoneIcon,
   PlugIcon,
+  ProfileIcon,
   RouteIcon,
   SearchIcon,
   ServerIcon,
@@ -40,6 +42,7 @@ import {
   WaveformIcon,
   WrenchIcon
 } from './icons'
+import { ProfilesBody } from './ProfilesCard'
 import { ProvidersBody } from './ProvidersCard'
 import { RemoteLinkBody, SignedInBody } from './RemoteLinkCard'
 import { SettingsDialog, SettingsRow, Switch } from './SettingsRow'
@@ -104,6 +107,8 @@ export function SettingsView({
   speech,
   voices,
   music,
+  profiles,
+  profileId,
   onProvidersChange
 }: {
   name: string | undefined
@@ -115,6 +120,9 @@ export function SettingsView({
   speech: boolean
   voices: Voices
   music: boolean
+  profiles: Profile[]
+  /** The profile the window shows. */
+  profileId: string
   onProvidersChange: () => void
 }): React.JSX.Element {
   const [query, setQuery] = useState('')
@@ -215,6 +223,27 @@ export function SettingsView({
       ),
       status: name ?? 'Barebone',
       panel: { label: 'Edit', body: <NameForm saved={name ?? ''} /> }
+    },
+    {
+      id: 'profiles',
+      group: 'General',
+      name: 'Profiles',
+      summary: 'Keep projects, chats and browser logins apart, such as Work and Personal.',
+      keywords: 'profile account switch work personal separate cookies logins sessions',
+      icon: <ProfileIcon />,
+      info: (
+        <p>
+          Each profile has its own projects and chats, and its own built-in browser, with its own
+          cookies and logins: a site you sign in to in one profile stays signed out in the others.
+          Settings, providers and keys are shared. Chats in other profiles keep working while you
+          switch; the gear menu in the sidebar switches too.
+        </p>
+      ),
+      status: profiles.find((p) => p.id === profileId)?.name,
+      panel: {
+        label: 'Manage',
+        body: <ProfilesBody profiles={profiles} profileId={profileId} />
+      }
     },
     {
       id: 'look',

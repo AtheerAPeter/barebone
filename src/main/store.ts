@@ -13,6 +13,7 @@ import {
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
+  DEFAULT_PROFILE,
   inFront,
   NAME_MAX,
   senderChat,
@@ -21,6 +22,7 @@ import {
   type Chat,
   type ChatItem,
   type ChatPermissions,
+  type Profile,
   type Project,
   type SavedTabs,
   type Theme,
@@ -83,10 +85,30 @@ const state = loadState()
 
 /** The saved state; without it the app would not start, so a damaged file is set aside. */
 function loadState(): AppState {
-  const read = readJson<AppState>(statePath, { projects: [], chats: [] })
-  if ('value' in read) return read.value
+  const read = readJson<Partial<AppState>>(statePath, {})
+  if ('value' in read) return withProfiles(read.value)
   damagedState = keepDamaged(statePath, read.damaged)
-  return { projects: [], chats: [] }
+  return withProfiles({})
+}
+
+/**
+ * The state with its profiles. State saved before profiles has none: its
+ * projects, and the tabs of the user's own browser, go in the default profile,
+ * whose browser keeps the logins from then (see partitionFor in browser.ts).
+ */
+function withProfiles(saved: Partial<AppState> & { browserTabs?: SavedTabs }): AppState {
+  const { browserTabs, ...rest } = saved
+  const profiles: Profile[] = saved.profiles?.length
+    ? saved.profiles
+    : [{ id: DEFAULT_PROFILE, name: 'Default', createdAt: Date.now(), browserTabs }]
+  const projects = (saved.projects ?? []).map((p) => ({
+    ...p,
+    profileId: p.profileId ?? DEFAULT_PROFILE
+  }))
+  const profileId = profiles.some((p) => p.id === saved.profileId)
+    ? saved.profileId!
+    : profiles[0].id
+  return { ...rest, profiles, profileId, projects, chats: saved.chats ?? [] }
 }
 
 /** Say that the saved projects and chats could not be read, if so (see loadState). */
@@ -188,7 +210,15 @@ export function chatFile(chatId: string): string {
  * agent reads what happened there.
  */
 export function savedChatsNote(chatId: string): string {
-  return `Barebone saves every chat of the user's. ${statePath} lists them (id, projectId, title, agent, createdAt), and each chat's messages are in ${chatsDir}/<chat id>.json, as the user saw them: their messages, the agent's answers, and its tool calls with their output. This chat's own are in ${chatFile(chatId)}. When the user refers to an earlier chat or asks you to continue a topic, find the chat by its title and read its messages to see what was done or what went wrong. The files can be long, so search them before reading them whole. Only read them, never change them.`
+  return `Barebone saves every chat of the user's. ${statePath} lists them (id, projectId, title, agent, createdAt), and each chat's messages are in ${chatsDir}/<chat id>.json, as the user saw them: their messages, the agent's answers, and its tool calls with their output. This chat's own are in ${chatFile(chatId)}. When the user refers to an earlier chat or asks you to continue a topic, find the chat by its title and read its messages to see what was done or what went wrong. The files can be long, so search them before reading them whole. Only read them, never change them.${profileNote(chatId)}`
+}
+
+/** The chats the user keeps apart, in other profiles, are left out of what savedChatsNote points to. */
+function profileNote(chatId: string): string {
+  const chat = state.chats.find((c) => c.id === chatId)
+  const profileId = chat && state.projects.find((p) => p.id === chat.projectId)?.profileId
+  if (!profileId) return ''
+  return ` The user keeps their chats in profiles, apart from each other: look only at chats whose project (in "projects", by projectId) has profileId "${profileId}", this chat's profile.`
 }
 
 export function getState(): AppState {
@@ -232,9 +262,71 @@ export function setRecording(on: boolean): void {
   scheduleFlush()
 }
 
-/** Keep the user's own browser's tabs (OWN_BROWSER). */
+/** The profile the window shows. */
+export function activeProfile(): Profile {
+  return state.profiles.find((p) => p.id === state.profileId)!
+}
+
+/** The profile a chat is in: its project's. */
+export function profileOf(chatId: string): string {
+  return getProject(getChat(chatId).projectId).profileId
+}
+
+function profileName(name: string): string {
+  const trimmed = name.trim().replace(/\s+/g, ' ')
+  if (!trimmed) throw new Error('Give the profile a name.')
+  if (trimmed.length > NAME_MAX) throw new Error(`Keep the name to ${NAME_MAX} characters.`)
+  return trimmed
+}
+
+/** Add a profile, with no projects and a browser signed in nowhere. */
+export function addProfile(name: string): Profile {
+  const profile: Profile = {
+    id: crypto.randomUUID(),
+    name: profileName(name),
+    createdAt: Date.now()
+  }
+  state.profiles.push(profile)
+  scheduleFlush()
+  return profile
+}
+
+export function renameProfile(profileId: string, name: string): void {
+  getProfile(profileId).name = profileName(name)
+  scheduleFlush()
+}
+
+/** Show a profile in the window. */
+export function setActiveProfile(profileId: string): void {
+  state.profileId = getProfile(profileId).id
+  scheduleFlush()
+}
+
+/**
+ * Remove a profile and its projects with their chats; stop the chats first
+ * (see deleteChat in index.ts). The last profile stays. If it was the active
+ * one, the first left becomes active.
+ */
+export function removeProfile(profileId: string): void {
+  getProfile(profileId)
+  if (state.profiles.length === 1) throw new Error('The last profile cannot be removed.')
+  for (const project of state.projects.filter((p) => p.profileId === profileId)) {
+    removeProject(project.id)
+  }
+  state.profiles = state.profiles.filter((p) => p.id !== profileId)
+  if (state.profileId === profileId) state.profileId = state.profiles[0].id
+  scheduleFlush()
+}
+
+function getProfile(profileId: string): Profile {
+  const profile = state.profiles.find((p) => p.id === profileId)
+  if (!profile) throw new Error(`Unknown profile ${profileId}`)
+  return profile
+}
+
+/** Keep the tabs of the user's own browser (OWN_BROWSER), which is the active profile's. */
 export function setBrowserTabs(tabs: SavedTabs): void {
-  state.browserTabs = tabs
+  activeProfile().browserTabs = tabs
   scheduleFlush()
 }
 

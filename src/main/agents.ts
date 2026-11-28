@@ -2251,12 +2251,15 @@ function reaches(self: Chat, chat: Chat): boolean {
 }
 
 /**
- * The project start_chat was asked to start a chat in, by its name or folder.
- * Not another bot's: a bot keeps its one conversation.
+ * The project start_chat was asked to start a chat in, by its name or folder,
+ * in the parent's profile. Not another bot's: a bot keeps its one conversation.
  */
 function projectNamed(name: string, parent: Chat): Project {
   const wanted = name.trim().toLowerCase()
-  const open = store.getState().projects.filter((p) => !p.bot || p.id === parent.projectId)
+  const profileId = store.getProject(parent.projectId).profileId
+  const open = store
+    .getState()
+    .projects.filter((p) => p.profileId === profileId && (!p.bot || p.id === parent.projectId))
   const project = open.find((p) => p.name.toLowerCase() === wanted || p.path === name.trim())
   if (project) return project
   throw new Error(

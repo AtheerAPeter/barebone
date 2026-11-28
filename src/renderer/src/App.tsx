@@ -3,6 +3,7 @@ import {
   AGENTS,
   appName,
   OWN_BROWSER,
+  profileView,
   waitingOn,
   type AgentStatus,
   type AgentId,
@@ -68,7 +69,14 @@ const VIEW_TITLES: Record<Exclude<View, 'chat'>, string> = {
 }
 
 export default function App(): React.JSX.Element {
-  const [state, setState] = useState<AppState>({ projects: [], chats: [] })
+  const [fullState, setState] = useState<AppState>({
+    profiles: [],
+    profileId: '',
+    projects: [],
+    chats: []
+  })
+  // The window shows one profile: its projects and their chats.
+  const state = useMemo(() => profileView(fullState), [fullState])
   const stateRef = useRef(state)
   useEffect(() => {
     stateRef.current = state
@@ -645,6 +653,8 @@ export default function App(): React.JSX.Element {
               description: state.voiceDescription
             }}
             music={state.music === true}
+            profiles={state.profiles}
+            profileId={state.profileId}
             onProvidersChange={() => readStatus('custom-api')}
           />
         ) : chat && project ? (

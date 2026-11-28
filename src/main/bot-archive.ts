@@ -153,11 +153,11 @@ function readManifest(text: string): Manifest {
 }
 
 /**
- * Make a bot from an exported file: its folder under a free name, with its
+ * Make a bot in a profile from an exported file: its folder under a free name, with its
  * instructions pointing there, and its routines set again from now. The file
  * comes from elsewhere, so nothing in it may land outside the new folder.
  */
-export async function importBot(file: string): Promise<Project> {
+export async function importBot(file: string, profileId: string): Promise<Project> {
   await mkdir(BOTS_DIR, { recursive: true })
   // Beside the bots' folders, so the move into place is a rename.
   const staging = await mkdtemp(join(BOTS_DIR, '.import-'))
@@ -205,6 +205,7 @@ export async function importBot(file: string): Promise<Project> {
       name: manifest.name,
       path,
       createdAt: Date.now(),
+      profileId,
       color: manifest.color,
       bot: {
         shape: manifest.shape,

@@ -6525,7 +6525,7 @@ a.workspace-review:hover {
     0 0 0 4px var(--focus-ring);
 }
 
-/* Providers: one row per provider, and the form that adds or changes one. */
+/* Providers and profiles: one row each, and the form that adds or changes a provider. */
 
 .provider-list {
   display: flex;

@@ -7,6 +7,7 @@ import {
   WebContentsView,
   session,
   type IpcMainEvent,
+  type Session,
   type WebContents
 } from 'electron'
 import { EventEmitter } from 'node:events'
@@ -14,6 +15,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { extname, basename, join } from 'node:path'
 import {
   BROWSER_SIZES,
+  DEFAULT_PROFILE,
   OWN_BROWSER,
   type BrowserSize,
   type BrowserState,
@@ -25,8 +27,9 @@ import { PageDriver } from './page-driver'
 
 /**
  * `persist:` partitions are stored on disk, so cookies, localStorage and
- * IndexedDB (logins) survive restarts. Every chat's pages use the same
- * partition, so they all share the user's logins.
+ * IndexedDB (logins) survive restarts. Each profile has its own partition:
+ * the pages of its chats, and of the user's own browser while it is the
+ * active profile, share its logins, and no other profile's.
  *
  * Each chat has its own browser with tabs, so several chats can automate the
  * browser at once. The panel shows the selected chat's active tab; every other
@@ -34,7 +37,18 @@ import { PageDriver } from './page-driver'
  * sight. A chat's browser is closed when the chat is neither selected nor
  * running, and its tabs are reopened next time.
  */
-const PARTITION = 'persist:browser'
+
+/** A profile's partition. The default profile's is the one from before profiles, with the logins from then. */
+export function partitionFor(profileId: string): string {
+  return profileId === DEFAULT_PROFILE ? 'persist:browser' : `persist:browser-${profileId}`
+}
+
+/** Sign a removed profile's browser out of everything, so nothing of it is left behind. */
+export async function clearProfileData(profileId: string): Promise<void> {
+  const profileSession = session.fromPartition(partitionFor(profileId))
+  await profileSession.clearStorageData()
+  await profileSession.clearCache()
+}
 const EMPTY_STATE: BrowserState = {
   tabs: [],
   url: '',
@@ -50,11 +64,11 @@ const MAX_TABS = 20
 /** Corner radius of the page, matching .browser-viewport in styles.css. */
 const PAGE_RADIUS = 12
 /**
- * For tabs and the windows pages open as tabs. With the sandbox on, iframes get
- * no Node.js either way; they run the page preload (see onPageDialog).
+ * For tabs and the windows pages open as tabs, with their profile's partition.
+ * With the sandbox on, iframes get no Node.js either way; they run the page
+ * preload (see onPageDialog).
  */
 const TAB_PREFERENCES = {
-  partition: PARTITION,
   sandbox: true,
   contextIsolation: true,
   nodeIntegrationInSubFrames: true,
@@ -280,6 +294,8 @@ export class ChatPage extends EventEmitter {
 
 /** The tabs of one chat's browser. */
 interface ChatTabs {
+  /** Its profile's partition, which its tabs and the windows they open use. */
+  partition: string
   tabs: ChatPage[]
   active?: ChatPage
   /** The tab the agent acted on last, while its turn runs; shown highlighted. */
@@ -301,6 +317,8 @@ export class BuiltinBrowser {
   }[] = []
 
   private chats = new Map<string, ChatTabs>()
+  /** The profiles' sessions in use, by partition, each set up once (see sessionFor). */
+  private sessions = new Map<string, Session>()
   private activeChat?: string
   /** Where the panel is, in window points; undefined while the panel is closed. */
   private panelBounds?: Electron.Rectangle
@@ -330,9 +348,25 @@ export class BuiltinBrowser {
     private readonly savedTabs: {
       get(chatId: string): SavedTabs | undefined
       set(chatId: string, tabs: SavedTabs): void
-    }
+    },
+    /** The partition of a chat's profile (see partitionFor); for OWN_BROWSER, the active profile's. */
+    private readonly partitionOf: (chatId: string) => string
   ) {
-    const browserSession = session.fromPartition(PARTITION)
+    ipcMain.on('page:dialog', (event, type, message) => this.onPageDialog(event, type, message))
+    // A minimized window draws nothing, its pages included: whoever shows them is told.
+    for (const event of ['minimize', 'restore'] as const) {
+      window.on(event as 'minimize', () => {
+        for (const chatId of this.chats.keys()) this.onChatChanged?.(chatId)
+      })
+    }
+  }
+
+  /** A profile's session, set up for pages the first time it is used. */
+  private sessionFor(partition: string): Session {
+    const existing = this.sessions.get(partition)
+    if (existing) return existing
+    const browserSession = session.fromPartition(partition)
+    this.sessions.set(partition, browserSession)
     // Pages get no microphone or camera. Electron grants every permission a
     // page asks for unless told otherwise, and the app may use the microphone
     // (for voice input), so any page an agent opens could listen without asking.
@@ -387,20 +421,16 @@ export class BuiltinBrowser {
         .replace(/\sElectron\/\S+/, '')
         .replace(` ${app.getName().replace(/\s/g, '')}/${app.getVersion()}`, '')
     )
-    ipcMain.on('page:dialog', (event, type, message) => this.onPageDialog(event, type, message))
-    // A minimized window draws nothing, its pages included: whoever shows them is told.
-    for (const event of ['minimize', 'restore'] as const) {
-      window.on(event as 'minimize', () => {
-        for (const chatId of this.chats.keys()) this.onChatChanged?.(chatId)
-      })
-    }
+    return browserSession
   }
 
   /** A chat's browser, opened with its saved tabs if it is not open. */
   private browserFor(chatId: string): ChatTabs {
     const existing = this.chats.get(chatId)
     if (existing) return existing
-    const browser: ChatTabs = { tabs: [], next: 1, restoring: true }
+    const partition = this.partitionOf(chatId)
+    this.sessionFor(partition)
+    const browser: ChatTabs = { partition, tabs: [], next: 1, restoring: true }
     this.chats.set(chatId, browser)
     const saved = this.savedTabs.get(chatId)
     for (const url of saved?.urls.length ? saved.urls : ['']) this.addTab(chatId, browser, { url })
@@ -427,7 +457,8 @@ export class BuiltinBrowser {
       activate?: boolean
     }
   ): ChatPage {
-    const view = new WebContentsView(options.opened ?? { webPreferences: TAB_PREFERENCES })
+    const webPreferences = { ...TAB_PREFERENCES, partition: browser.partition }
+    const view = new WebContentsView(options.opened ?? { webPreferences })
     view.setBorderRadius(PAGE_RADIUS)
     const tab = new ChatPage(`t${browser.next++}`, view, options.openedBy)
     const contents = tab.contents
@@ -437,7 +468,7 @@ export class BuiltinBrowser {
       if (browser.tabs.length >= MAX_TABS) return { action: 'deny' }
       return {
         action: 'allow',
-        overrideBrowserWindowOptions: { webPreferences: TAB_PREFERENCES },
+        overrideBrowserWindowOptions: { webPreferences },
         createWindow: (opened) =>
           this.addTab(chatId, browser, {
             opened,
@@ -786,18 +817,23 @@ export class BuiltinBrowser {
     return chatId === OWN_BROWSER ? undefined : BROWSER_SIZES[this.size]
   }
 
-  /** Clear cookies and site data once the user confirms; it signs them out of every site. */
+  /**
+   * Clear the cookies and site data of the profile of the chat the panel
+   * shows, once the user confirms; it signs them out of every site there.
+   */
   private async confirmClearData(): Promise<void> {
+    const partition = this.activeChat && this.chats.get(this.activeChat)?.partition
+    if (!partition) return
     const { response } = await dialog.showMessageBox(this.window, {
       type: 'warning',
       message: 'Sign out everywhere?',
       detail:
-        "This clears all cookies and site data in the built-in browser, so you're signed out of every site.",
+        "This clears all cookies and site data in this profile's built-in browser, so you're signed out of every site in it. Other profiles stay signed in.",
       buttons: ['Sign Out', 'Cancel'],
       defaultId: 1,
       cancelId: 1
     })
-    if (response === 0) await this.clearData()
+    if (response === 0) await this.clearData(partition)
   }
 
   /**
@@ -1047,9 +1083,11 @@ export class BuiltinBrowser {
     return chatId ? this.chats.get(chatId)?.active : undefined
   }
 
-  async clearData(): Promise<void> {
-    await session.fromPartition(PARTITION).clearStorageData()
+  /** Clear a profile's cookies and site data, and reload its pages. */
+  private async clearData(partition: string): Promise<void> {
+    await this.sessionFor(partition).clearStorageData()
     for (const browser of this.chats.values()) {
+      if (browser.partition !== partition) continue
       for (const tab of browser.tabs) {
         tab.dismissDialog()
         // A tab that has not loaded yet will load with the cleared data anyway.
@@ -1060,9 +1098,10 @@ export class BuiltinBrowser {
 
   /** Make sure logins written moments ago reach disk before quitting. */
   async flush(): Promise<void> {
-    const browserSession = session.fromPartition(PARTITION)
-    await browserSession.cookies.flushStore()
-    browserSession.flushStorageData()
+    for (const browserSession of this.sessions.values()) {
+      await browserSession.cookies.flushStore()
+      browserSession.flushStorageData()
+    }
   }
 
   /** A chat's browser (the selected chat by default), without opening it. */
@@ -1100,6 +1139,19 @@ export class BuiltinBrowser {
   /** Close a deleted chat's browser. */
   closeChat(chatId: string): void {
     this.closeBrowser(chatId)
+  }
+
+  /**
+   * Open a chat's browser anew, from its saved tabs, if it is open: the user's
+   * own browser when the active profile changed, so it has that profile's tabs
+   * and logins.
+   */
+  reopen(chatId: string): void {
+    if (!this.chats.has(chatId)) return
+    this.closeBrowser(chatId)
+    if (chatId === this.activeChat && this.panelBounds) this.browserFor(chatId)
+    this.layout()
+    this.emitState()
   }
 
   /**

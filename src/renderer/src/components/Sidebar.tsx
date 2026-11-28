@@ -26,6 +26,7 @@ import { PHONE, touchScreen, useMedia } from '../lib/touch'
 import { hapticTick, useLongPress, useSheetSwipe } from '../lib/gestures'
 import {
   BookIcon,
+  CheckIcon,
   ChevronIcon,
   CloseIcon,
   ComposeIcon,
@@ -37,6 +38,7 @@ import {
   SearchIcon,
   SunIcon,
   PhoneIcon,
+  ProfileIcon,
   SettingsIcon,
   SidebarIcon,
   TerminalIcon,
@@ -824,6 +826,17 @@ export function Sidebar({
           leaving={moreMenu.leaving}
           onClose={() => setMore(undefined)}
           entries={[
+            // With more than one profile, the profiles come first: picking one switches to it.
+            ...(state.profiles.length > 1
+              ? [
+                  ...state.profiles.map((profile) => ({
+                    name: profile.name,
+                    icon: profile.id === state.profileId ? <CheckIcon /> : <ProfileIcon />,
+                    onSelect: () => void window.api.profiles.switch(profile.id)
+                  })),
+                  null
+                ]
+              : []),
             { name: 'Skills', icon: <BookIcon />, onSelect: () => onShow('skills') },
             null,
             {
