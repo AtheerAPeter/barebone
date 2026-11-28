@@ -99,6 +99,15 @@ export function ModelPicker({
   const q = query.trim().toLowerCase()
   const sources = AGENTS.flatMap((a) => sourcesOf(a.id))
   const shown = sources.find((s) => s.key === (shownKey ?? currentKey)) ?? sources[0]
+  /**
+   * On mobile bottom sheet: one horizontal thumb-sized row of provider logos,
+   * enabled providers first so selectable ones sit right under the thumb.
+   */
+  const orderedAgents = [...AGENTS].sort(
+    (a, b) => Number(Boolean(disabledReason(a.id))) - Number(Boolean(disabledReason(b.id)))
+  )
+  /** Sub-sources for the currently selected agent (e.g. Cline providers or Custom APIs). */
+  const shownAgentSources = sources.filter((s) => s.agent === shown.agent)
   const listedSources = choosingSource
     ? sources.filter((s) => sourceMatches(s, label(s.agent), q))
     : sources
@@ -259,52 +268,82 @@ export function ModelPicker({
       </button>
       {menu.shown && (
         <div
-          className={`picker-menu model-menu${menu.leaving ? ' leaving' : ''}`}
+          className={`picker-menu model-menu${asSheet ? ' model-sheet' : ''}${menu.leaving ? ' leaving' : ''}`}
           role="listbox"
           ref={menuRef}
           {...(placement && placementProps(placement))}
         >
           {asSheet && <div className="sheet-grabber" aria-hidden="true" />}
-          <label className="model-search">
-            <SearchIcon width={15} height={15} />
-            <input
-              ref={searchRef}
-              autoFocus={!touchScreen}
-              placeholder={
-                choosingSource
-                  ? 'Search agents and providers…'
-                  : `Search ${sourceName(shown)} models…`
-              }
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value)
-                setActive(0)
-              }}
-            />
-          </label>
-          {choosingSource ? (
-            <SourceList
-              sources={listedSources}
-              active={active}
-              currentKey={currentKey}
-              disabledReason={disabledReason}
-              listRef={listRef}
-              onHover={setActive}
-              onShow={showSource}
-            />
-          ) : (
+          {asSheet ? (
             <>
-              <button
-                type="button"
-                className="model-source-back"
-                title="All agents and providers"
-                onClick={showSources}
+              {/* Big thumb-sized horizontal row of provider logos only, enabled first. */}
+              <div
+                className="model-provider-strip"
+                role="tablist"
+                aria-label="Providers"
+                data-no-swipe="x"
               >
-                <BackIcon width={14} height={14} />
-                <AgentLogo agent={shown.agent} size={16} />
-                <span className="model-source-name">{sourceName(shown)}</span>
-                {shown.option && <span className="model-count">{shown.option.values.length}</span>}
-              </button>
+                {orderedAgents.map((a) => {
+                  const reason = disabledReason(a.id)
+                  const agentSources = sources.filter((s) => s.agent === a.id)
+                  const selected = shown.agent === a.id
+                  const isActiveAgent = a.id === agent
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={selected}
+                      aria-label={a.label}
+                      title={reason ?? a.label}
+                      disabled={Boolean(reason)}
+                      className={`model-provider-tile${selected ? ' selected' : ''}${isActiveAgent ? ' current' : ''}`}
+                      onClick={() => {
+                        const target =
+                          agentSources.find((s) => s.key === currentKey) ?? agentSources[0]
+                        if (target) showSource(target)
+                      }}
+                    >
+                      <AgentLogo agent={a.id} size={30} />
+                      {isActiveAgent && <span className="model-provider-dot" />}
+                    </button>
+                  )
+                })}
+              </div>
+              {shownAgentSources.length > 1 && (
+                <div
+                  className="model-subsource-strip"
+                  role="tablist"
+                  aria-label={`${label(shown.agent)} sources`}
+                  data-no-swipe="x"
+                >
+                  {shownAgentSources.map((src) => (
+                    <button
+                      key={src.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={src.key === shown.key}
+                      className={`model-subsource-pill${src.key === shown.key ? ' selected' : ''}`}
+                      onClick={() => showSource(src)}
+                    >
+                      {src.setting?.name ?? label(src.agent)}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <label className="model-search">
+                <SearchIcon width={15} height={15} />
+                <input
+                  ref={searchRef}
+                  autoFocus={!touchScreen}
+                  placeholder={`Search ${sourceName(shown)} models…`}
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.target.value)
+                    setActive(0)
+                  }}
+                />
+              </label>
               <ModelList
                 sections={sections}
                 active={active}
@@ -314,6 +353,62 @@ export function ModelPicker({
                 onHover={setActive}
                 onChoose={choose}
               />
+            </>
+          ) : (
+            <>
+              <label className="model-search">
+                <SearchIcon width={15} height={15} />
+                <input
+                  ref={searchRef}
+                  autoFocus={!touchScreen}
+                  placeholder={
+                    choosingSource
+                      ? 'Search agents and providers…'
+                      : `Search ${sourceName(shown)} models…`
+                  }
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.target.value)
+                    setActive(0)
+                  }}
+                />
+              </label>
+              {choosingSource ? (
+                <SourceList
+                  sources={listedSources}
+                  active={active}
+                  currentKey={currentKey}
+                  disabledReason={disabledReason}
+                  listRef={listRef}
+                  onHover={setActive}
+                  onShow={showSource}
+                />
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="model-source-back"
+                    title="All agents and providers"
+                    onClick={showSources}
+                  >
+                    <BackIcon width={14} height={14} />
+                    <AgentLogo agent={shown.agent} size={16} />
+                    <span className="model-source-name">{sourceName(shown)}</span>
+                    {shown.option && (
+                      <span className="model-count">{shown.option.values.length}</span>
+                    )}
+                  </button>
+                  <ModelList
+                    sections={sections}
+                    active={active}
+                    emptyText={emptyText()}
+                    listRef={listRef}
+                    isCurrent={isCurrent}
+                    onHover={setActive}
+                    onChoose={choose}
+                  />
+                </>
+              )}
             </>
           )}
         </div>

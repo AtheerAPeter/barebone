@@ -814,11 +814,13 @@ export function Composer({
                 <CloseIcon />
               </button>
             </div>
-            <SheetRow name="Model">{modelPicker}</SheetRow>
-            {effortPicker && <SheetRow name="Thinking">{effortPicker}</SheetRow>}
-            {personaPicker && <SheetRow name="Agent">{personaPicker}</SheetRow>}
-            <SheetRow name="Permissions">{permissionPicker}</SheetRow>
-            <SheetRow name="Usage">{limitsMeter}</SheetRow>
+            <div className="settings-sheet-body">
+              <SheetRow name="Model">{modelPicker}</SheetRow>
+              {effortPicker && <SheetRow name="Thinking">{effortPicker}</SheetRow>}
+              {personaPicker && <SheetRow name="Agent">{personaPicker}</SheetRow>}
+              <SheetRow name="Permissions">{permissionPicker}</SheetRow>
+              <SheetRow name="Usage">{limitsMeter}</SheetRow>
+            </div>
           </div>
         </>
       )}
@@ -826,7 +828,7 @@ export function Composer({
   )
 }
 
-/** One of the settings sheet's rows: its name, and the setting's own picker. */
+/** One of the settings sheet's rows: its name, and the setting's own picker. Tapping anywhere on the row opens it. */
 function SheetRow({
   name,
   children
@@ -835,7 +837,13 @@ function SheetRow({
   children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <div className="settings-sheet-row">
+    <div
+      className="settings-sheet-row"
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest('button, input, .picker-menu')) return
+        e.currentTarget.querySelector<HTMLButtonElement>('.picker-button')?.click()
+      }}
+    >
       <span className="settings-sheet-name">{name}</span>
       {children}
     </div>

@@ -63,7 +63,8 @@ export function canScrollInDirection(
   if (axis === 'y' && target.closest('[data-no-swipe="y"], [data-no-swipe="all"]')) {
     return true
   }
-  for (let el: Element | null = target; el && el !== stopAt; el = el.parentElement) {
+  const boundary = stopAt ? stopAt.parentElement : null
+  for (let el: Element | null = target; el && el !== boundary; el = el.parentElement) {
     const style = getComputedStyle(el)
     if (axis === 'x') {
       const overflow = style.overflowX
@@ -611,13 +612,13 @@ export function useSheetSwipe(
           mode = 'ignored'
           return
         }
-        // Dragging down: yield if an inner list is scrolled down.
-        if (dy > 0 && canScrollInDirection(target, el, 'y', dy)) {
+        // Only intercept downward drags (dismiss) when scrolled to top; never hijack upward list scrolling.
+        if (dy <= 0) {
           mode = 'ignored'
           return
         }
-        // Dragging up: only rubber-band if not scrolling content down.
-        if (dy < 0 && canScrollInDirection(target, el, 'y', dy)) {
+        // Dragging down: yield if an inner list (or the sheet itself) is scrolled down.
+        if (canScrollInDirection(target, el, 'y', dy)) {
           mode = 'ignored'
           return
         }
