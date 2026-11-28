@@ -83,6 +83,9 @@ const config: Configuration = {
     // unsigned app, which macOS reports as "damaged".
     identity: 'Barebone Code Signing',
     forceCodeSigning: true,
+    // Skip Apple's remote timestamp server: this is a self-signed certificate with
+    // notarize: false, so remote timestamping only adds ~2-3 minutes of sequential HTTPS waits.
+    timestamp: 'none',
     entitlements: 'build/entitlements.mac.plist',
     entitlementsInherit: 'build/entitlements.mac.plist',
     extendInfo: {

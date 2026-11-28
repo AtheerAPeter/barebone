@@ -85,15 +85,24 @@ step "Building bundles (electron-vite)"
 npx electron-vite build
 ok "Bundles built"
 
-# 4. Mac DMG packaging (DMG-only, ULFO, no zip/blockmap)
+# 4. Mac packaging (DMG-only ULFO for release, unpacked .app only for --no-release)
 if [ "$DO_RELEASE" -eq 1 ] || [ "$DO_LOCAL" -eq 1 ]; then
-  step "Packaging signed macOS DMG (v${VERSION})"
-  npx electron-builder --mac --publish never
-  DMG="dist/barebone-${VERSION}.dmg"
+  ELECTRON_DIST_ARG=()
+  [ -d "node_modules/electron/dist/Electron.app" ] && ELECTRON_DIST_ARG=(-c.electronDist=node_modules/electron/dist)
   APP_SRC="dist/mac-arm64/Barebone.app"
-  [ -f "$DMG" ] || { echo "Missing expected DMG: $DMG" >&2; exit 1; }
-  [ -d "$APP_SRC" ] || { echo "Missing expected app: $APP_SRC" >&2; exit 1; }
-  ok "Packaged $DMG ($(du -h "$DMG" | awk '{print $1}'))"
+  if [ "$DO_RELEASE" -eq 1 ]; then
+    step "Packaging signed macOS DMG (v${VERSION})"
+    npx electron-builder --mac --publish never "${ELECTRON_DIST_ARG[@]}"
+    DMG="dist/barebone-${VERSION}.dmg"
+    [ -f "$DMG" ] || { echo "Missing expected DMG: $DMG" >&2; exit 1; }
+    [ -d "$APP_SRC" ] || { echo "Missing expected app: $APP_SRC" >&2; exit 1; }
+    ok "Packaged $DMG ($(du -h "$DMG" | awk '{print $1}'))"
+  else
+    step "Packaging signed macOS app (skipping DMG for --no-release)"
+    npx electron-builder --mac dir --publish never "${ELECTRON_DIST_ARG[@]}"
+    [ -d "$APP_SRC" ] || { echo "Missing expected app: $APP_SRC" >&2; exit 1; }
+    ok "Packaged $APP_SRC"
+  fi
 fi
 
 # 5. Parallel deploy functions
@@ -139,8 +148,11 @@ deploy_release() {
 
 compute_deps_hash() {
   {
-    node -p "require('./package.json').devDependencies.electron"
-    shasum -a 256 package-lock.json
+    node -e "
+      const lock = require('./package-lock.json');
+      const pkgs = Object.fromEntries(Object.entries(lock.packages || {}).filter(([k]) => k !== ''));
+      process.stdout.write(JSON.stringify(pkgs));
+    " | shasum -a 256
     if [ -d resources ]; then
       find resources -type f | LC_ALL=C sort | xargs shasum -a 256
     fi
