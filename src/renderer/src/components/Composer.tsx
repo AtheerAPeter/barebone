@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   AGENTS,
   autoModeOn,
@@ -310,10 +310,15 @@ export function Composer({
   }
 
   // Grow with content, the suggestion included, up to a limit.
-  useLayoutEffect(() => {
+  const resize = useCallback(() => {
     const el = textareaRef.current
     if (!el) return
     const shown = suggestionRef.current
+    if (!el.value && !shown) {
+      el.style.height = ''
+      setExpanded(false)
+      return
+    }
     el.style.height = 'auto'
     if (shown) shown.style.height = 'auto'
     const style = getComputedStyle(el)
@@ -321,14 +326,38 @@ export function Composer({
       parseFloat(style.lineHeight) + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
     const content = Math.max(el.scrollHeight, shown?.scrollHeight ?? 0)
     const wraps = content > oneLine + 1
-    setExpanded(el.value !== '' && (expanded || wraps))
+    setExpanded((was) => el.value !== '' && (was || wraps))
     const height = `${Math.min(content, 240)}px`
     el.style.height = height
     if (shown) {
       shown.style.height = height
       shown.scrollTop = el.scrollTop
     }
-  }, [text, expanded, suggestion])
+  }, [])
+
+  useLayoutEffect(() => {
+    resize()
+  }, [text, expanded, suggestion, resize])
+
+  // Re-measure when the textarea's width or the phone breakpoint changes so an
+  // inline height from another viewport size cannot leave the placeholder off-center.
+  useEffect(() => {
+    const el = textareaRef.current
+    if (!el) return
+    let width = el.clientWidth
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === width) return
+      width = el.clientWidth
+      resize()
+    })
+    observer.observe(el)
+    const media = window.matchMedia('(max-width: 700px)')
+    media.addEventListener('change', resize)
+    return () => {
+      observer.disconnect()
+      media.removeEventListener('change', resize)
+    }
+  }, [resize])
 
   const [attachments, setAttachments] = useState<Attachment[]>([])
   /** Why files could not be sent to the Mac, through the remote link. */

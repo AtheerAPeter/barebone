@@ -55,6 +55,9 @@ const config: Configuration = {
     createDesktopShortcut: 'always'
   },
   mac: {
+    // Only build the signed DMG: install.sh and in-app updates (main/updates.ts) install the .dmg,
+    // so skipping the unused .zip target and blockmaps cuts packaging time roughly in half.
+    target: [{ target: 'dmg', arch: ['arm64'] }],
     files: [
       ...files,
       // The speech engine's runtime (main/speech): only this Mac's build, and one
@@ -93,7 +96,11 @@ const config: Configuration = {
     notarize: false
   },
   dmg: {
-    artifactName: '${name}-${version}.${ext}'
+    artifactName: '${name}-${version}.${ext}',
+    // Hardware-accelerated LZFSE on Apple Silicon (macOS 10.11+): much faster and slightly smaller than UDZO.
+    format: 'ULFO',
+    // Updates use install.sh + GitHub Releases, not electron-updater blockmaps.
+    writeUpdateInfo: false
   },
   // Linux on x64, for a server: run in a container on a virtual screen
   // (deploy/vps), so an unpacked folder rather than an installer.
