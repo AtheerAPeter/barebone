@@ -498,16 +498,70 @@ kbd {
   -webkit-app-region: no-drag;
 }
 
+.topbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
 .topbar-title {
   flex: 0 1 auto;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 0 6px;
   font-size: 16px;
   font-weight: 600;
   letter-spacing: -0.015em;
   white-space: nowrap;
   overflow: hidden;
+}
+
+.topbar-name {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.topbar-project {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px 0 5px;
+  border-radius: var(--radius-pill);
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--fill);
+  box-shadow: inset 0 1px 0 var(--press-light);
+  transition:
+    background-color var(--fast) ease,
+    color var(--fast) ease,
+    transform 400ms cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+
+.topbar-project:hover {
+  background: var(--fill-strong);
+  color: var(--text);
+}
+
+.topbar-project:active {
+  transform: scale(0.94);
+}
+
+.topbar-project-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar-project-chevron {
+  opacity: 0.6;
 }
 
 .crumb {
@@ -558,6 +612,7 @@ kbd {
  */
 @container topbar (max-width: 600px) {
   .crumb,
+  .topbar-project,
   .status-chip-label,
   .workspace-chip-branch {
     display: none;
@@ -1579,6 +1634,17 @@ img.project-icon {
 .chat-empty {
   padding-bottom: 8px;
   text-align: center;
+}
+
+.palette-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.palette-current-check {
+  flex-shrink: 0;
+  color: var(--accent-text);
 }
 
 .chat-empty h2 {
@@ -2951,8 +3017,36 @@ img.project-icon {
  */
 
 .composer-wrap {
+  position: relative;
   flex-shrink: 0;
   padding: 0 24px 16px;
+}
+
+/* Floating Liquid Glass scroll-to-latest pill above the composer when scrolled up. */
+.scroll-bottom-btn {
+  position: absolute;
+  left: 50%;
+  top: -48px;
+  translate: -50% 0;
+  z-index: 5;
+  width: 38px;
+  height: 38px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--text);
+  background: var(--menu);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow:
+    inset 0 1px 0 var(--press-light),
+    var(--menu-shadow);
+  animation: pop-up 240ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  transition: transform 420ms cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+
+.scroll-bottom-btn:active {
+  transform: scale(0.9);
 }
 
 .composer {
@@ -7150,7 +7244,10 @@ button,
 .slash-item,
 .picker-item,
 .model-row,
-.model-source-item {
+.model-source-item,
+.settings-summary,
+.topbar-project,
+.scroll-bottom-btn {
   position: relative;
   isolation: isolate;
 }
@@ -7274,7 +7371,10 @@ button,
 .slash-item::after,
 .picker-item::after,
 .model-row::after,
-.model-source-item::after {
+.model-source-item::after,
+.settings-summary::after,
+.topbar-project::after,
+.scroll-bottom-btn::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -7308,7 +7408,10 @@ button,
 .slash-item:active::after,
 .picker-item:active::after,
 .model-row:active::after,
-.model-source-item:active::after {
+.model-source-item:active::after,
+.settings-summary:active::after,
+.topbar-project:active::after,
+.scroll-bottom-btn:active::after {
   --glow: 250%;
   opacity: 1;
   transition:

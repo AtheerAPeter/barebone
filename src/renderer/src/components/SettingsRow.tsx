@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useOverlay } from '../lib/overlays'
+import { menusAsSheets } from '../lib/touch'
+import { useSheetSwipe } from '../lib/gestures'
 import { CloseIcon, InfoIcon } from './icons'
 
 /** Space kept between a popover and the window's edge. */
@@ -147,8 +149,11 @@ export function SettingsDialog({
   onClose: () => void
   children: ReactNode
 }): React.JSX.Element {
+  const backdropRef = useRef<HTMLDivElement>(null)
   const ref = useRef<HTMLDivElement>(null)
+  const asSheet = menusAsSheets()
   useOverlay(ref, true)
+  useSheetSwipe(ref, { enabled: asSheet, onDismiss: onClose, scrimRef: backdropRef })
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -163,10 +168,12 @@ export function SettingsDialog({
 
   return createPortal(
     <div
+      ref={backdropRef}
       className="palette-backdrop settings-dialog-backdrop"
       onPointerDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="settings-dialog" role="dialog" aria-label={title} ref={ref}>
+        {asSheet && <div className="sheet-grabber" aria-hidden="true" />}
         <div className="settings-dialog-head">
           <h3>{title}</h3>
           <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>

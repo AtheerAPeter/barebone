@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useLeaving } from '../lib/leaving'
 import type { AgentOption } from '../../../shared/types'
 import { useOverlay } from '../lib/overlays'
+import { menusAsSheets } from '../lib/touch'
+import { useSheetSwipe } from '../lib/gestures'
 import { menuPlacement, placementProps, type MenuPlacement } from '../lib/menuPlacement'
 import { ChevronDownIcon, GaugeIcon } from './icons'
 import { Switch } from './SettingsRow'
@@ -69,6 +71,8 @@ export function EffortPicker({
   const menuRef = useRef<HTMLDivElement>(null)
   const open = placement !== undefined
   useOverlay(menuRef, open)
+  const asSheet = menusAsSheets()
+  useSheetSwipe(menuRef, { enabled: open && asSheet, onDismiss: () => setPlacement(undefined) })
 
   useEffect(() => {
     if (!open) return
@@ -155,6 +159,7 @@ export function EffortPicker({
           ref={menuRef}
           {...placementProps(menu.shown)}
         >
+          {asSheet && <div className="sheet-grabber" aria-hidden="true" />}
           {option && (
             <>
               <div className="effort-name">{stops[index]?.name}</div>

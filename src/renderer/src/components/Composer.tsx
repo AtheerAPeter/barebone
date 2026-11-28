@@ -20,6 +20,7 @@ import { CompletionMenu, type CompletionItem } from './CompletionMenu'
 import { uploadFile } from '../remote/upload'
 import { touchScreen } from '../lib/touch'
 import { useLeaving } from '../lib/leaving'
+import { useSheetSwipe } from '../lib/gestures'
 import { addPrompt } from '../../../shared/prompt-history'
 import { LevelMeter } from './LevelMeter'
 import { LimitsMeter } from './LimitsMeter'
@@ -155,6 +156,13 @@ export function Composer({
   const [sheetOpen, setSheetOpen] = useState(false)
   /** It stays while it sinks away. */
   const sheet = useLeaving(sheetOpen)
+  const sheetRef = useRef<HTMLDivElement>(null)
+  const sheetScrimRef = useRef<HTMLDivElement>(null)
+  useSheetSwipe(sheetRef, {
+    enabled: settingsSheet && sheetOpen,
+    onDismiss: () => setSheetOpen(false),
+    scrimRef: sheetScrimRef
+  })
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const status = statuses[chat.agent]
 
@@ -784,14 +792,17 @@ export function Composer({
       {settingsSheet && sheet.shown && (
         <>
           <div
-            className={`drawer-scrim${sheet.leaving ? ' leaving' : ''}`}
+            ref={sheetScrimRef}
+            className={`drawer-scrim open${sheet.leaving ? ' leaving' : ''}`}
             onClick={() => setSheetOpen(false)}
           />
           <div
+            ref={sheetRef}
             className={`settings-sheet${sheet.leaving ? ' leaving' : ''}`}
             role="dialog"
             aria-label="Chat settings"
           >
+            <div className="sheet-grabber" aria-hidden="true" />
             <div className="settings-sheet-head">
               <span>Chat settings</span>
               <button

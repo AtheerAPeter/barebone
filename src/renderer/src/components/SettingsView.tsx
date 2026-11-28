@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { renderSVG } from 'uqr'
 import {
   NAME_MAX,
@@ -15,6 +15,8 @@ import { useRemoteStatus } from '../lib/remote'
 import { useTelegramStatus } from '../lib/telegram'
 import { useLook } from '../lib/look'
 import { useUpdateInstall } from '../lib/update'
+import { PHONE, useMedia } from '../lib/touch'
+import { useHorizontalSwipe } from '../lib/gestures'
 import {
   CloseIcon,
   DownloadIcon,
@@ -130,6 +132,22 @@ export function SettingsView({
   const look = useLook()
   /** A browser through the remote link: it signs itself out, it cannot link this Mac. */
   const remoteClient = Boolean(window.api.remote)
+  const pageRef = useRef<HTMLDivElement>(null)
+  const phone = useMedia(PHONE) && remoteClient
+
+  // Swipe left/right across Settings sections on a phone; swiping right on the first opens the sidebar.
+  useHorizontalSwipe(pageRef, {
+    enabled: phone && !query.trim() && !open,
+    canSwipe: (dir) => {
+      const idx = GROUPS.indexOf(section)
+      return dir === -1 ? idx < GROUPS.length - 1 : idx > 0
+    },
+    onSwipe: (dir) => {
+      const idx = GROUPS.indexOf(section)
+      const next = GROUPS[idx - dir]
+      if (next) setSection(next)
+    }
+  })
 
   useEffect(() => {
     window.api.exa.keyHint().then((hint) => setHints((h) => ({ ...h, exa: hint })))
@@ -645,7 +663,7 @@ export function SettingsView({
             ))}
           </div>
         </nav>
-        <div className="settings-page">
+        <div className="settings-page" ref={pageRef}>
           {groups.map((group) => {
             const list = rows.filter((row) => row.group === group && matches(row))
             if (!list.length) return null

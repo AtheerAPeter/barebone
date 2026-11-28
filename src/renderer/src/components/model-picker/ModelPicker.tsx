@@ -10,7 +10,8 @@ import {
   type ModelSource
 } from '../../../../shared/types'
 import { useOverlay } from '../../lib/overlays'
-import { touchScreen } from '../../lib/touch'
+import { menusAsSheets, touchScreen } from '../../lib/touch'
+import { useSheetSwipe } from '../../lib/gestures'
 import { menuPlacement, placementProps, type MenuPlacement } from '../../lib/menuPlacement'
 import { BackIcon, ChevronDownIcon, SearchIcon } from '../icons'
 import { AgentLogo } from './AgentLogo'
@@ -128,6 +129,8 @@ export function ModelPicker({
   const count = choosingSource ? pickable.length : rows.length
 
   useOverlay(menuRef, open)
+  const asSheet = menusAsSheets()
+  useSheetSwipe(menuRef, { enabled: open && asSheet, onDismiss: () => setOpen(false) })
 
   useEffect(() => {
     if (!open) return
@@ -261,6 +264,7 @@ export function ModelPicker({
           ref={menuRef}
           {...(placement && placementProps(placement))}
         >
+          {asSheet && <div className="sheet-grabber" aria-hidden="true" />}
           <label className="model-search">
             <SearchIcon width={15} height={15} />
             <input

@@ -3,6 +3,7 @@ import { createPortal, flushSync } from 'react-dom'
 import { useOverlay } from '../lib/overlays'
 import type { MenuAt, MenuEntries } from '../lib/menus'
 import { menusAsSheets } from '../lib/touch'
+import { useSheetSwipe } from '../lib/gestures'
 
 /** Space kept between a menu and the window's edge. */
 const EDGE = 8
@@ -34,6 +35,7 @@ export function PopupMenu({
     top: 0
   })
   useOverlay(ref, true)
+  useSheetSwipe(ref, { enabled: sheet && !leaving, onDismiss: onClose })
 
   // Placed once its size is known: flipped or shifted to stay in the window.
   useLayoutEffect(() => {
@@ -101,6 +103,7 @@ export function PopupMenu({
       ref={ref}
       onContextMenu={(e) => e.preventDefault()}
     >
+      {sheet && <div className="sheet-grabber" aria-hidden="true" />}
       {entries.map((entry, i) =>
         entry ? (
           <button

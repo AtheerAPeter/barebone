@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useLeaving } from '../lib/leaving'
 import type { AgentId, LimitWindow, UsageLimits } from '../../../shared/types'
 import { useOverlay } from '../lib/overlays'
+import { menusAsSheets } from '../lib/touch'
+import { useSheetSwipe } from '../lib/gestures'
 import { menuPlacement, placementProps, type MenuPlacement } from '../lib/menuPlacement'
 
 /** From this share of a window on, the meter shows the plan is running out. */
@@ -37,6 +39,8 @@ export function LimitsMeter({
   const rootRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   useOverlay(menuRef, open)
+  const asSheet = menusAsSheets()
+  useSheetSwipe(menuRef, { enabled: open && asSheet, onDismiss: () => setOpen(false) })
 
   useEffect(() => {
     let current = true
@@ -119,6 +123,7 @@ export function LimitsMeter({
           ref={menuRef}
           {...(placement && placementProps(placement))}
         >
+          {asSheet && <div className="sheet-grabber" aria-hidden="true" />}
           <div className="limits-account">{limits.account}</div>
           {limits.windows.map((w) => (
             <div key={w.name} className={`limits-window${nearlyUsed(w) ? ' full' : ''}`}>

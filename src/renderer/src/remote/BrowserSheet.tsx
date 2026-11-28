@@ -14,6 +14,7 @@ import {
 import { TabIcon } from '../components/BrowserPanel'
 import { dragDivider } from '../lib/side-panel'
 import { PHONE, useKeyboardArea, useMedia } from '../lib/touch'
+import { useSheetSwipe, useSwipeBack } from '../lib/gestures'
 
 /**
  * A chat's browser tab from the Mac, live, through the remote link
@@ -85,6 +86,8 @@ export function BrowserSheet({
   chatRef,
   onClose
 }: Props): React.JSX.Element {
+  const panelRef = useRef<HTMLElement>(null)
+  const topRef = useRef<HTMLDivElement>(null)
   const pageRef = useRef<HTMLDivElement>(null)
   const keysRef = useRef<HTMLInputElement>(null)
   const addressRef = useRef<HTMLInputElement>(null)
@@ -344,8 +347,26 @@ export function BrowserSheet({
   /** Its page shows here, and takes taps and keys. */
   const showing = usable && !view.local
 
+  // Edge swipe right: step back in tab history (or tabs -> page), or slide the browser closed.
+  useSwipeBack(panelRef, {
+    enabled: phone && mode !== 'address',
+    edgeWidth: 28,
+    slide: mode === 'page' && !(usable && view?.canGoBack),
+    onBack: () => {
+      if (mode === 'tabs') setMode('page')
+      else if (usable && view?.canGoBack) api().back().catch(fail)
+      else onClose()
+    }
+  })
+  // Swiping down on the address bar closes the browser sheet.
+  useSheetSwipe(topRef, {
+    enabled: phone && mode === 'page',
+    onDismiss: onClose
+  })
+
   return (
     <aside
+      ref={panelRef}
       className={`side-panel remote-browser${phone ? '' : ' wide'}${typing ? ' typing' : ''}${full ? ' full' : ''}`}
       style={{
         ...(full ? {} : { width }),
@@ -360,7 +381,7 @@ export function BrowserSheet({
       )}
       {!phone && <WideBar view={view} usable={Boolean(usable)} onClose={onClose} onError={fail} />}
       {phone && (
-        <div className="rb-top">
+        <div className="rb-top" ref={topRef}>
           {mode === 'address' ? (
             <form
               className="rb-address editing"

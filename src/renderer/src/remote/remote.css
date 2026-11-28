@@ -10,12 +10,64 @@ html.remote,
 html.remote body,
 html.remote #root {
   height: 100dvh;
+  overscroll-behavior: none;
 }
 
 html.remote body {
   /* Replies can be selected and copied, as on any page. */
   user-select: text;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* While an interactive swipe gesture is active, prevent stray selection or tap clicks. */
+html.swiping,
+html.swiping * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+/*
+ * Native iOS Liquid Glass material tokens for the mobile web experience:
+ * translucent frosted panes with luminous specular rims that adapt cleanly
+ * across light and dark appearances.
+ */
+html.remote {
+  --lg-blur: blur(38px) saturate(190%);
+  --lg-pill-blur: blur(24px) saturate(180%);
+  --lg-sidebar: rgba(247, 247, 251, 0.78);
+  --lg-sheet: rgba(250, 250, 253, 0.82);
+  --lg-topbar: rgba(255, 255, 255, 0.76);
+  --lg-pill: rgba(255, 255, 255, 0.68);
+  --lg-pill-active: rgba(255, 255, 255, 0.9);
+  --lg-specular: rgba(255, 255, 255, 0.92);
+  --lg-border: rgba(0, 0, 0, 0.09);
+  --lg-rim: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 4px 16px -4px rgba(0, 0, 0, 0.12);
+  --lg-grabber: rgba(0, 0, 0, 0.2);
+}
+
+@media (prefers-color-scheme: dark) {
+  html.remote {
+    --lg-sidebar: rgba(18, 18, 22, 0.76);
+    --lg-sheet: rgba(22, 22, 27, 0.8);
+    --lg-topbar: rgba(0, 0, 0, 0.72);
+    --lg-pill: rgba(255, 255, 255, 0.085);
+    --lg-pill-active: rgba(255, 255, 255, 0.16);
+    --lg-specular: rgba(255, 255, 255, 0.2);
+    --lg-border: rgba(255, 255, 255, 0.13);
+    --lg-rim: 0 0 0 0.5px rgba(255, 255, 255, 0.11), 0 6px 20px -6px rgba(0, 0, 0, 0.7);
+    --lg-grabber: rgba(255, 255, 255, 0.28);
+  }
+}
+
+/* Native iOS sheet grabber handle at the top of swipeable bottom sheets. */
+.sheet-grabber {
+  flex-shrink: 0;
+  width: 38px;
+  height: 5px;
+  margin: 4px auto 6px;
+  border-radius: 999px;
+  background: var(--lg-grabber, var(--border-strong));
+  pointer-events: none;
 }
 
 /* Lost the Mac: a line over the top, the page stays as it was. */
@@ -1676,7 +1728,23 @@ html.remote .remote-browser.wide .rb-notice {
 /* ── A phone ──────────────────────────────────────────────────── */
 
 @media (max-width: 700px) {
-  /* The top bar: its title centered between the glyphs, as in a phone's own apps. */
+  /*
+   * Native iOS 26 navigation header: no harsh dividing line, airy left-aligned
+   * title with a quiet borderless project subtitle underneath, and the right-hand
+   * toolbar actions grouped inside one floating Liquid Glass capsule.
+   */
+  html.remote .topbar {
+    background: linear-gradient(
+      to bottom,
+      var(--panel-main) 72%,
+      color-mix(in srgb, var(--panel-main) 0%, transparent)
+    );
+    border-bottom: 0;
+    padding: env(safe-area-inset-top) 12px 4px 16px;
+    height: calc(60px + env(safe-area-inset-top));
+    gap: 10px;
+  }
+
   html.remote .topbar .spacer {
     display: none;
   }
@@ -1684,55 +1752,201 @@ html.remote .remote-browser.wide .rb-notice {
   html.remote .topbar-title {
     flex: 1;
     min-width: 0;
-    text-align: center;
-    font-size: 17px;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 1px;
+    text-align: left;
+    padding: 0;
+    font-size: 16.5px;
     font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.22;
+  }
+
+  html.remote .topbar-name {
+    max-width: 100%;
+    order: 1;
+  }
+
+  /* Quiet native iOS nav subtitle under the title: borderless, clean, 1-tap to switch projects. */
+  html.remote .topbar-project {
+    display: inline-flex !important;
+    order: 2;
+    height: 19px;
+    padding: 0 2px 0 0;
+    gap: 5px;
+    font-size: 12.5px;
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    color: var(--text-muted);
+    background: none;
+    box-shadow: none;
+    border-radius: var(--radius-sm);
+  }
+
+  html.remote .topbar-project:active {
+    color: var(--text);
+    background: none;
+    transform: scale(0.96);
+  }
+
+  html.remote .topbar-project::after {
+    display: none;
+  }
+
+  html.remote .topbar-project .project-icon {
+    width: 13px !important;
+    height: 13px !important;
+    border-radius: 3.5px !important;
+  }
+
+  html.remote .topbar-project-name {
+    max-width: 180px;
+  }
+
+  html.remote .topbar-project-chevron {
+    opacity: 0.55;
+  }
+
+  /* Right-hand topbar icons grouped in a single iOS 26 Liquid Glass capsule. */
+  html.remote .topbar-actions {
+    gap: 0;
+    padding: 2px;
+    border-radius: var(--radius-pill);
+    background: var(--lg-pill);
+    backdrop-filter: var(--lg-pill-blur);
+    -webkit-backdrop-filter: var(--lg-pill-blur);
+    box-shadow:
+      inset 0 1px 0 var(--lg-specular),
+      var(--lg-rim);
+  }
+
+  html.remote .topbar-actions .icon-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+  }
+
+  html.remote .topbar-actions .icon-btn svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  /* Quiet status indicator beside the glass capsule without crowding the title. */
+  html.remote .topbar .status-chip {
+    min-width: 28px;
+    height: 28px;
+    padding: 0 6px;
   }
 
   /*
-   * Chats: a sheet that rises from the bottom, within the thumb's reach,
-   * instead of a drawer from the left edge. Closed, it sits below the screen.
+   * Left Sidebar Drawer: native iOS Liquid Glass sidebar that slides in from
+   * the left edge (1:1 finger tracking via swipe right, dismiss via swipe left).
    */
   html.remote .sidebar {
-    top: auto;
-    right: 0;
+    position: fixed;
+    z-index: 50;
+    top: 0;
+    right: auto;
     bottom: 0;
     left: 0;
-    width: auto;
-    height: min(86dvh, 760px);
-    padding: 4px 10px max(10px, env(safe-area-inset-bottom));
-    border-radius: 24px 24px 0 0;
-    background: var(--sheet-bg);
+    width: min(340px, 86vw);
+    height: auto;
+    margin-left: 0;
+    padding: max(8px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+    border-radius: 0 28px 28px 0;
+    background: var(--lg-sidebar);
+    backdrop-filter: var(--lg-blur);
+    -webkit-backdrop-filter: var(--lg-blur);
     box-shadow:
-      0 0 0 1px var(--border),
-      0 -24px 60px rgba(0, 0, 0, 0.6);
+      inset -1px 0 0 var(--lg-border),
+      inset 0 1px 0 var(--lg-specular),
+      20px 0 60px -12px rgba(0, 0, 0, 0.52);
+    translate: 0 0;
+    visibility: visible;
+    will-change: translate;
   }
 
   html.remote .sidebar.closed {
-    translate: 0 100%;
+    translate: -104% 0;
     box-shadow: none;
+    visibility: hidden;
   }
 
+  html.remote .sidebar[data-dragging='true'] {
+    transition: none !important;
+    visibility: visible !important;
+  }
+
+  html.remote .sidebar-top {
+    justify-content: space-between;
+    padding: 0 2px;
+  }
+
+  html.remote .sidebar-brand {
+    padding-left: 6px;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    color: var(--text);
+  }
+
+  html.remote .sidebar-search {
+    border-radius: var(--radius-pill);
+    background: var(--lg-pill);
+    backdrop-filter: var(--lg-pill-blur);
+    -webkit-backdrop-filter: var(--lg-pill-blur);
+    box-shadow:
+      inset 0 1px 0 var(--lg-specular),
+      0 0 0 0.5px var(--lg-border);
+  }
+
+  /* Scrim stays mounted on mobile so interactive swipe-right fades it 0 → 1 seamlessly. */
   html.remote .drawer-scrim {
-    background: rgba(0, 0, 0, 0.6);
+    position: fixed;
+    z-index: 49;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.44);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    opacity: 0;
+    pointer-events: none;
+    animation: none;
+    transition: opacity 380ms cubic-bezier(0.32, 0.72, 0, 1);
   }
 
-  /* The gear and the views at the sheet's foot, where the thumb is: 48px glyphs. */
+  html.remote .drawer-scrim.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  html.remote .drawer-scrim[data-dragging='true'] {
+    transition: none !important;
+    animation: none !important;
+  }
+
+  html.remote .drawer-scrim.leaving {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /* The gear and the views at the drawer's foot, where the thumb is: 46px Liquid Glass discs. */
   html.remote .sidebar-footer {
-    padding-top: 2px;
+    padding-top: 4px;
   }
 
   html.remote .side-foot {
-    gap: 4px;
-    padding: 4px 0 2px;
+    gap: 6px;
+    padding: 6px 2px 2px;
   }
 
   html.remote .side-foot .side-tool {
-    width: 48px;
-    height: 48px;
+    width: 46px;
+    height: 46px;
   }
 
-  /* New chat, at the sheet's bottom right, where the thumb reaches. */
+  /* New chat, at the drawer's bottom right, where the thumb reaches. */
   html.remote .side-tools .side-compose.top {
     display: none;
   }
@@ -1743,28 +1957,68 @@ html.remote .remote-browser.wide .rb-notice {
   }
 
   html.remote .side-foot .side-tool svg {
-    width: 22px;
-    height: 22px;
+    width: 21px;
+    height: 21px;
+  }
+
+  /* Liquid Glass surfaces on sidebar discs and topbar buttons. */
+  html.remote .side-tool,
+  html.remote .sidebar-top .icon-btn {
+    border-radius: 50%;
+    background: var(--lg-pill);
+    backdrop-filter: var(--lg-pill-blur);
+    -webkit-backdrop-filter: var(--lg-pill-blur);
+    box-shadow:
+      inset 0 1px 0 var(--lg-specular),
+      0 0 0 0.5px var(--lg-border),
+      0 2px 10px -3px rgba(0, 0, 0, 0.18);
   }
 
   /*
-   * New chat's project picker, opened from the bottom row: a sheet along the
-   * bottom too (above the keyboard while it is up), its row actions 44px.
+   * Project picker & Settings dialogs: floating Liquid Glass sheets from the bottom,
+   * swipeable downward to dismiss.
    */
   html.remote .palette-backdrop {
-    background: rgba(0, 0, 0, 0.6);
+    background: rgba(0, 0, 0, 0.48);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
   }
 
-  html.remote .palette {
+  html.remote .palette,
+  html.remote .settings-dialog {
+    position: fixed;
     top: auto;
     right: 8px;
     bottom: max(8px, env(safe-area-inset-bottom));
     left: 8px;
     width: auto;
-    max-height: 80dvh;
-    border-radius: 24px;
+    max-width: none;
+    max-height: 82dvh;
+    margin: 0;
+    border-radius: 28px;
+    background: var(--lg-sheet);
+    backdrop-filter: var(--lg-blur);
+    -webkit-backdrop-filter: var(--lg-blur);
+    box-shadow:
+      inset 0 1px 0 var(--lg-specular),
+      0 0 0 0.5px var(--lg-border),
+      0 20px 60px -12px rgba(0, 0, 0, 0.55);
     transform-origin: bottom center;
-    animation-name: pop-up;
+  }
+
+  html.remote .palette {
+    padding-top: 4px;
+  }
+
+  html.remote .settings-dialog {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding-top: 4px;
+  }
+
+  html.remote .settings-dialog-body {
+    overflow-y: auto;
   }
 
   html.remote .palette-list {
@@ -1775,6 +2029,24 @@ html.remote .remote-browser.wide .rb-notice {
     min-width: 44px;
     min-height: 44px;
     justify-content: center;
+  }
+
+  /* Liquid Glass on every bottom sheet menu & picker. */
+  html.remote .picker-menu,
+  html.remote .picker-menu[data-side='below'],
+  html.remote .menu.sheet {
+    border-radius: 28px;
+    background: var(--lg-sheet);
+    backdrop-filter: var(--lg-blur);
+    -webkit-backdrop-filter: var(--lg-blur);
+    box-shadow:
+      inset 0 1px 0 var(--lg-specular),
+      0 0 0 0.5px var(--lg-border),
+      0 20px 60px -12px rgba(0, 0, 0, 0.55);
+  }
+
+  html.remote .menu.sheet {
+    padding: 6px 10px 10px;
   }
 
   /*
@@ -1814,21 +2086,16 @@ html.remote .remote-browser.wide .rb-notice {
 
   /*
    * In a chat, the top bar's Chats and New chat sit at the two ends of the
-   * row under the composer (App.tsx), 44px each, as every picker in it.
+   * row under the composer (App.tsx), 44px each, clean and bare without heavy glass borders.
    */
+  html.remote .composer-settings {
+    justify-content: space-between;
+  }
+
   html.remote .composer-settings .icon-btn,
   html.remote .picker-button {
     min-width: 44px;
     min-height: 44px;
-  }
-
-  /*
-   * The row's controls spread evenly across it, icons only: the usage
-   * meter's rings without their label (tapped, they open the details), the
-   * model as its agent's logo; each button's tooltip names its value.
-   */
-  html.remote .composer-settings {
-    justify-content: space-between;
   }
 
   html.remote .composer-settings .limits,
@@ -1847,7 +2114,7 @@ html.remote .remote-browser.wide .rb-notice {
     height: 22px;
   }
 
-  /* A new chat: the composer under the thumb, a large greeting above it. */
+  /* A new chat: the composer under the thumb, a large greeting + project pill above it. */
   html.remote .chat.empty {
     justify-content: flex-end;
     padding-bottom: 0;
@@ -1866,10 +2133,144 @@ html.remote .remote-browser.wide .rb-notice {
   }
 
   html.remote .chat-empty:not(.bot-profile) h2 {
-    font-size: 44px;
+    font-size: 42px;
     font-weight: 700;
-    line-height: 1.04;
+    line-height: 1.05;
     letter-spacing: -0.04em;
+  }
+
+  /* Floating Liquid Glass pill peeking from the right edge while swiping left to open Browser. */
+  html.remote .browser-swipe-peek {
+    position: fixed;
+    z-index: 45;
+    top: 50%;
+    right: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 44px;
+    padding: 0 16px;
+    border-radius: var(--radius-pill);
+    color: var(--text);
+    font-size: 14.5px;
+    font-weight: 600;
+    background: var(--lg-sheet);
+    backdrop-filter: var(--lg-blur);
+    -webkit-backdrop-filter: var(--lg-blur);
+    box-shadow:
+      inset 0 1px 0 var(--lg-specular),
+      0 0 0 0.5px var(--lg-border),
+      0 12px 32px -6px rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    transform: translate3d(24px, -50%, 0) scale(0.88);
+    pointer-events: none;
+    transition:
+      opacity 220ms cubic-bezier(0.32, 0.72, 0, 1),
+      transform 240ms cubic-bezier(0.32, 0.72, 0, 1),
+      background-color 140ms ease,
+      color 140ms ease;
+  }
+
+  html.remote .browser-swipe-peek[data-dragging='true'] {
+    transition:
+      background-color 140ms ease,
+      color 140ms ease;
+  }
+
+  html.remote .browser-swipe-peek[data-ready='true'] {
+    background: var(--accent);
+    color: var(--on-accent);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.35),
+      0 12px 32px -6px color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+
+  /* Liquid Glass overswipe-up pill above the composer to start a new chat. */
+  html.remote .pull-new-chat {
+    position: absolute;
+    left: 50%;
+    top: -46px;
+    z-index: 6;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 36px;
+    padding: 0 14px;
+    border-radius: var(--radius-pill);
+    color: var(--text-soft);
+    font-size: 13.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    background: var(--lg-sheet);
+    backdrop-filter: var(--lg-pill-blur);
+    -webkit-backdrop-filter: var(--lg-pill-blur);
+    box-shadow:
+      inset 0 1px 0 var(--lg-specular),
+      var(--lg-rim);
+    opacity: 0;
+    transform: translate3d(-50%, 14px, 0) scale(0.86);
+    pointer-events: none;
+  }
+
+  html.remote .pull-new-chat .pull-new-chat-ready {
+    display: none;
+  }
+
+  html.remote .pull-new-chat[data-ready='true'] {
+    background: var(--accent);
+    color: var(--on-accent);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.35),
+      0 10px 28px -6px color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+
+  html.remote .pull-new-chat[data-ready='true'] .pull-new-chat-idle {
+    display: none;
+  }
+
+  html.remote .pull-new-chat[data-ready='true'] .pull-new-chat-ready {
+    display: inline;
+  }
+
+  /* Floating scroll-to-latest Liquid Glass disc on phone. */
+  html.remote .scroll-bottom-btn {
+    top: -54px;
+    width: 42px;
+    height: 42px;
+    background: var(--lg-sheet);
+    backdrop-filter: var(--lg-pill-blur);
+    -webkit-backdrop-filter: var(--lg-pill-blur);
+    box-shadow:
+      inset 0 1px 0 var(--lg-specular),
+      var(--lg-rim);
+  }
+
+  /* Pushed mobile overlays slide cleanly from the right like iOS view controllers. */
+  html.remote .side-panel {
+    animation: panel-slide-in 320ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  html.remote .skills.showing .skills-editor,
+  html.remote .files-preview {
+    animation: panel-slide-in 280ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  /* Settled sheet inside the glass sidebar matches the same Liquid Glass aesthetic. */
+  html.remote .settled-sheet {
+    border-radius: 24px 24px 0 0;
+    background: var(--lg-sheet);
+    backdrop-filter: var(--lg-blur);
+    -webkit-backdrop-filter: var(--lg-blur);
+    box-shadow:
+      inset 0 1px 0 var(--lg-specular),
+      0 -12px 36px -8px rgba(0, 0, 0, 0.35);
+  }
+}
+
+@keyframes panel-slide-in {
+  from {
+    transform: translateX(28%);
+    opacity: 0.4;
   }
 }
 
@@ -1915,8 +2316,8 @@ html.remote .remote-browser.wide .rb-notice {
 
 /*
  * The chat's settings on a phone: the row under the composer is the chats,
- * one button naming the model, and New chat. The button opens a sheet from
- * the bottom with each setting on its row, named, its picker beside it.
+ * one clean button naming the model, and New chat. The button opens a
+ * Liquid Glass sheet from the bottom with each setting on its row.
  */
 .settings-summary {
   flex: 1;
@@ -1950,17 +2351,20 @@ html.remote .remote-browser.wide .rb-notice {
 .settings-sheet {
   position: fixed;
   z-index: 60;
-  right: 0;
-  bottom: 0;
-  left: 0;
+  right: 8px;
+  bottom: max(8px, env(safe-area-inset-bottom));
+  left: 8px;
   max-height: 80dvh;
   overflow-y: auto;
-  padding: 6px 12px max(12px, env(safe-area-inset-bottom));
-  border-radius: 24px 24px 0 0;
-  background: var(--sheet-bg);
+  padding: 4px 12px 12px;
+  border-radius: 28px;
+  background: var(--lg-sheet, var(--sheet-bg));
+  backdrop-filter: var(--lg-blur, var(--glass-blur));
+  -webkit-backdrop-filter: var(--lg-blur, var(--glass-blur));
   box-shadow:
-    0 0 0 1px var(--border),
-    0 -24px 60px rgba(0, 0, 0, 0.6);
+    inset 0 1px 0 var(--lg-specular, var(--press-light)),
+    0 0 0 0.5px var(--lg-border, var(--border)),
+    0 20px 60px -12px rgba(0, 0, 0, 0.55);
   /*
    * Fades in, with no transform: one would make the sheet the frame of the
    * pickers' own sheets inside it, and clip them to it.
@@ -2040,6 +2444,10 @@ html.remote .settings-sheet-row:has(.picker-menu:not(.leaving)) :is(.picker-butt
   display: none;
 }
 
+html.remote .settings-sheet .picker-menu .sheet-grabber {
+  display: none;
+}
+
 html.remote .settings-sheet .picker-menu,
 html.remote .settings-sheet .picker-menu[data-side='below'] {
   position: static;
@@ -2077,7 +2485,14 @@ html.remote .settings-sheet .picker-menu[data-side='below'] {
   }
 
   html.remote
-    :is(.picker-menu, .picker-menu[data-side='below'], .menu.sheet, .palette, .settings-sheet) {
+    :is(
+      .picker-menu,
+      .picker-menu[data-side='below'],
+      .menu.sheet,
+      .palette,
+      .settings-dialog,
+      .settings-sheet
+    ) {
     animation: sheet-up var(--sheet-time) var(--sheet-ease);
   }
 
@@ -2087,20 +2502,20 @@ html.remote .settings-sheet .picker-menu[data-side='below'] {
     animation: fade-in var(--move) var(--ease);
   }
 
-  html.remote :is(.drawer-scrim, .palette-backdrop) {
+  html.remote .palette-backdrop {
     animation: fade-in var(--sheet-time) var(--sheet-ease);
   }
 
   html.remote .sidebar {
     transition:
-      translate var(--sheet-time) var(--sheet-ease),
+      translate 380ms var(--sheet-ease),
       visibility 0s linear 0s;
   }
 
   html.remote .sidebar.closed {
     transition:
-      translate var(--sheet-time) var(--sheet-ease),
-      visibility 0s linear var(--sheet-time);
+      translate 380ms var(--sheet-ease),
+      visibility 0s linear 380ms;
   }
 
   html.remote .sidebar > *,
@@ -2122,7 +2537,7 @@ html.remote .settings-sheet .picker-menu[data-side='below'] {
   }
 
   html.remote :is(.picker-menu, .menu.sheet, .settings-sheet).leaving,
-  html.remote .palette-backdrop.leaving .palette {
+  html.remote .palette-backdrop.leaving :is(.palette, .settings-dialog) {
     animation: sheet-down var(--sheet-time) var(--sheet-ease) forwards;
   }
 
@@ -2136,6 +2551,9 @@ html.remote .settings-sheet .picker-menu[data-side='below'] {
 }
 
 @keyframes sheet-down {
+  from {
+    transform: translateY(var(--sheet-from, 0px));
+  }
   to {
     transform: translateY(100%);
   }
@@ -2156,12 +2574,24 @@ html.remote .settings-sheet .picker-menu[data-side='below'] {
 /* Asked for less motion: sheets appear and go without moving. */
 @media (max-width: 700px) and (prefers-reduced-motion: reduce) {
   html.remote
-    :is(.picker-menu, .menu.sheet, .palette, .settings-sheet, .drawer-scrim, .palette-backdrop) {
+    :is(
+      .picker-menu,
+      .menu.sheet,
+      .palette,
+      .settings-dialog,
+      .settings-sheet,
+      .drawer-scrim,
+      .palette-backdrop,
+      .side-panel,
+      .skills-editor,
+      .files-preview
+    ) {
     animation: none;
   }
 
   html.remote .sidebar,
-  html.remote .sidebar.closed {
+  html.remote .sidebar.closed,
+  html.remote .drawer-scrim {
     transition: none;
   }
 }

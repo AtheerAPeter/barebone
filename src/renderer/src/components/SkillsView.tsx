@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AGENTS, type Project, type Skill, type SkillScope } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
 import { shortcutHeld } from '../lib/platform'
+import { PHONE, useMedia } from '../lib/touch'
+import { useSwipeBack } from '../lib/gestures'
 import { BackIcon, PlusIcon } from './icons'
 
 interface SkillsViewProps {
@@ -15,7 +17,14 @@ export function SkillsView({ project }: SkillsViewProps): React.JSX.Element {
   const [saved, setSaved] = useState('')
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string>()
+  const editorRef = useRef<HTMLDivElement>(null)
+  const phone = useMedia(PHONE) && window.api.remote
   const projectPath = project?.path
+
+  useSwipeBack(editorRef, {
+    enabled: phone && Boolean(selected),
+    onBack: () => setSelected(undefined)
+  })
 
   const refresh = useCallback(async () => {
     setSkills(await window.api.skills.list(projectPath))
@@ -115,7 +124,7 @@ export function SkillsView({ project }: SkillsViewProps): React.JSX.Element {
           <p className="muted small">Select a chat or project to see its project skills.</p>
         )}
       </div>
-      <div className="skills-editor">
+      <div className="skills-editor" ref={editorRef}>
         {error && <div className="msg-error">{error}</div>}
         {current ? (
           <>

@@ -27,12 +27,14 @@ import {
   BranchIcon,
   ChatIcon,
   ChatsIcon,
+  ChevronDownIcon,
   ComposeIcon,
   GlobeIcon,
   OrbIcon,
   PlusIcon,
   SidebarIcon
 } from './components/icons'
+import { ProjectIcon } from './components/ProjectIcon'
 import { readPref, writePref } from './lib/prefs'
 import { shortcut } from './lib/platform'
 import { usePageRecorder } from './lib/recording'
@@ -42,6 +44,7 @@ import { PHONE, useMedia, useNarrower } from './lib/touch'
 import { useLeaving } from './lib/leaving'
 import { useChatWorkspaces } from './lib/workspaces'
 import { useChatSwitch } from './lib/chat-switch'
+import { useDrawerSwipe, useLongPress } from './lib/gestures'
 
 /** How often the orb is told the agent's voice level while it speaks. */
 const ORB_LEVEL_MS = 50
@@ -81,12 +84,19 @@ export default function App(): React.JSX.Element {
   /** The chat is folded into the agent orb over the browser, while the browser is open. */
   const [chatFolded, setChatFolded] = useState(() => readPref('chatFolded', false))
   const mainRef = useRef<HTMLElement>(null)
+  const sidebarRef = useRef<HTMLElement>(null)
+  const drawerScrimRef = useRef<HTMLDivElement>(null)
+  const browserPeekRef = useRef<HTMLDivElement>(null)
   /** The top bar has no room for a bot's switch beside its name: a phone, or the chat next to the browser. */
   const narrowBar = useNarrower(mainRef, BOT_TABS_BESIDE)
   /** Whether the user is picking the project of a new chat. */
   const [picking, setPicking] = useState(false)
   /** New chat's projects stay while they sink away as a phone's sheet. */
   const picker = useLeaving(picking)
+  /** Last non-bot project used, so New chat starts there immediately even from a bot or view. */
+  const [lastProjectId, setLastProjectId] = useState<string | undefined>(() =>
+    readPref('lastProject', undefined)
+  )
   const [statuses, setStatuses] = useState<Partial<Record<AgentId, AgentStatus>>>({})
   const readStatus = (id: AgentId): void => {
     window.api.agentStatus(id).then((status) => setStatuses((c) => ({ ...c, [id]: status })))
@@ -214,6 +224,20 @@ export default function App(): React.JSX.Element {
   const project = state.projects.find((p) => p.id === chat?.projectId) ?? state.projects[0]
   /** The open chat's bot, when it is a bot's one conversation; a chat a bot started is a chat like any other. */
   const bot = chat && project?.bot && !chat.startedBy ? project : undefined
+  const nonBotProjects = useMemo(() => state.projects.filter((p) => !p.bot), [state.projects])
+  /** The project an immediate New chat starts in: the open chat's project, else the last used. */
+  const activeProject = useMemo(
+    () =>
+      (chat && project && !project.bot ? project : undefined) ??
+      nonBotProjects.find((p) => p.id === lastProjectId) ??
+      nonBotProjects[0],
+    [chat, project, nonBotProjects, lastProjectId]
+  )
+  const currentNonBotProjectId = chat && project && !project.bot ? project.id : undefined
+  if (currentNonBotProjectId && currentNonBotProjectId !== lastProjectId) {
+    setLastProjectId(currentNonBotProjectId)
+  }
+  useEffect(() => writePref('lastProject', lastProjectId), [lastProjectId])
   // Where the chat works: its branch, worktree, and merge or pull request (top bar and code panel).
   const workspaces = useChatWorkspaces(
     view === 'chat' && !bot ? chat?.id : undefined,
@@ -247,6 +271,41 @@ export default function App(): React.JSX.Element {
     },
     [drawer]
   )
+
+  /** Start a new chat immediately in the current project; opens the project picker only if none exist. */
+  const quickNewChat = useCallback(() => {
+    if (activeProject) {
+      void newChat(activeProject.id)
+      return
+    }
+    setPicking(true)
+    if (drawer) setSidebarOpen(false)
+  }, [activeProject, newChat, drawer])
+
+  const openProjectPicker = useCallback(() => {
+    setPicking(true)
+    if (drawer) setSidebarOpen(false)
+  }, [drawer])
+
+  /** Tap starts a new chat immediately in the current project; hold or right-click picks another project. */
+  const newChatPress = useLongPress(quickNewChat, openProjectPicker)
+
+  // Interactive left-drawer swipe across the whole mobile app, plus swipe-left to open Browser.
+  useDrawerSwipe({
+    enabled: drawer,
+    open: sidebarOpen,
+    blocked: picking || codeOpen || remoteBrowserOpen,
+    edgeOnly: view === 'terminal' || view === 'browser',
+    sidebarRef,
+    scrimRef: drawerScrimRef,
+    peekRef: browserPeekRef,
+    onOpen: () => setSidebarOpen(true),
+    onClose: () => setSidebarOpen(false),
+    onSwipeLeft:
+      view === 'chat' && chat && remoteBrowserAllowed
+        ? () => toggleRemoteBrowser(chat.id, true)
+        : undefined
+  })
 
   /**
    * Open a bot: its one conversation, the first chat of its own (not one it
@@ -320,12 +379,12 @@ export default function App(): React.JSX.Element {
         else if (command === 'toggle-browser') toggleBrowser(selectedChatRef.current)
         else if (command === 'open-project') window.api.addProject()
         else if (command === 'open-settings') setView('settings')
-        else if (command === 'new-chat') setPicking(true)
+        else if (command === 'new-chat') quickNewChat()
         else if (command === 'import-bot') {
           void window.api.bots.importFromFile().then((made) => made && openBot(made.id))
         }
       }),
-    [newChat, toggleBrowser, openBot]
+    [quickNewChat, toggleBrowser, openBot]
   )
 
   async function changeAgent(agent: AgentId, chosen: Record<string, string>): Promise<void> {
@@ -351,6 +410,7 @@ export default function App(): React.JSX.Element {
     <div className={`app${sidebarOpen ? '' : ' sidebar-hidden'}${folded ? ' chat-folded' : ''}`}>
       {/* Stays mounted so hiding it can slide instead of cut. */}
       <Sidebar
+        navRef={sidebarRef}
         open={sidebarOpen}
         peek={switching ? 'in' : peekOut ? 'out' : undefined}
         picked={picked}
@@ -362,10 +422,8 @@ export default function App(): React.JSX.Element {
           setView('chat')
           if (drawer) setSidebarOpen(false)
         }}
-        onNewChat={() => {
-          setPicking(true)
-          if (drawer) setSidebarOpen(false)
-        }}
+        onNewChat={quickNewChat}
+        onPickProject={openProjectPicker}
         onNewChatIn={newChat}
         onOpenBot={openBot}
         onShow={(shown) => {
@@ -374,8 +432,19 @@ export default function App(): React.JSX.Element {
         }}
         onHide={() => setSidebarOpen(false)}
       />
-      {drawer && sidebarOpen && (
-        <div className="drawer-scrim" onClick={() => setSidebarOpen(false)} />
+      {drawer && (
+        <div
+          ref={drawerScrimRef}
+          className={`drawer-scrim${sidebarOpen ? ' open' : ''}`}
+          aria-hidden={!sidebarOpen}
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+      {drawer && remoteBrowserAllowed && (
+        <div ref={browserPeekRef} className="browser-swipe-peek" aria-hidden="true">
+          <GlobeIcon width={18} height={18} />
+          <span>Browser</span>
+        </div>
       )}
       {/* Hidden, not unmounted, while folded: the chat keeps its place and its live output. */}
       {/* A bot's chat takes its color: the wash at the top, the user's messages and the accent. */}
@@ -402,8 +471,12 @@ export default function App(): React.JSX.Element {
               </button>
               <button
                 className="icon-btn"
-                title={`New chat (${shortcut('N')})`}
-                onClick={() => setPicking(true)}
+                title={
+                  activeProject
+                    ? `New chat in ${activeProject.name} (${shortcut('N')}) — hold or right-click to pick project`
+                    : `New chat (${shortcut('N')})`
+                }
+                {...newChatPress}
               >
                 <ComposeIcon />
               </button>
@@ -412,7 +485,16 @@ export default function App(): React.JSX.Element {
           {bot && view === 'chat' && <BotAvatar project={bot} size={26} chat={chat} />}
           <div className="topbar-title">
             {project && (view === 'skills' || (view === 'chat' && chat && !bot)) && (
-              <span className="crumb">{project.name} / </span>
+              <button
+                type="button"
+                className="topbar-project"
+                title="Switch project or start a chat in another project"
+                onClick={openProjectPicker}
+              >
+                <ProjectIcon project={project} size={16} />
+                <span className="topbar-project-name">{project.name}</span>
+                <ChevronDownIcon width={11} height={11} className="topbar-project-chevron" />
+              </button>
             )}
             <TopbarName
               id={view === 'chat' ? chat?.id : view}
@@ -483,38 +565,40 @@ export default function App(): React.JSX.Element {
           {view === 'chat' && chat && !bot && (
             <WorkspaceChip workspaces={workspaces} onOpen={() => toggleCode(chat.id, true)} />
           )}
-          <button
-            className={`icon-btn${codeOpen ? ' on' : ''}`}
-            title="Source control and walkthroughs"
-            disabled={!chat}
-            onClick={() => toggleCode(chat?.id)}
-          >
-            <BranchIcon />
-          </button>
-          {!REMOTE && (
+          <div className="topbar-actions">
             <button
-              className={`icon-btn${browserOpen ? ' on' : ''}`}
-              title={`Toggle browser (${shortcut('B', true)})`}
+              className={`icon-btn${codeOpen ? ' on' : ''}`}
+              title="Source control and walkthroughs"
               disabled={!chat}
-              onClick={() => toggleBrowser(chat?.id)}
+              onClick={() => toggleCode(chat?.id)}
             >
-              <GlobeIcon />
+              <BranchIcon />
             </button>
-          )}
-          {REMOTE && remoteBrowserAllowed && (
-            <button
-              className={`icon-btn${remoteBrowserOpen ? ' on' : ''}`}
-              title={
-                chat?.running && chat.browserOpen ? 'Browser: the agent is using it' : 'Browser'
-              }
-              disabled={!chat}
-              onClick={() => toggleRemoteBrowser(chat?.id)}
-            >
-              <GlobeIcon />
-              {/* The agent works in the browser: its panel opens on the Mac as it starts. */}
-              {chat?.running && chat.browserOpen && <span className="agent-dot" />}
-            </button>
-          )}
+            {!REMOTE && (
+              <button
+                className={`icon-btn${browserOpen ? ' on' : ''}`}
+                title={`Toggle browser (${shortcut('B', true)})`}
+                disabled={!chat}
+                onClick={() => toggleBrowser(chat?.id)}
+              >
+                <GlobeIcon />
+              </button>
+            )}
+            {REMOTE && remoteBrowserAllowed && (
+              <button
+                className={`icon-btn${remoteBrowserOpen ? ' on' : ''}`}
+                title={
+                  chat?.running && chat.browserOpen ? 'Browser: the agent is using it' : 'Browser'
+                }
+                disabled={!chat}
+                onClick={() => toggleRemoteBrowser(chat?.id)}
+              >
+                <GlobeIcon />
+                {/* The agent works in the browser: its panel opens on the Mac as it starts. */}
+                {chat?.running && chat.browserOpen && <span className="agent-dot" />}
+              </button>
+            )}
+          </div>
         </header>
         {botTabs && narrowBar && <div className="bot-tabs-row">{botTabs}</div>}
         {view === 'skills' ? (
@@ -563,6 +647,7 @@ export default function App(): React.JSX.Element {
               projectPath={project.path}
               onAgentChange={changeAgent}
               onOptionChange={changeOption}
+              onNewChat={drawer ? quickNewChat : undefined}
               folded={folded}
               speaking={speech.speaking?.chatId === chat.id}
               onOpenBrowser={
@@ -579,7 +664,15 @@ export default function App(): React.JSX.Element {
               composerSettingsSheet={thumbBar}
               composerTrailing={
                 thumbBar && (
-                  <button className="icon-btn" title="New chat" onClick={() => setPicking(true)}>
+                  <button
+                    className="icon-btn"
+                    title={
+                      activeProject
+                        ? `New chat in ${activeProject.name} (hold to pick another project)`
+                        : 'New chat'
+                    }
+                    {...newChatPress}
+                  >
                     <PlusIcon />
                   </button>
                 )
@@ -621,7 +714,7 @@ export default function App(): React.JSX.Element {
             ) : (
               <>
                 <h2>Start a chat</h2>
-                <button className="btn primary" onClick={() => setPicking(true)}>
+                <button className="btn primary" onClick={quickNewChat}>
                   New chat
                 </button>
               </>
@@ -632,8 +725,9 @@ export default function App(): React.JSX.Element {
       {picker.shown && (
         <ProjectPicker
           leaving={picker.leaving}
+          currentProjectId={activeProject?.id}
           // A bot has its one conversation, opened from Bots in the sidebar.
-          projects={state.projects.filter((p) => !p.bot)}
+          projects={nonBotProjects}
           onPick={(projectId) => {
             setPicking(false)
             newChat(projectId)

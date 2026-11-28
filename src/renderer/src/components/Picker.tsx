@@ -2,7 +2,8 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useLeaving } from '../lib/leaving'
 import { useOverlay } from '../lib/overlays'
 import { menuPlacement, placementProps, type MenuPlacement } from '../lib/menuPlacement'
-import { touchScreen } from '../lib/touch'
+import { menusAsSheets, touchScreen } from '../lib/touch'
+import { useSheetSwipe } from '../lib/gestures'
 import { CheckIcon, ChevronDownIcon } from './icons'
 
 export interface PickerValue {
@@ -46,6 +47,8 @@ export function Picker({
   const searchable = values.length > 8
   const current = values.find((v) => v.value === value)
   useOverlay(menuRef, open)
+  const asSheet = menusAsSheets()
+  useSheetSwipe(menuRef, { enabled: open && asSheet, onDismiss: () => setOpen(false) })
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -132,6 +135,7 @@ export function Picker({
           ref={menuRef}
           {...(placement && placementProps(placement))}
         >
+          {asSheet && <div className="sheet-grabber" aria-hidden="true" />}
           {searchable && (
             <input
               className="picker-search"

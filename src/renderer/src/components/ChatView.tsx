@@ -41,6 +41,8 @@ import type { VoiceState } from '../lib/voice'
 import { Composer } from './Composer'
 import { Collapse } from './Collapse'
 import { Thumbnails } from './Thumbnails'
+import { touchScreen } from '../lib/touch'
+import { usePullUpAction } from '../lib/gestures'
 import {
   BookIcon,
   ChatIcon,
@@ -56,6 +58,8 @@ import {
   LockIcon,
   PencilIcon,
   PhoneIcon,
+  PlusIcon,
+  PullIcon,
   SearchIcon,
   ShieldIcon,
   StopIcon,
@@ -69,6 +73,8 @@ interface ChatViewProps {
   projectPath: string
   onAgentChange: (agent: AgentId, settings: Record<string, string>) => void
   onOptionChange: (optionId: string, value: string) => Promise<void>
+  /** Overswiping up past the bottom of the chat starts a new chat immediately. */
+  onNewChat?: () => void
   /** The chat is folded away; the agent orb over the browser shows what it does. */
   folded: boolean
   /** The chat's agent is speaking (the speak tool). */
@@ -90,6 +96,7 @@ export function ChatView({
   projectPath,
   onAgentChange,
   onOptionChange,
+  onNewChat,
   folded,
   speaking,
   onOpenBrowser,
@@ -104,7 +111,20 @@ export function ChatView({
   const [commands, setCommands] = useState<AgentCommand[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
+  const itemsRef = useRef<HTMLDivElement>(null)
+  const pullNewRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
+  const [scrolledUp, setScrolledUp] = useState(false)
+  const dragStartY = useRef<number | null>(null)
+
+  // Overswipe up at the end of a non-empty chat starts a new chat immediately in the same project.
+  usePullUpAction({
+    enabled: Boolean(onNewChat) && items.length > 0 && !hidden,
+    scrollRef,
+    contentRef: itemsRef,
+    indicatorRef: pullNewRef,
+    onTrigger: () => onNewChat?.()
+  })
   const plan = useMemo(() => items.findLast((i) => i.kind === 'plan'), [items])
   // The agent waits for the user to click in the browser (wait_for_click).
   const waitsForClick = useMemo(
@@ -258,13 +278,32 @@ export function ChatView({
       <div
         className="chat-scroll"
         ref={scrollRef}
+        onTouchStart={(e) => {
+          if (touchScreen && e.touches.length === 1) dragStartY.current = e.touches[0].clientY
+        }}
+        onTouchMove={(e) => {
+          // Pulling the chat thread while the keyboard is up dismisses it, as in iOS Messages.
+          if (dragStartY.current === null || e.touches.length !== 1) return
+          if (Math.abs(e.touches[0].clientY - dragStartY.current) > 22) {
+            dragStartY.current = null
+            const active = document.activeElement
+            if (active instanceof HTMLTextAreaElement && active.closest('.composer')) {
+              active.blur()
+            }
+          }
+        }}
+        onTouchEnd={() => {
+          dragStartY.current = null
+        }}
         onScroll={(e) => {
           const el = e.currentTarget
-          stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+          const gap = el.scrollHeight - el.scrollTop - el.clientHeight
+          stickToBottom.current = gap < 80
+          setScrolledUp(gap > 220)
         }}
       >
         <ChatImages.Provider value={images}>
-          <div className="chat-items">
+          <div className="chat-items" ref={itemsRef}>
             {loaded && items.length === 0 && (
               // A bot's conversation starts with who it is, as a contact's profile.
               <div className={`chat-empty${bot ? ' bot-profile' : ''}`}>
@@ -295,6 +334,30 @@ export function ChatView({
         </ChatImages.Provider>
       </div>
       <div className="composer-wrap">
+        {onNewChat && items.length > 0 && (
+          <div className="pull-new-chat" ref={pullNewRef} aria-hidden="true">
+            <PlusIcon width={15} height={15} />
+            <span className="pull-new-chat-idle">Pull up for new chat</span>
+            <span className="pull-new-chat-ready">Release for new chat</span>
+          </div>
+        )}
+        {scrolledUp && (
+          <button
+            type="button"
+            className="scroll-bottom-btn"
+            aria-label="Scroll to latest"
+            title="Scroll to latest"
+            onClick={() => {
+              const el = scrollRef.current
+              if (!el) return
+              stickToBottom.current = true
+              setScrolledUp(false)
+              el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+            }}
+          >
+            <PullIcon width={18} height={18} />
+          </button>
+        )}
         {chat.background && <BackgroundStrip chatId={chat.id} background={chat.background} />}
         {chat.running && waitsForClick && onOpenBrowser && (
           <div className="background-strip">

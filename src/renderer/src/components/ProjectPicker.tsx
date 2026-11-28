@@ -3,9 +3,10 @@ import type { FolderSuggestions, Project } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
 import { useOverlay } from '../lib/overlays'
 import { shortcut, shortcutHeld } from '../lib/platform'
-import { touchScreen } from '../lib/touch'
+import { menusAsSheets, touchScreen } from '../lib/touch'
+import { useSheetSwipe } from '../lib/gestures'
 import { ProjectIcon, ProjectStyle } from './ProjectIcon'
-import { FolderIcon, FolderPlusIcon, PencilIcon, SearchIcon, TrashIcon } from './icons'
+import { CheckIcon, FolderIcon, FolderPlusIcon, PencilIcon, SearchIcon, TrashIcon } from './icons'
 
 /** A query that is a folder's path, on the computer Barebone runs on: "/srv/app", "~/projects/". */
 const isPath = (query: string): boolean => /^[~/]/.test(query.trim())
@@ -21,11 +22,13 @@ const isPath = (query: string): boolean => /^[~/]/.test(query.trim())
  */
 export function ProjectPicker({
   projects,
+  currentProjectId,
   onPick,
   onClose,
   leaving = false
 }: {
   projects: Project[]
+  currentProjectId?: string
   onPick: (projectId: string) => void
   onClose: () => void
   /** Closed, and sinking away as a phone's sheet (lib/leaving.ts). */
@@ -38,8 +41,11 @@ export function ProjectPicker({
   /** The folders the typed path could mean, for the query they were listed for. */
   const [suggested, setSuggested] = useState<{ query: string } & FolderSuggestions>()
   const [error, setError] = useState<string>()
+  const backdropRef = useRef<HTMLDivElement>(null)
   const ref = useRef<HTMLDivElement>(null)
+  const asSheet = menusAsSheets()
   useOverlay(ref, true)
+  useSheetSwipe(ref, { enabled: asSheet && !leaving, onDismiss: onClose, scrimRef: backdropRef })
 
   const pathMode = isPath(query)
   useEffect(() => {
@@ -109,10 +115,12 @@ export function ProjectPicker({
 
   return (
     <div
+      ref={backdropRef}
       className={`palette-backdrop${leaving ? ' leaving' : ''}`}
       onPointerDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="palette" role="dialog" aria-label="New chat in" ref={ref}>
+        {asSheet && <div className="sheet-grabber" aria-hidden="true" />}
         <label className="palette-search">
           <SearchIcon width={15} height={15} />
           <input
@@ -162,7 +170,12 @@ export function ProjectPicker({
                 >
                   <ProjectIcon project={project} size={28} />
                   <div className="palette-text">
-                    <span className="palette-name">{project.name}</span>
+                    <span className="palette-name">
+                      {project.name}
+                      {project.id === currentProjectId && (
+                        <CheckIcon width={14} height={14} className="palette-current-check" />
+                      )}
+                    </span>
                     <span className="palette-path">{project.path}</span>
                   </div>
                   <span className="palette-actions">

@@ -11,6 +11,7 @@ import { RowMenu } from './RowMenu'
 import { useTelegramStatus } from '../lib/telegram'
 import { AgentLogo } from './model-picker/AgentLogo'
 import {
+  appName,
   inFront,
   startedChats,
   waitingOn,
@@ -21,7 +22,8 @@ import {
 import { readPref, writePref } from '../lib/prefs'
 import { shortcut } from '../lib/platform'
 import { useUpdateInstall } from '../lib/update'
-import { PHONE, useMedia } from '../lib/touch'
+import { PHONE, touchScreen, useMedia } from '../lib/touch'
+import { hapticTick, useLongPress, useSheetSwipe } from '../lib/gestures'
 import {
   BookIcon,
   ChevronIcon,
@@ -54,6 +56,8 @@ const SIDEBAR_MAX = 440
 export type View = 'chat' | 'skills' | 'files' | 'terminal' | 'browser' | 'settings'
 
 interface SidebarProps {
+  /** Ref to the sidebar element for interactive mobile drawer gestures. */
+  navRef?: RefObject<HTMLElement | null>
   /** Hidden, it slides out but stays mounted, keeping its scroll and search. */
   open: boolean
   /**
@@ -67,8 +71,10 @@ interface SidebarProps {
   selectedChatId?: string
   view: View
   onSelectChat: (chatId: string) => void
-  /** Start a chat: the user picks its project first. */
+  /** Start a chat immediately in the current project. */
   onNewChat: () => void
+  /** Open the project picker to start a chat in another project. */
+  onPickProject: () => void
   /** Start a chat in this project, from its folder. */
   onNewChatIn: (projectId: string) => void
   /** Open a bot's one conversation, starting it the first time. */
@@ -88,6 +94,7 @@ interface SidebarProps {
  * opens to its chats.
  */
 export function Sidebar({
+  navRef: externalNavRef,
   open,
   peek,
   picked,
@@ -96,6 +103,7 @@ export function Sidebar({
   view,
   onSelectChat,
   onNewChat,
+  onPickProject,
   onNewChatIn,
   onOpenBot,
   onShow,
@@ -126,7 +134,9 @@ export function Sidebar({
     if (sheetOpen) sheetHeadRef.current?.focus()
   }, [sheetOpen])
   const [settledShown, setSettledShown] = useState(SETTLED_PAGE)
-  const navRef = useRef<HTMLElement>(null)
+  const internalNavRef = useRef<HTMLElement>(null)
+  const navRef = externalNavRef ?? internalNavRef
+  const settledSheetRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(() => readPref('sidebarWidth', SIDEBAR_WIDTH))
   const [resizing, setResizing] = useState(false)
   useLayoutEffect(() => {
@@ -145,8 +155,18 @@ export function Sidebar({
   const [more, setMore] = useState<MenuAt>()
   const moreMenu = useLeaving(more)
   const theme = useThemeSwitch()
-  /** On a phone through the link the sidebar is a sheet from the bottom, closed with an X. */
-  const asSheet = useMedia(PHONE) && window.api.remote
+  /** On a phone through the link the sidebar is an interactive Liquid Glass left drawer. */
+  const isDrawer = useMedia(PHONE) && window.api.remote
+  const newChatPress = useLongPress(onNewChat, onPickProject)
+  useSheetSwipe(settledSheetRef, {
+    enabled: sheetOpen,
+    onDismiss: () => setSheetOpen(false)
+  })
+  /** Touch long-press on a chat row opens its native bottom-sheet options menu. */
+  const rowPressTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const rowPressOrigin = useRef<{ x: number; y: number }>(undefined)
+  const rowLongPressed = useRef(false)
+  useEffect(() => () => clearTimeout(rowPressTimer.current), [])
   /** A newer release's version, once the app has found one. */
   const [update, setUpdate] = useState<string | null>(null)
   useEffect(() => {
@@ -196,7 +216,7 @@ export function Sidebar({
     return () => {
       live = false
     }
-  }, [revealedChatId])
+  }, [revealedChatId, navRef])
   const q = query.trim().toLowerCase()
   const matches = (chat: Chat): boolean =>
     !q ||
@@ -277,7 +297,42 @@ export function Sidebar({
         data-chat={chat.id}
         className={`chat-row${card ? ' card' : ''}${led ? ' lead' : ''}${(picked !== undefined ? picked === `chat:${chat.id}` : view === 'chat' && chat.id === selectedChatId) ? ' selected' : ''}`}
         title={[project?.name, latest].filter(Boolean).join(' · ')}
+        onPointerDown={(e) => {
+          if (!touchScreen || e.pointerType !== 'touch') return
+          if ((e.target as HTMLElement).closest('button, input')) return
+          const rowEl = e.currentTarget
+          rowLongPressed.current = false
+          rowPressOrigin.current = { x: e.clientX, y: e.clientY }
+          clearTimeout(rowPressTimer.current)
+          rowPressTimer.current = setTimeout(() => {
+            rowLongPressed.current = true
+            hapticTick(14)
+            rowEl.querySelector<HTMLButtonElement>('.row-menu > button')?.click()
+          }, 450)
+        }}
+        onPointerMove={(e) => {
+          if (!rowPressTimer.current || !rowPressOrigin.current) return
+          if (
+            Math.hypot(e.clientX - rowPressOrigin.current.x, e.clientY - rowPressOrigin.current.y) >
+            8
+          ) {
+            clearTimeout(rowPressTimer.current)
+            rowPressTimer.current = undefined
+          }
+        }}
+        onPointerUp={() => {
+          clearTimeout(rowPressTimer.current)
+          rowPressTimer.current = undefined
+        }}
+        onPointerCancel={() => {
+          clearTimeout(rowPressTimer.current)
+          rowPressTimer.current = undefined
+        }}
         onClick={() => {
+          if (rowLongPressed.current) {
+            rowLongPressed.current = false
+            return
+          }
           onSelectChat(chat.id)
           if (inSheet) setSheetOpen(false)
         }}
@@ -501,6 +556,7 @@ export function Sidebar({
           <ChevronIcon width={10} height={10} className="chevron" />
         </button>
         <div
+          ref={settledSheetRef}
           className={`settled-sheet${sheetOpen ? ' open' : ''}`}
           role="dialog"
           aria-label="Settled chats"
@@ -512,6 +568,7 @@ export function Sidebar({
             lower()
           }}
         >
+          {isDrawer && <div className="sheet-grabber" aria-hidden="true" />}
           <button ref={sheetHeadRef} className="settled-bar sheet-head" onClick={lower}>
             Settled <b>{settled.length}</b>
             <ChevronIcon width={10} height={10} className="chevron" />
@@ -677,12 +734,13 @@ export function Sidebar({
       />
       {/* The window buttons sit at its left; it drags the window. */}
       <div className="sidebar-top">
+        {isDrawer && <span className="sidebar-brand">{appName(state)}</span>}
         <button
           className="icon-btn"
-          title={asSheet ? 'Close' : `Hide sidebar (${shortcut('B')})`}
+          title={isDrawer ? 'Close sidebar' : `Hide sidebar (${shortcut('B')})`}
           onClick={onHide}
         >
-          {asSheet ? <CloseIcon /> : <SidebarIcon />}
+          <SidebarIcon />
         </button>
       </div>
       {/* The Settled sheet rises over everything between the top bar and the footer. */}
@@ -718,8 +776,12 @@ export function Sidebar({
               </button>
             )}
           </label>
-          {/* A project is a folder chosen with the Mac's folder picker. */}
-          {!window.api.remote && (
+          {/* Desktop opens a folder; remote/mobile opens the project picker to start a chat in another project. */}
+          {window.api.remote ? (
+            <button className="icon-btn side-tool" title="Choose project" onClick={onPickProject}>
+              <FolderPlusIcon width={17} height={17} />
+            </button>
+          ) : (
             <button
               className="icon-btn side-tool"
               title="Open project"
@@ -728,11 +790,11 @@ export function Sidebar({
               <FolderPlusIcon width={17} height={17} />
             </button>
           )}
-          {/* Beside the search on the Mac; on a phone it moves to the sheet's bottom right. */}
+          {/* Beside the search on the Mac; on a phone it moves to the drawer's bottom right. */}
           <button
             className="icon-btn side-tool side-compose top"
-            title={`New chat (${shortcut('N')})`}
-            onClick={onNewChat}
+            title={`New chat (${shortcut('N')}) — hold or right-click to pick project`}
+            {...newChatPress}
           >
             <ComposeIcon width={17} height={17} />
           </button>
@@ -805,11 +867,11 @@ export function Sidebar({
               {place.icon}
             </button>
           ))}
-          {/* A phone's New chat, at the foot's far end, where the thumb is. */}
+          {/* A phone's New chat, at the foot's far end, where the thumb is. Tap for current project, hold to pick another. */}
           <button
             className="icon-btn side-tool side-compose foot"
-            title={`New chat (${shortcut('N')})`}
-            onClick={onNewChat}
+            title={`New chat (${shortcut('N')}) — hold to pick project`}
+            {...newChatPress}
           >
             <ComposeIcon width={17} height={17} />
           </button>

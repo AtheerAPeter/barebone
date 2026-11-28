@@ -3,6 +3,7 @@ import { createPortal, flushSync } from 'react-dom'
 import { useOverlay } from '../lib/overlays'
 import { menusAsSheets } from '../lib/touch'
 import { useLeaving } from '../lib/leaving'
+import { useSheetSwipe } from '../lib/gestures'
 import { MoreIcon } from './icons'
 
 export interface RowMenuItem {
@@ -32,7 +33,9 @@ export function RowMenu({
   const menu = useLeaving(at)
   const rootRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const asSheet = menusAsSheets()
   useOverlay(menuRef, Boolean(at))
+  useSheetSwipe(menuRef, { enabled: Boolean(at) && asSheet, onDismiss: () => setAt(undefined) })
 
   useEffect(() => {
     if (!at) return
@@ -88,11 +91,12 @@ export function RowMenu({
       {menu.shown &&
         createPortal(
           <div
-            className={`menu${menusAsSheets() ? ' sheet' : ''}${menu.leaving ? ' leaving' : ''}`}
+            className={`menu${asSheet ? ' sheet' : ''}${menu.leaving ? ' leaving' : ''}`}
             role="menu"
             style={menu.shown}
             ref={menuRef}
           >
+            {asSheet && <div className="sheet-grabber" aria-hidden="true" />}
             {items.map((item) => (
               <button
                 key={item.name}

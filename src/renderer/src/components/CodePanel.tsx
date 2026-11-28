@@ -14,7 +14,8 @@ import type {
 } from '../../../shared/types'
 import { errorMessage } from '../lib/errors'
 import { readPref, writePref } from '../lib/prefs'
-import { menusAsSheets } from '../lib/touch'
+import { menusAsSheets, PHONE, useMedia } from '../lib/touch'
+import { useSheetSwipe, useSwipeBack } from '../lib/gestures'
 import { useOverlay } from '../lib/overlays'
 import { CHAT_MIN_WIDTH, dragDivider } from '../lib/side-panel'
 import { CodeView } from './CodeView'
@@ -94,7 +95,18 @@ export function CodePanel({
   const [graphOpen, setGraphOpen] = useState(() => readPref(GRAPH_PREF, true))
   const [more, setMore] = useState<MenuAt>()
   const moreMenu = useLeaving(more)
+  const panelRef = useRef<HTMLElement>(null)
+  const phone = useMedia(PHONE) && window.api.remote
   const projectId = project.id
+
+  useSwipeBack(panelRef, {
+    enabled: phone,
+    edgeWidth: tab === 'changes' ? Infinity : 44,
+    onBack: () => {
+      if (tab !== 'changes') setTab('changes')
+      else onClose()
+    }
+  })
 
   // A walkthrough needs room for its cards and the links beside them: the panel widens for one.
   const widthRef = useRef(width)
@@ -293,7 +305,7 @@ export function CodePanel({
   }
 
   return (
-    <aside className="side-panel code-panel" style={{ width }}>
+    <aside className="side-panel code-panel" ref={panelRef} style={{ width }}>
       <div
         className="panel-resize"
         onPointerDown={(event) => dragDivider(event, chatRef.current, onResize)}
@@ -644,7 +656,15 @@ function BranchMenu({
   const [failed, setFailed] = useState<string>()
   const buttonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const asSheet = menusAsSheets()
   useOverlay(menuRef, Boolean(at))
+  useSheetSwipe(menuRef, {
+    enabled: Boolean(at) && asSheet,
+    onDismiss: () => {
+      setAt(undefined)
+      setCreating(undefined)
+    }
+  })
 
   useEffect(() => {
     if (!at) return
@@ -716,11 +736,12 @@ function BranchMenu({
       {at &&
         createPortal(
           <div
-            className={`menu code-branch-menu${menusAsSheets() ? ' sheet' : ''}`}
+            className={`menu code-branch-menu${asSheet ? ' sheet' : ''}`}
             role="menu"
             style={at}
             ref={menuRef}
           >
+            {asSheet && <div className="sheet-grabber" aria-hidden="true" />}
             {creating === undefined ? (
               <button role="menuitem" onClick={() => setCreating('')}>
                 <PlusIcon width={14} height={14} />

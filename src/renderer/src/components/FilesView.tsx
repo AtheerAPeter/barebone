@@ -5,6 +5,7 @@ import { errorMessage } from '../lib/errors'
 import { uploadInto } from '../lib/file-upload'
 import { readPref, writePref } from '../lib/prefs'
 import { PHONE, touchScreen, useMedia } from '../lib/touch'
+import { useSwipeBack } from '../lib/gestures'
 import { CodeView } from './CodeView'
 import { FileArt, FolderArt, FolderGlyph } from './finder-icons'
 import { tidy, type MenuAt, type MenuEntries } from '../lib/menus'
@@ -78,6 +79,8 @@ export function FilesView(): React.JSX.Element {
   const pressTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   /** A long press gave the menu: the click that ends it opens nothing. */
   const longPressed = useRef(false)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const previewRef = useRef<HTMLDivElement>(null)
   const phone = useMedia(PHONE)
 
   useEffect(() => writePref('filesMode', mode), [mode])
@@ -131,6 +134,17 @@ export function FilesView(): React.JSX.Element {
       if (ok) setTrail((t) => ({ back: [...t.back, folder], forward: t.forward.slice(1) }))
     })
   }
+
+  useSwipeBack(previewRef, {
+    enabled: phone && Boolean(opened),
+    onBack: () => setOpened(undefined)
+  })
+  useSwipeBack(bodyRef, {
+    enabled: phone && !opened && trail.back.length > 0,
+    edgeWidth: Infinity,
+    slide: false,
+    onBack: back
+  })
 
   /** Run a change, then show the folder as it is now; a failure shows above the contents. */
   const change = async (work: () => Promise<unknown>): Promise<void> => {
@@ -420,7 +434,7 @@ export function FilesView(): React.JSX.Element {
         )}
         {error && <div className="files-error">{error}</div>}
 
-        <div className="finder-body">
+        <div className="finder-body" ref={bodyRef}>
           <div
             className={`finder-content ${mode}${dropping ? ' dropping' : ''}`}
             tabIndex={0}
@@ -502,7 +516,7 @@ export function FilesView(): React.JSX.Element {
           </div>
 
           {opened && (
-            <div className="files-preview">
+            <div className="files-preview" ref={previewRef}>
               <div className="finder-toolbar preview-bar">
                 <span className="files-preview-name">{opened.path.split('/').pop()}</span>
                 {window.api.remote && (
