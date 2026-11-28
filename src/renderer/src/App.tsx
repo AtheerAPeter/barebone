@@ -254,17 +254,31 @@ export default function App(): React.JSX.Element {
   const botTabs = bot && chat && view === 'chat' && (
     <BotTabs pane={pane} onPane={(next) => setBotPane({ chatId: chat.id, pane: next })} />
   )
+  const selectedChatRef = useRef(chat?.id)
+  useEffect(() => {
+    selectedChatRef.current = chat?.id
+  }, [chat?.id])
 
   const newChat = useCallback(
     async (projectId: string) => {
-      const agent = readPref<AgentId>('lastAgent', 'opencode')
-      const created = await window.api.createChat(
-        projectId,
-        agent,
-        readPref(`settings:${agent}`, {}),
-        // New chats start in the permission mode picked last.
-        readPref('permissions', {})
-      )
+      // Keep the currently selected chat's provider, model, thinking effort, and permissions
+      // until the user explicitly changes them.
+      const current = stateRef.current.chats.find((c) => c.id === selectedChatRef.current)
+      const agent = current?.agent ?? readPref<AgentId>('lastAgent', 'opencode')
+      const settings: Record<string, string> = {
+        ...readPref<Record<string, string>>(`settings:${agent}`, {}),
+        ...(current && current.agent === agent ? current.settings : {})
+      }
+      const permissions = current
+        ? {
+            bypassPermissions: current.bypassPermissions,
+            projectOnly: current.projectOnly,
+            autoMode: current.autoMode
+          }
+        : readPref('permissions', {})
+      writePref('lastAgent', agent)
+      writePref(`settings:${agent}`, settings)
+      const created = await window.api.createChat(projectId, agent, settings, permissions)
       setSelectedChatId(created.id)
       setView('chat')
       if (drawer) setSidebarOpen(false)
@@ -348,12 +362,6 @@ export default function App(): React.JSX.Element {
     return () => clearTimeout(timer)
   }, [peekOut])
 
-  // Menu bar commands. The handler reads the selected chat through a ref so the
-  // subscription is made once.
-  const selectedChatRef = useRef(chat?.id)
-  useEffect(() => {
-    selectedChatRef.current = chat?.id
-  }, [chat?.id])
   // A walkthrough an agent starts in a chat the user is not looking at waits, paused, for them.
   useEffect(
     () =>
@@ -398,9 +406,11 @@ export default function App(): React.JSX.Element {
 
   async function changeOption(optionId: string, value: string): Promise<void> {
     if (!chat) return
-    // Remember the choice so the next chat with this agent starts the same way.
+    // Remember the agent and choice so the next chat starts with the exact same provider, model, and thinking.
+    writePref('lastAgent', chat.agent)
     writePref(`settings:${chat.agent}`, {
-      ...readPref(`settings:${chat.agent}`, {}),
+      ...readPref<Record<string, string>>(`settings:${chat.agent}`, {}),
+      ...chat.settings,
       [optionId]: value
     })
     await window.api.setOption(chat.id, optionId, value)
